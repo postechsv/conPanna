@@ -437,6 +437,16 @@ def run : TacticM Unit := do
 
 end Subsumption
 
+/-- Compute and display a narrowing post without opening a proof goal. -/
+elab "#narrow " rule:term " against " source:term : command => do
+  Lean.Elab.Command.liftTermElabM do
+    let rule ← Term.elabTerm rule none
+    let source ← Term.elabTerm source none
+    let problem ← Problem.ofPattern rule source
+    let alternatives ← Backend.solvePattern problem
+    let post ← Materialization.post problem.stateType alternatives
+    logInfo m!"post: {post.value}\ntype: {post.type}"
+
 /-- Generate the post and certify one constrained narrowing phase. -/
 elab "narrow " rule:term " against " source:term : tactic =>
   Narrowing.Tactic.run rule.raw rule source
@@ -446,8 +456,6 @@ elab "subsume" : tactic =>
   Narrowing.Subsumption.run
 
 end Narrowing
-
-
 
 
 
