@@ -66,6 +66,24 @@ example : advance ⊢ source ↪ target := by
   narrow advance against source
   subsume
 
+/-- A finite source pattern whose two nonempty branches narrow through `advance`. -/
+def sourceGround : APattBody Conf where
+  term := pair (atom 0) (atom 1)
+
+def noSource : EmptyPattern Conf := .empty
+
+def sourceChoices := source ⊔ (sourceGround ⊔ noSource)
+
+example : advance ⊢ sourceChoices ↪ target := by
+  apply mapsInto_via_narrowing
+  narrow advance against sourceChoices
+  subsume
+
+example : advance ⊢ noSource ↪ target := by
+  apply mapsInto_via_narrowing
+  narrow advance against noSource
+  subsume
+
 /-- A rule whose constructor-headed LHS cannot match `source`. -/
 def blocked : RuleBody Conf where
   lhs := pair (atom 1) (atom 0)

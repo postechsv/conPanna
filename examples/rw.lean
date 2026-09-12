@@ -85,7 +85,6 @@ def leave_r (R W : Natural) : RuleBody Conf where
   rhs := ⟨R, W⟩
   requires := True
 
-
 -- < N, 0 > | true
 def p1 (N : Natural) : APattBody Conf where
   term := ⟨N, o⟩
@@ -124,3 +123,16 @@ example : leave_r ⊢ inv ↪ inv := by
   apply mapsInto_via_narrowing
   narrow leave_r against inv
   subsume
+
+-- rl [inc-rw] : < R, W > => < s(R), s(W) > [narrowing] .
+def inc_rw (R W : Natural) : RuleBody Conf where
+  lhs := ⟨R, W⟩
+  rhs := ⟨s R, s W⟩
+  requires := True
+
+-- < N, 0 > => < s N, s 0 >
+-- < 0, s(0) > => < s 0, s s(0) >
+example : inc_rw ⊢ inv ↪ inv := by
+  apply mapsInto_via_narrowing
+  narrow inc_rw against inv
+  sorry -- cannot subsume

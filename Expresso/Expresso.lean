@@ -138,6 +138,21 @@ def postImage {α : Type u} {P : Type v} {R : Type w}
     Pattern.semantics source before ∧
     AtRule.semantics rule before after
 
+/-- Semantic post-image distributes over finite pattern disjunction. -/
+theorem postImage_disjunction
+    {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
+    [State α] [Pattern α P] [Pattern α Q] [AtRule α R]
+    (rule : R) (left : P) (right : Q) (after : α) :
+    postImage rule (left ⊔ right) after ↔
+      postImage rule left after ∨ postImage rule right after := by
+  constructor
+  · rintro ⟨before, hleft | hright, hrule⟩
+    · exact Or.inl ⟨before, hleft, hrule⟩
+    · exact Or.inr ⟨before, hright, hrule⟩
+  · rintro (⟨before, hleft, hrule⟩ | ⟨before, hright, hrule⟩)
+    · exact ⟨before, Or.inl hleft, hrule⟩
+    · exact ⟨before, Or.inr hright, hrule⟩
+
 -- TODO: NarrowsTo -> narrowsTo
 /- R ⊢ P ↝ Q iff ∀ q ∈ Q, ∃ p ∈ P, R p q -/
 def NarrowsTo {α : Type u} {P : Type v} {Post : Type w} {R : Type x}
@@ -231,7 +246,6 @@ export Rules (RuleBody AtRule postImage NarrowsTo mapsInto
   mapsInto_iff_subsumes_of_narrowsTo)
 
 end framework
-
 
 
 

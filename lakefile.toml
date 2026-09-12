@@ -16,4 +16,4 @@ roots = ["Expresso.Expresso"]
 
 [[lean_lib]]
 name = "conPanna"
-roots = ["conPanna.conPanna"]
+roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Narrowing"]
