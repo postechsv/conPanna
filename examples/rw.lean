@@ -10,7 +10,8 @@ They are clients of both the semantic framework and unification result format.
 open framework
 
 
-/- https://dmcheck.webs.upv.es/examples/code-viewer.html?file=rw/rw.maude
+/-
+--- https://dmcheck.webs.upv.es/examples/code-viewer.html?file=rw/rw.maude
 mod R&W is
   sort Natural .
   op 0 : -> Natural [ctor] .
@@ -25,6 +26,25 @@ mod R&W is
   rl [enter-r] : < R, 0 > => < s(R), 0 > [narrowing] .
   rl [leave-r] : < s(R), W > => < R, W > [narrowing] .
 endm
+
+--- https://dmcheck.webs.upv.es/examples/code-viewer.html?file=rw/rw-dmc.maude
+--- Select the module
+set module R&W .
+
+--- Check the invariant
+check ind-invariant \
+     < N:Natural , 0 > | true \
+  \/ < 0 , s(0) > | true .
+
+--- Check if the initial state is subsumed by the LHS of the rules (deadlock freedom)
+check \
+     < N:Natural , 0 > | true \
+  \/ < 0 , s(0) > | true \
+ subsumed by \
+     < 0, 0 > | true \
+  \/ < R:Natural, s(W:Natural) > | true \
+  \/ < R:Natural, 0 > | true \
+  \/ < s(R:Natural), W:Natural > | true .
 -/
 
 inductive Natural where
@@ -65,12 +85,42 @@ def leave_r (R W : Natural) : RuleBody Conf where
   rhs := ⟨R, W⟩
   requires := True
 
-/-- `pair (atom 0) (atom n) where n > 0` -/
-def source (n : Nat) : APattBody Conf where
-  term := pair (atom 0) (atom n)
-  requires := 0 < n
 
-/-- `pair (atom payload) (atom (payload + 1))` where `payload > 0` -/
-def target (payload : Nat) : APattBody Conf where
-  term := pair (atom payload) (atom (payload + 1))
-  requires := 0 < payload
+-- < N, 0 > | true
+def p1 (N : Natural) : APattBody Conf where
+  term := ⟨N, o⟩
+  requires := True
+
+-- < 0, s(0) > | true
+def p2 : APattBody Conf where
+  term := ⟨o, s o⟩
+  requires := True
+
+-- < N, 0 > | true \/ < 0, s(0) > | true
+def inv := p1 ⊔ p2
+#print inv
+
+-- or alternatively,
+def inv' :=
+  (fun N => framework.Patterns.APattBody.mk (Conf.mk N o) True) ⊔
+  framework.Patterns.APattBody.mk (Conf.mk o (s o)) True
+
+example : enter_w ⊢ inv ↪ inv := by
+  apply mapsInto_via_narrowing
+  narrow enter_w against inv
+  subsume
+
+example : leave_w ⊢ inv ↪ inv := by
+  apply mapsInto_via_narrowing
+  narrow leave_w against inv
+  subsume
+
+example : enter_r ⊢ inv ↪ inv := by
+  apply mapsInto_via_narrowing
+  narrow enter_r against inv
+  subsume
+
+example : leave_r ⊢ inv ↪ inv := by
+  apply mapsInto_via_narrowing
+  narrow leave_r against inv
+  subsume
