@@ -16,40 +16,34 @@ open framework
 -/
 
 
-/- define constructor symbols -/
-inductive Conf where
+/- Define constructor symbols. Separating `Status` from `Conf` ensures that a
+symbolic process variable ranges only over process states, while `Conf` remains
+a recursive Maude-style term language. -/
+inductive Status where
   | idle
   | wait
   | crit
+  deriving Repr
+
+inductive Conf where
+  | proc : Status → Conf
   | upair : Conf → Conf → Conf -- commutative
   deriving Repr
 
 /- register structural axioms -/
-open scoped Structural -- TODO: rename comm to avoid reserved keywords
+open scoped Structural
 
 structural UPairTheory where
   comm Conf.upair
 
 instance : State Conf := ⟨⟩
 
-/- Remark: finite carrier problem
-if upair is defined as a usual function
-  e.g., axiom upair : Conf → Conf → Conf
-where Conf consists of three (idle,wait,crit) constructors only,
-we face inconsistency:
-there are 3 elements in the set Conf, whereas there are 6 upairs.
--/
-
--- Activates the law-clause vocabulary without globally reserving names such as
--- `comm`, which may also be ordinary Lean field names.
-
-
 #reduce UPairTheory
 /-!
 The declaration above is surface syntax for the following ordinary value:
 
 ```
-def PairTheory : Structural.Theory where
+def UPairTheory : Structural.Theory where
   symbols := [
     Structural.Symbol.declare Conf.upair [
       Structural.OperatorLaw.commutative
@@ -62,22 +56,36 @@ not assert the inconsistent Lean equality
 `Conf.upair left right = Conf.upair right left`.
 -/
 
-open Conf
+open Status Conf
 
--- request: pair idle X → pair waiting X
-def request (X : Conf) : RuleBody Conf where
-  lhs := upair idle X
-  rhs := upair wait X
+-- i2w: ⟨idle, X⟩ → ⟨wait, X⟩
+def i2w (X : Status) : RuleBody Conf where
+  lhs := upair (proc idle) (proc X)
+  rhs := upair (proc wait) (proc X)
   requires := True
 
--- enter: pair waiting idle → pair critical idle
-def enter : RuleBody Conf where
-  lhs := upair wait idle
-  rhs := upair crit idle
+-- w2c: ⟨wait, idle⟩ → ⟨crit, idle⟩
+def w2c : RuleBody Conf where
+  lhs := upair (proc wait) (proc idle)
+  rhs := upair (proc crit) (proc idle)
   requires := True
 
--- exit: pair critical X → pair idle X
-def exit (X : Conf) : RuleBody Conf where
-  lhs := upair crit X
-  rhs := upair idle X
+-- c2i: ⟨crit, X⟩ → ⟨idle, X⟩
+def c2i (X : Status) : RuleBody Conf where
+  lhs := upair (proc crit) (proc X)
+  rhs := upair (proc idle) (proc X)
   requires := True
+
+/- Modulo commutativity, these two symbolic branches describe every unordered
+pair except `upair (proc crit) (proc crit)`. -/
+def hasIdle (X : Status) : APattBody Conf where
+  term := upair (proc idle) (proc X)
+  requires := True
+
+def hasWait (X : Status) : APattBody Conf where
+  term := upair (proc wait) (proc X)
+  requires := True
+
+def mutexInv := hasIdle ⊔ hasWait
+
+#print mutexInv
