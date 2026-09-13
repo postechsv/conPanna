@@ -50,10 +50,12 @@ def UPairTheory : Structural.Theory where
       Structural.OperatorLaw.commutative
     ]
   ]
+
+instance : Structural.HasComm UPairTheory Conf.upair := ⟨True.intro⟩
 ```
 
-`comm` records an equation for the future theory-indexed equivalence.  It does
-not assert the inconsistent Lean equality
+`comm` records an equation for the theory-indexed `Structural.EqMod` relation.
+It does not assert the inconsistent Lean equality
 `Conf.upair left right = Conf.upair right left`.
 -/
 
@@ -92,9 +94,26 @@ def mutexInv := hasIdle ⊔ hasWait
 
 #print mutexInv
 
+-- Manual checks of the two C-unifiers needed by `c2i`. Swapping the outer
+-- `upair` gives respectively `X = idle, Y = crit` and
+-- `X = wait, Y = crit`.
+example : Structural.EqMod UPairTheory
+    (c2i idle).lhs (hasIdle crit).term := by
+  simpa [c2i, hasIdle] using
+    (Structural.EqMod.comm Conf.upair (proc crit) (proc idle))
+
+example : Structural.EqMod UPairTheory
+    (c2i wait).lhs (hasWait crit).term := by
+  simpa [c2i, hasWait] using
+    (Structural.EqMod.comm Conf.upair (proc crit) (proc wait))
+
 #narrow i2w against mutexInv -- ⟨wait, X⟩
 #narrow w2c against mutexInv -- ⟨crit, idle⟩
-#narrow c2i against mutexInv -- ⊥???
+#narrow c2i against mutexInv -- ⊥ under free unification
+
+#narrow i2w against mutexInv in UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩
+#narrow w2c against mutexInv in UPairTheory -- ⟨crit, idle⟩ ∨ ⟨crit, idle⟩
+#narrow c2i against mutexInv in UPairTheory -- ⟨idle, idle⟩ ∨ ⟨idle, wait⟩
 
 example : i2w ⊢ mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing
