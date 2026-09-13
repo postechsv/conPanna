@@ -33,6 +33,7 @@ inductive Conf where
 /- register structural axioms -/
 open scoped Structural
 
+-- TODO: what if inductive (ctors) deriving/assuming (eqtns)?
 structural UPairTheory where
   comm Conf.upair
 
@@ -86,6 +87,35 @@ def hasWait (X : Status) : APattBody Conf where
   term := upair (proc wait) (proc X)
   requires := True
 
+-- ⟨idle, X⟩ ∨ ⟨wait, X⟩
 def mutexInv := hasIdle ⊔ hasWait
 
 #print mutexInv
+
+#narrow i2w against mutexInv -- ⟨wait, X⟩
+#narrow w2c against mutexInv -- ⟨crit, idle⟩
+#narrow c2i against mutexInv -- ⊥???
+
+example : i2w ⊢ mutexInv ↪ mutexInv := by
+  apply mapsInto_via_narrowing
+  narrow i2w against mutexInv
+  subsume
+
+/- This is the first genuine obstruction. Narrowing computes
+`upair (proc crit) (proc idle)`, but syntactic subsumption cannot identify it
+with the `hasIdle crit` instance `upair (proc idle) (proc crit)`.
+
+example : w2c ⊢ mutexInv ↪ mutexInv := by
+  apply mapsInto_via_narrowing
+  narrow w2c against mutexInv
+  subsume
+-/
+
+/- This script currently closes, but only vacuously: syntactic unification
+returns an empty post-image because `c2i` starts with `crit`, whereas both
+invariant branches start with `idle` or `wait`. C-unification should instead
+find the swapped source instances and produce `idle/idle` and `idle/wait`. -/
+example : c2i ⊢ mutexInv ↪ mutexInv := by
+  apply mapsInto_via_narrowing
+  narrow c2i against mutexInv
+  subsume
