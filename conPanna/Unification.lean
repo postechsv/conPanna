@@ -759,6 +759,50 @@ def solveStructural (theory : Expr) (problem : Problem.Input) : MetaM Output := 
 end C
 
 
+/-- Run the backend selected by a declarative structural theory. -/
+def solveStructuralTheory (theory : Expr) (problem : Problem.Input) :
+    MetaM Certificate.SolutionSet := do
+  match ← StructuralDispatch.backend theory with
+  | .free =>
+      let output ← Free.solve problem
+      return { alternatives := output.candidates.map (·.alternative) }
+  | .c =>
+      let output ← C.solveStructural theory problem
+      return { alternatives := output.candidates.map (·.alternative) }
+
+
+namespace Inspect
+
+private def formatAlternative (problem : Problem.Input)
+    (alternative : Certificate.Alternative) (index : Nat) : MetaM MessageData := do
+  let names := problem.lhs.argumentNames ++ problem.rhs.argumentNames
+  let lhsCount := problem.lhs.argumentNames.size
+  let mut message := m!"unifier {index + 1}:"
+  for i in [:alternative.images.size] do
+    let fallback := if i < lhsCount then s!"x{i + 1}" else s!"y{i - lhsCount + 1}"
+    let name := Problem.visibleName fallback names[i]!
+    let side := if i < lhsCount then "left" else "right"
+    let image ← whnf alternative.images[i]!
+    message := m!"{message}\n  {side}.{name} ↦ {image}"
+  return message
+
+/-- Display a structural unification solution set without opening a proof. -/
+def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
+  let lhs ← Problem.saturatePattern left
+  let rhs ← Problem.saturatePattern right
+  let problem : Problem.Input := { theory? := some theory, lhs, rhs }
+  let solutionSet ← solveStructuralTheory theory problem
+  if solutionSet.alternatives.isEmpty then
+    return m!"no unifier"
+  let mut message := m!""
+  for i in [:solutionSet.alternatives.size] do
+    let alternative ← formatAlternative problem solutionSet.alternatives[i]! i
+    message := if i == 0 then alternative else m!"{message}\n{alternative}"
+  return message
+
+end Inspect
+
+
 namespace Exposure
 
 /-!
@@ -1225,6 +1269,16 @@ def run : TacticM Unit := do
 end Completeness
 
 
+/-- Compute and display unifiers modulo a declarative structural theory. -/
+elab "#unify " left:term " with " right:term " in " theory:term : command => do
+  Lean.Elab.Command.liftTermElabM do
+    let left ← Term.elabTerm left none
+    let right ← Term.elabTerm right none
+    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+    let theory ← Term.elabTerm theory (some theoryType)
+    logInfo (← Inspect.structuralUnifiers left right theory)
+
+
 /--
 Compute the free first-order solution set for `h`, check candidate soundness,
 and expose completeness followed by one result goal per candidate.
@@ -1249,8 +1303,6 @@ elab "unify_complete" : tactic =>
 
 
 end Unification
-
-
 
 
 

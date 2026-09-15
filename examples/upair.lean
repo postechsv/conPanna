@@ -31,9 +31,8 @@ inductive Conf where
   deriving Repr
 
 /- register structural axioms -/
-open scoped Structural
+open scoped Structural -- TODO : avoid naming collision
 
--- TODO: what if inductive (ctors) deriving/assuming (eqtns)?
 structural UPairTheory where
   comm Conf.upair
 
@@ -110,6 +109,22 @@ example : Structural.EqMod UPairTheory
 #narrow i2w against mutexInv -- ⟨wait, X⟩
 #narrow w2c against mutexInv -- ⟨crit, idle⟩
 #narrow c2i against mutexInv -- ⊥ under free unification
+
+-- Atomic C-unification problems underlying the three disjunctive narrowings.
+#unify (fun X : Status => (i2w X).lhs) with
+  (fun Y : Status => (hasIdle Y).term) in UPairTheory
+#unify (fun X : Status => (i2w X).lhs) with
+  (fun Y : Status => (hasWait Y).term) in UPairTheory
+
+#unify w2c.lhs with
+  (fun Y : Status => (hasIdle Y).term) in UPairTheory
+#unify w2c.lhs with
+  (fun Y : Status => (hasWait Y).term) in UPairTheory
+
+#unify (fun X : Status => (c2i X).lhs) with
+  (fun Y : Status => (hasIdle Y).term) in UPairTheory
+#unify (fun X : Status => (c2i X).lhs) with
+  (fun Y : Status => (hasWait Y).term) in UPairTheory
 
 -- possible renaming: #narrow .. for .. mod ..
 #narrow i2w against mutexInv in UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩

@@ -173,13 +173,7 @@ def solve (problem : Problem.Input) (theory? : Option Expr := none) :
       let output ← Unification.Free.solve problem.unification
       return { alternatives := output.candidates.map (·.alternative) }
   | some theory =>
-      match ← Unification.StructuralDispatch.backend theory with
-      | .free =>
-          let output ← Unification.Free.solve problem.unification
-          return { alternatives := output.candidates.map (·.alternative) }
-      | .c =>
-          let output ← Unification.C.solveStructural theory problem.unification
-          return { alternatives := output.candidates.map (·.alternative) }
+      Unification.solveStructuralTheory theory problem.unification
 
 /-- One unifier together with the source branch from which it was computed. -/
 structure BranchAlternative where
