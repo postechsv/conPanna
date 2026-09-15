@@ -162,12 +162,24 @@ this free-only bridge without affecting successor construction.
 -/
 
 /--
-The current backend bridge.  Backend-private evidence is erased here; all
-later narrowing phases consume only the common solver-neutral solution set.
+The backend bridge. Without a theory it preserves free narrowing; with a
+structural theory it uses the declared commutative operations. Backend-private
+evidence is erased here, so materialization remains solver-neutral.
 -/
-def solve (problem : Problem.Input) : MetaM Unification.Certificate.SolutionSet := do
-  let output ← Unification.Free.solve problem.unification
-  return { alternatives := output.candidates.map (·.alternative) }
+def solve (problem : Problem.Input) (theory? : Option Expr := none) :
+    MetaM Unification.Certificate.SolutionSet := do
+  match theory? with
+  | none =>
+      let output ← Unification.Free.solve problem.unification
+      return { alternatives := output.candidates.map (·.alternative) }
+  | some theory =>
+      match ← Unification.StructuralDispatch.backend theory with
+      | .free =>
+          let output ← Unification.Free.solve problem.unification
+          return { alternatives := output.candidates.map (·.alternative) }
+      | .c =>
+          let output ← Unification.C.solveStructural theory problem.unification
+          return { alternatives := output.candidates.map (·.alternative) }
 
 /-- One unifier together with the source branch from which it was computed. -/
 structure BranchAlternative where
@@ -175,10 +187,11 @@ structure BranchAlternative where
   alternative : Unification.Certificate.Alternative
 
 /-- Solve every atomic branch while retaining its branch-local substitutions. -/
-def solvePattern (input : Problem.PatternInput) : MetaM (Array BranchAlternative) := do
+def solvePattern (input : Problem.PatternInput) (theory? : Option Expr := none) :
+    MetaM (Array BranchAlternative) := do
   let mut results := #[]
   for problem in input.branches do
-    let solutionSet ← solve problem
+    let solutionSet ← solve problem theory?
     for alternative in solutionSet.alternatives do
       results := results.push { problem, alternative }
   return results
@@ -447,6 +460,18 @@ elab "#narrow " rule:term " against " source:term : command => do
     let post ← Materialization.post problem.stateType alternatives
     logInfo m!"post: {post.value}\ntype: {post.type}"
 
+/-- Compute and display a narrowing post modulo a structural theory. -/
+elab "#narrow " rule:term " against " source:term " in " theory:term : command => do
+  Lean.Elab.Command.liftTermElabM do
+    let rule ← Term.elabTerm rule none
+    let source ← Term.elabTerm source none
+    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+    let theory ← Term.elabTerm theory (some theoryType)
+    let problem ← Problem.ofPattern rule source
+    let alternatives ← Backend.solvePattern problem (some theory)
+    let post ← Materialization.post problem.stateType alternatives
+    logInfo m!"post: {post.value}\ntype: {post.type}"
+
 /-- Generate the post and certify one constrained narrowing phase. -/
 elab "narrow " rule:term " against " source:term : tactic =>
   Narrowing.Tactic.run rule.raw rule source
@@ -456,6 +481,3 @@ elab "subsume" : tactic =>
   Narrowing.Subsumption.run
 
 end Narrowing
-
-
-

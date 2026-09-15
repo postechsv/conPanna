@@ -111,9 +111,13 @@ example : Structural.EqMod UPairTheory
 #narrow w2c against mutexInv -- ⟨crit, idle⟩
 #narrow c2i against mutexInv -- ⊥ under free unification
 
+-- possible renaming: #narrow .. for .. mod ..
 #narrow i2w against mutexInv in UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩
 #narrow w2c against mutexInv in UPairTheory -- ⟨crit, idle⟩ ∨ ⟨crit, idle⟩
 #narrow c2i against mutexInv in UPairTheory -- ⟨idle, idle⟩ ∨ ⟨idle, wait⟩
+-- above result is correct but contains redundant patterns (low quality)
+-- but this quality is not from narrowing itself
+-- quality should be handled in unification & post-processing
 
 example : i2w ⊢ mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing

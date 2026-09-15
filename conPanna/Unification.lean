@@ -1,4 +1,5 @@
 import Expresso.Expresso
+import conPanna.Structural
 /-!
 # Equational theories
 
@@ -233,6 +234,61 @@ def backend (theory : Expr) : MetaM Backend := do
   scanSymbols symbols false
 
 end Dispatch
+
+
+namespace StructuralDispatch
+
+inductive Backend where
+  | free
+  | c
+
+private partial def scanLaws (laws : Expr)
+    (foundAssociative foundCommutative foundIdentity : Bool) :
+    MetaM (Bool × Bool × Bool) := do
+  let laws ← withTransparency .all <| whnf laws
+  let arguments := laws.getAppArgs
+  if laws.getAppFn.isConstOf ``List.nil then
+    return (foundAssociative, foundCommutative, foundIdentity)
+  unless laws.getAppFn.isConstOf ``List.cons && arguments.size >= 3 do
+    throwError "could not reduce a structural symbol's law declarations"
+  let law ← withTransparency .all <|
+    whnf arguments[arguments.size - 2]!
+  let isAssociative :=
+    law.getAppFn.isConstOf ``Structural.OperatorLaw.associative
+  let isCommutative :=
+    law.getAppFn.isConstOf ``Structural.OperatorLaw.commutative
+  let isIdentity :=
+    law.getAppFn.isConstOf ``Structural.OperatorLaw.identity
+  unless isAssociative || isCommutative || isIdentity do
+    throwError "the structural theory contains an unrecognized law"
+  scanLaws arguments[arguments.size - 1]!
+    (foundAssociative || isAssociative)
+    (foundCommutative || isCommutative)
+    (foundIdentity || isIdentity)
+
+private partial def scanSymbols (symbols : Expr) (foundC : Bool) :
+    MetaM Backend := do
+  let symbols ← withTransparency .all <| whnf symbols
+  let arguments := symbols.getAppArgs
+  if symbols.getAppFn.isConstOf ``List.nil then
+    return if foundC then .c else .free
+  unless symbols.getAppFn.isConstOf ``List.cons && arguments.size >= 3 do
+    throwError "could not reduce a structural theory's symbol declarations"
+  let symbol := arguments[arguments.size - 2]!
+  let laws ← mkAppM ``Structural.Symbol.laws #[symbol]
+  let (hasAssociative, hasCommutative, hasIdentity) ←
+    scanLaws laws false false false
+  if hasAssociative || hasIdentity then
+    throwError "only free and commutative structural narrowing are implemented"
+  scanSymbols arguments[arguments.size - 1]!
+    (foundC || hasCommutative)
+
+/-- Select the implemented backend from a declarative structural theory. -/
+def backend (theory : Expr) : MetaM Backend := do
+  let symbols ← mkAppM ``Structural.Theory.symbols #[theory]
+  scanSymbols symbols false
+
+end StructuralDispatch
 
 
 /-
@@ -560,6 +616,47 @@ private def operatorInstance? (operation : Expr) : MetaM (Option Expr) := do
   catch _ =>
     return none
 
+private abbrev IsCommutativeOperator := Expr → MetaM Bool
+
+private partial def structuralLawsContainComm (laws : Expr) : MetaM Bool := do
+  let laws ← withTransparency .all <| whnf laws
+  let arguments := laws.getAppArgs
+  if laws.getAppFn.isConstOf ``List.nil then
+    return false
+  unless laws.getAppFn.isConstOf ``List.cons && arguments.size >= 3 do
+    throwError "could not reduce a structural symbol's law declarations"
+  let law ← withTransparency .all <|
+    whnf arguments[arguments.size - 2]!
+  if law.getAppFn.isConstOf ``Structural.OperatorLaw.commutative then
+    return true
+  structuralLawsContainComm arguments[arguments.size - 1]!
+
+/-- Extract the operations declared commutative in a structural theory. -/
+private partial def structuralCommutativeOperations (symbols : Expr) :
+    MetaM (Array Expr) := do
+  let symbols ← withTransparency .all <| whnf symbols
+  let arguments := symbols.getAppArgs
+  if symbols.getAppFn.isConstOf ``List.nil then
+    return #[]
+  unless symbols.getAppFn.isConstOf ``List.cons && arguments.size >= 3 do
+    throwError "could not reduce a structural theory's symbol declarations"
+  let symbol := arguments[arguments.size - 2]!
+  let tail := arguments[arguments.size - 1]!
+  let remaining ← structuralCommutativeOperations tail
+  let laws ← mkAppM ``Structural.Symbol.laws #[symbol]
+  unless ← structuralLawsContainComm laws do
+    return remaining
+  let operation ← withTransparency .all <|
+    whnf (← mkAppM ``Structural.Symbol.operation #[symbol])
+  return remaining.push operation
+
+private def isRegisteredOperation (operations : Array Expr)
+    (operation : Expr) : MetaM Bool := do
+  for registered in operations do
+    if ← withoutModifyingState <| isDefEq registered operation then
+      return true
+  return false
+
 private def pushUniqueExpr (expressions : Array Expr) (expression : Expr) :
     Array Expr :=
   if expressions.any fun existing => existing == expression then
@@ -572,26 +669,32 @@ Expose definitions until either a registered C operation or a rigid term is
 visible.  Registered defined functions are kept opaque at their application
 head so their user-supplied theory is not lost by unfolding.
 -/
-partial def exposeHead (expression : Expr) : MetaM Expr := do
+private partial def exposeHeadWith (isOperator : IsCommutativeOperator)
+    (expression : Expr) : MetaM Expr := do
   let expression := expression.consumeMData
   match expression with
   | .app (.app operation _) _ =>
-      if (← operatorInstance? operation).isSome then
+      if ← isOperator operation then
         return expression
   | _ => pure ()
   let reduced ← withTransparency .all <| whnf expression
   if reduced == expression then
     return expression
-  exposeHead reduced
+  exposeHeadWith isOperator reduced
+
+partial def exposeHead (expression : Expr) : MetaM Expr :=
+  exposeHeadWith
+    (fun operation => return (← operatorInstance? operation).isSome) expression
 
 /-- Enumerate all terms obtained by independently swapping registered C nodes. -/
-private partial def orientations (expression : Expr) : MetaM (Array Expr) := do
-  let expression ← exposeHead expression
+private partial def orientationsWith (isOperator : IsCommutativeOperator)
+    (expression : Expr) : MetaM (Array Expr) := do
+  let expression ← exposeHeadWith isOperator expression
   match expression with
   | .app (.app operation left) right =>
-      if (← operatorInstance? operation).isSome then
-        let leftOrientations ← orientations left
-        let rightOrientations ← orientations right
+      if ← isOperator operation then
+        let leftOrientations ← orientationsWith isOperator left
+        let rightOrientations ← orientationsWith isOperator right
         let mut result := #[]
         for left in leftOrientations do
           for right in rightOrientations do
@@ -603,7 +706,7 @@ private partial def orientations (expression : Expr) : MetaM (Array Expr) := do
   -- A C node may occur below an otherwise free application.
   let mut applications := #[expression.getAppFn]
   for argument in expression.getAppArgs do
-    let argumentOrientations ← orientations argument
+    let argumentOrientations ← orientationsWith isOperator argument
     let mut next := #[]
     for application in applications do
       for orientedArgument in argumentOrientations do
@@ -629,8 +732,9 @@ the free solver. `withoutModifyingState` is essential:
 native unification may assign the saturated metavariables, and every
 orientation must start from the same untouched problem.
 -/
-def solve (problem : Problem.Input) : MetaM Output := do
-  let rhsOrientations ← orientations problem.rhs.application
+private def solveWith (isOperator : IsCommutativeOperator)
+    (problem : Problem.Input) : MetaM Output := do
+  let rhsOrientations ← orientationsWith isOperator problem.rhs.application
   let mut candidates := #[]
   for rhs in rhsOrientations do
     let output ← withoutModifyingState do
@@ -641,6 +745,16 @@ def solve (problem : Problem.Input) : MetaM Output := do
     for candidate in output.candidates do
       candidates := pushUniqueCandidate candidates candidate
   return { candidates }
+
+def solve (problem : Problem.Input) : MetaM Output :=
+  solveWith
+    (fun operation => return (← operatorInstance? operation).isSome) problem
+
+/-- Compute C-unifiers using operation declarations from `Structural.Theory`. -/
+def solveStructural (theory : Expr) (problem : Problem.Input) : MetaM Output := do
+  let symbols ← mkAppM ``Structural.Theory.symbols #[theory]
+  let operations ← structuralCommutativeOperations symbols
+  solveWith (isRegisteredOperation operations) problem
 
 end C
 
@@ -1135,9 +1249,6 @@ elab "unify_complete" : tactic =>
 
 
 end Unification
-
-
-
 
 
 
