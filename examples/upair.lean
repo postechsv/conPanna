@@ -53,11 +53,23 @@ def UPairTheory : Structural.Theory where
     Structural.CommutativeDeclaration.declare Conf.upair
   ]
 
+instance : Structural.HasSymbol UPairTheory Conf.upair where
+  declaration := Structural.Symbol.declare Conf.upair [
+    Structural.OperatorLaw.commutative
+  ]
+  member := by simp [UPairTheory]
+  operation_eq := HEq.rfl
+
 instance : Structural.HasComm UPairTheory Conf.upair where
   declaration := Structural.CommutativeDeclaration.declare Conf.upair
   member := by simp [UPairTheory]
   operation_eq := HEq.rfl
 ```
+
+Because `Conf.upair` is an inductive constructor and this theory is C-only,
+the command also derives internal solver metadata from constructor injectivity.
+That metadata is what lets `structural_complete` replay C completeness without
+model-specific freeness lemmas.
 
 `comm` records an equation for the theory-indexed `Structural.EqMod` relation.
 It does not assert the inconsistent Lean equality
@@ -132,6 +144,8 @@ example : Structural.EqMod UPairTheory
 #unify (fun X : Status => (c2i X).lhs) with
   (fun Y : Status => (hasWait Y).term) in UPairTheory
 
+
+
 -- possible renaming: #narrow .. for .. mod ..
 #narrow i2w against mutexInv in UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩
 #narrow w2c against mutexInv in UPairTheory -- ⟨crit, idle⟩ ∨ ⟨crit, idle⟩
@@ -142,46 +156,29 @@ example : Structural.EqMod UPairTheory
 
 
 
--- `narrow` generates the post-image. The nested proof certifies that image;
--- the following proof is the subsumption continuation.
-example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
-  apply mapsInto_via_narrowing_mod
-  narrow i2w from mutexInv mod UPairTheory := by
-    -- Certification root: generated post ↔ semantic one-step post-image.
-    -- Unifier soundness is available here; this also proves complete overlap
-    -- coverage and correct RHS/constraint materialization.
-    intro after
-    constructor
-    · -- Soundness: every generated result is a semantic rule result.
-      intro hpost
-      rcases hpost with hpost | hpost | hpost
-      · -- Generic generated branch: ⟨wait, X⟩.
-        rcases hpost with ⟨X, hafter, _⟩
-        refine ⟨upair (proc idle) (proc X), ?_, ?_⟩
-        · -- Its predecessor ⟨idle, X⟩ belongs to `mutexInv`.
-          exact Or.inl ⟨X, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
-        · -- `i2w X` rewrites that predecessor to `after`.
-          exact ⟨X, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
-      · -- Specialized generated branch: ⟨wait, idle⟩.
-        rcases hpost with ⟨hafter, _⟩
-        refine ⟨upair (proc idle) (proc idle), ?_, ?_⟩
-        · -- Its predecessor ⟨idle, idle⟩ belongs to `mutexInv`.
-          exact Or.inl ⟨idle, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
-        · -- `i2w idle` rewrites that predecessor to `after`.
-          exact ⟨idle, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
-      · -- Specialized generated branch: ⟨wait, wait⟩.
-        rcases hpost with ⟨hafter, _⟩
-        refine ⟨upair (proc idle) (proc wait), ?_, ?_⟩
-        · -- Its predecessor ⟨idle, wait⟩ belongs to `mutexInv`.
-          exact Or.inl ⟨wait, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
-        · -- `i2w wait` rewrites that predecessor to `after`.
-          exact ⟨wait, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
-    · -- Completeness: every semantic result is in the generated post.
-      rintro ⟨_, _, X, _, hafter, _⟩
-      -- The generic ⟨wait, X⟩ branch covers every such result.
-      exact Or.inl ⟨X, hafter, ⟨True.intro, True.intro⟩⟩
+/- Complete C-unifiers for `i2w.lhs` against `hasIdle.term`. -/
+unification_certificate i2w_hasIdle_complete :
+    (fun X : Status => (i2w X).lhs) ⋈[UPairTheory]
+      (fun Y : Status => (hasIdle Y).term) := by
+  structural_complete
 
-  -- goal: post ⊑[UPairTheory] mutexInv
+/- Complete C-unifiers for `i2w.lhs` against `hasWait.term`. -/
+unification_certificate i2w_hasWait_complete :
+    (fun X : Status => (i2w X).lhs) ⋈[UPairTheory]
+      (fun Y : Status => (hasWait Y).term) := by
+  structural_complete
+
+-- `narrow` suggests a covering post. The nested proof supplies atomic
+-- unification completeness; the following proof is subsumption.
+example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
+  -- step 1) decompose
+  apply mapsInto_via_narrowing_mod
+
+  -- step 2) narrowing
+  narrow i2w from mutexInv mod UPairTheory := by
+    exact ⟨i2w_hasIdle_complete, i2w_hasWait_complete⟩
+
+  -- step 3) subsumption (post ⊑[UPairTheory] mutexInv)
   intro after hpost
   rcases hpost with hpost | hpost | hpost
   · rcases hpost with ⟨X, hafter, _⟩

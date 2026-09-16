@@ -77,9 +77,8 @@ open framework framework.Patterns
 # Unification
 
 Unification begins with semantic intersection of two pattern denotations and
-computationally explains that intersection by a sound, complete set of
-factorizing substitutions. The namespace separates semantic judgments,
-solver-neutral certificates, theory-specific backends, and proof-state UI.
+computationally suggests factorizing substitutions. The proof interface keeps
+only completeness: every semantic overlap must be covered by a suggestion.
 -/
 namespace Unification
 
@@ -293,8 +292,8 @@ end StructuralDispatch
 
 /-
 `Certificate` is the solver-neutral contract between computation and proof.
-It represents residual freedom with explicit basis variables and separately
-records candidate data, soundness, completeness, and concrete factorization.
+It represents residual freedom with explicit basis variables and records
+candidate data, completeness, and concrete factorization.
 
 `solutionSetType` is the main functionality
 -/
@@ -334,24 +333,6 @@ structure ProvenAlternative where
   alternative : Alternative
   proposition : Expr
   proof : Expr
-
-/--
-A computed solution set whose alternatives have each been checked to be
-actual unifiers.  Soundness is backend-independent data even when the tactic
-used to construct the proofs is theory-specific.
--/
-structure SoundSolutionSet where
-  solutionSet : SolutionSet
-  soundnessPropositions : Array Expr
-  soundnessProofs : Array Expr
-
-/--
-A sound solution set together with a user-supplied proof that every unifier
-factors through one of its alternatives.
--/
-structure ExactSolutionSet extends SoundSolutionSet where
-  completenessProposition : Expr
-  completenessProof : Expr
 
 /-- A checked factorization disjunction specialized to one semantic witness. -/
 structure ProvenSolutionSet where
@@ -756,66 +737,6 @@ def solveStructural (theory : Expr) (problem : Problem.Input) : MetaM Output := 
   let operations ← structuralCommutativeOperations symbols
   solveWith (isRegisteredOperation operations) problem
 
-private def eqModRefl (theory value : Expr) : MetaM Expr :=
-  mkAppM ``Structural.EqMod.reflAt #[theory, value]
-
-private partial def proveEqModWith (operations : Array Expr)
-    (theory left right : Expr) : MetaM Expr := do
-  if ← withoutModifyingState <| isDefEq left right then
-    return ← eqModRefl theory left
-
-  let left ← exposeHeadWith (isRegisteredOperation operations) left
-  let right ← exposeHeadWith (isRegisteredOperation operations) right
-  let leftHead := left.getAppFn
-  let rightHead := right.getAppFn
-  let leftArguments := left.getAppArgs
-  let rightArguments := right.getAppArgs
-  unless leftArguments.size == rightArguments.size &&
-      (← withoutModifyingState <| isDefEq leftHead rightHead) do
-    throwError "terms are not equivalent modulo the registered C theory"
-
-  let proveArguments (targets : Array Expr) : MetaM Expr := do
-    let mut currentArguments := leftArguments
-    let mut currentTerm := left
-    let mut proof ← eqModRefl theory left
-    for i in [:currentArguments.size] do
-      let argumentProof ←
-        proveEqModWith operations theory currentArguments[i]! targets[i]!
-      let argumentType ← inferType currentArguments[i]!
-      let (function, nextTerm) ← withLocalDeclD `_eqModArgument argumentType
-        fun argument => do
-          let nextArguments := currentArguments.set! i argument
-          let body := mkAppN leftHead nextArguments
-          return (← mkLambdaFVars #[argument] body,
-            mkAppN leftHead (currentArguments.set! i targets[i]!))
-      let step ← mkAppM ``Structural.EqMod.congrAt
-        #[theory, function, argumentProof]
-      proof ← mkAppM ``Structural.EqMod.transAt #[theory, proof, step]
-      currentArguments := currentArguments.set! i targets[i]!
-      currentTerm := nextTerm
-    unless ← withoutModifyingState <| isDefEq currentTerm (mkAppN leftHead targets) do
-      throwError "failed to construct a congruence certificate"
-    return proof
-
-  try
-    return ← proveArguments rightArguments
-  catch _ => pure ()
-
-  unless leftArguments.size == 2 &&
-      (← isRegisteredOperation operations leftHead) do
-    throwError "terms are not equivalent modulo the registered C theory"
-  let swappedTargets := #[rightArguments[1]!, rightArguments[0]!]
-  let congruence ← proveArguments swappedTargets
-  let commutativity ← mkAppM ``Structural.EqMod.commAt
-    #[theory, leftHead, rightArguments[1]!, rightArguments[0]!]
-  mkAppM ``Structural.EqMod.transAt #[theory, congruence, commutativity]
-
-/-- Construct a kernel-checkable `EqMod` proof for a registered C equation. -/
-def proveEqModStructural (theory left right : Expr) : MetaM Expr := do
-  let symbols ← mkAppM ``Structural.Theory.symbols #[theory]
-  let operations ← structuralCommutativeOperations symbols
-  proveEqModWith operations theory left right
-
 end C
 
 
@@ -844,39 +765,146 @@ private def instantiateApplication (pattern : Problem.SaturatedPattern)
         | none => none
     | _ => none
 
-private partial def withBasisVariables
-    {α : Type} (types : Array Expr) (index : Nat) (variables : Array Expr)
-    (continuation : Array Expr → MetaM α) : MetaM α := do
-  if _h : index < types.size then
-    withLocalDeclD (Name.mkSimple s!"u{index + 1}") types[index]!
-      fun basisVariable =>
-        withBasisVariables types (index + 1) (variables.push basisVariable)
-          continuation
+private def instantiateOriginalArguments
+    (expression : Expr) (originals replacements : Array Expr) : Expr :=
+  expression.replace fun subterm =>
+    match subterm with
+    | .mvar id =>
+        match originals.findIdx? fun original =>
+            original.isMVar && original.mvarId! == id with
+        | some index => replacements[index]?
+        | none => none
+    | _ => none
+
+private partial def withOriginalArguments
+    {α : Type} (problem : Problem.Input) (index : Nat)
+    (arguments : Array Expr) (continuation : Array Expr → MetaM α) : MetaM α := do
+  let originals := Problem.symbolicArguments problem
+  if _h : index < originals.size then
+    let original := originals[index]!
+    let type ← inferType original
+    let type := instantiateOriginalArguments type originals arguments
+    let names := problem.lhs.argumentNames ++ problem.rhs.argumentNames
+    let name := Problem.visibleName s!"x{index + 1}" names[index]!
+    withLocalDeclD name type fun argument =>
+      withOriginalArguments problem (index + 1) (arguments.push argument)
+        continuation
   else
-    continuation variables
+    continuation arguments
 
 /--
-Construct the candidate-specific soundness certificate
-`∀ basis, EqMod theory (lhs σ) (rhs σ)`.
+State that every common instance modulo `theory` factors through one of the
+computed alternatives. This is the only solver-specific fact required by the
+safety-oriented narrowing interface.
 -/
-def proveSoundness (theory : Expr) (problem : Problem.Input)
-    (alternative : Certificate.Alternative) : MetaM Expr :=
-  withBasisVariables alternative.basisTypes 0 #[] fun basis => do
-    let mut images := #[]
-    for image in alternative.images do
-      images := images.push (← whnf
-        (Certificate.instantiateImage image basis))
+def completenessType (theory : Expr) (problem : Problem.Input)
+    (solutionSet : Certificate.SolutionSet) : MetaM Expr :=
+  withOriginalArguments problem 0 #[] fun arguments => do
     let lhsCount := problem.lhs.arguments.size
-    unless images.size == lhsCount + problem.rhs.arguments.size do
-      throwError "a structural unifier has the wrong number of images"
     let lhs ← withTransparency .all <| whnf
-      (instantiateApplication problem.lhs (images.extract 0 lhsCount))
+      (instantiateApplication problem.lhs (arguments.extract 0 lhsCount))
     let rhs ← withTransparency .all <| whnf
-      (instantiateApplication problem.rhs (images.extract lhsCount images.size))
-    let proof ← C.proveEqModStructural theory lhs rhs
-    mkLambdaFVars basis proof
+      (instantiateApplication problem.rhs
+        (arguments.extract lhsCount arguments.size))
+    let stateType ← inferType lhs
+    withLocalDeclD `state stateType fun state => do
+      let lhsMatch ← mkAppM ``Structural.EqMod #[theory, lhs, state]
+      let rhsMatch ← mkAppM ``Structural.EqMod #[theory, rhs, state]
+      let (_, factorization) ←
+        Certificate.solutionSetType solutionSet arguments
+      let body ← mkArrow lhsMatch (← mkArrow rhsMatch factorization)
+      mkForallFVars (arguments.push state) body
 
 end ModCertificate
+
+
+namespace ModCompleteness
+
+private partial def collectUnfoldingDefinitions (expression : Expr)
+    (seen : Array Name := #[]) : CoreM (Array Name) := do
+  let environment ← getEnv
+  match expression.consumeMData with
+  | .const name _ =>
+      let isDefinition := match environment.find? name with
+        | some (.defnInfo _) | some (.opaqueInfo _) => true
+        | _ => false
+      return if isDefinition && !seen.contains name then
+        seen.push name
+      else
+        seen
+  | .app function argument =>
+      let seen ← collectUnfoldingDefinitions function seen
+      collectUnfoldingDefinitions argument seen
+  | .lam _ type body _ | .forallE _ type body _ =>
+      let seen ← collectUnfoldingDefinitions type seen
+      collectUnfoldingDefinitions body seen
+  | .letE _ type value body _ =>
+      let seen ← collectUnfoldingDefinitions type seen
+      let seen ← collectUnfoldingDefinitions value seen
+      collectUnfoldingDefinitions body seen
+  | .proj _ _ value => collectUnfoldingDefinitions value seen
+  | _ => return seen
+
+private def freshAlias (goal : MVarId) (base : Name) (value type : Expr) :
+    MetaM (Ident × MVarId) := do
+  let name ← goal.withContext do
+    return (← getLCtx).getUnusedName base
+  let (_, nextGoal) ← goal.withContext do goal.note name value (some type)
+  return (mkIdent name, nextGoal)
+
+/-- Replay completeness for the currently implemented free-C backend. -/
+def run : TacticM Unit := do
+  evalTactic (← `(tactic| intros))
+  let initialGoal ← getMainGoal
+  let equations ← initialGoal.withContext do
+    let mut result := #[]
+    for declaration in ← getLCtx do
+      unless declaration.isImplementationDetail do
+        let type ← whnf declaration.type
+        if type.getAppFn.isConstOf ``Structural.EqMod then
+          result := result.push (declaration.fvarId, type)
+    return result
+  unless equations.size >= 2 do
+    throwError "`structural_complete` expected two `EqMod` hypotheses"
+  let (leftId, leftType) := equations[equations.size - 2]!
+  let (rightId, rightType) := equations[equations.size - 1]!
+  let leftArgs := leftType.getAppArgs
+  let rightArgs := rightType.getAppArgs
+  unless leftArgs.size >= 3 && rightArgs.size >= 3 do
+    throwError "malformed `EqMod` hypotheses"
+  let unfoldNames ← initialGoal.withContext do
+    let fromLeft ← collectUnfoldingDefinitions leftArgs[leftArgs.size - 2]!
+    collectUnfoldingDefinitions rightArgs[rightArgs.size - 2]! fromLeft
+  let unfoldSimps ← unfoldNames.mapM fun name =>
+    `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
+
+  let (equationProof, equationType) ← initialGoal.withContext do
+    let rightSymm ← mkAppM ``Structural.EqMod.symm #[mkFVar rightId]
+    let equation ← mkAppM ``Structural.EqMod.trans
+      #[mkFVar leftId, rightSymm]
+    return (equation, ← inferType equation)
+  let (equationIdent, goal) ← freshAlias initialGoal `equation
+    equationProof equationType
+  setGoals [goal]
+  let equationTerm ← `(term| $equationIdent:ident)
+  evalTactic (← `(tactic|
+    have cEquation :=
+      (Structural.EqMod.iff_cEquiv _).mp $equationTerm))
+  evalTactic (← `(tactic| cases cEquation))
+  evalTactic (← `(tactic|
+    all_goals simp_all [true_and, $unfoldSimps,*]))
+  evalTactic (← `(tactic|
+    all_goals
+      rename_i first second
+      have firstEq := Structural.CEquiv.eq_of_left_not_operation
+        (equation := first) (by simp)
+      have secondEq := Structural.CEquiv.eq_of_left_not_operation
+        (equation := second) (by simp)
+      skip))
+  evalTactic (← `(tactic|
+    all_goals simp_all [true_and, $unfoldSimps,*]))
+
+end ModCompleteness
 
 
 namespace Inspect
@@ -909,6 +937,41 @@ def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
   return message
 
 end Inspect
+
+
+/--
+Declare the completeness certificate computed for one structural unification
+problem. The bowtie is the problem description; the declared theorem has the
+solver-generated completeness proposition as its actual type.
+-/
+syntax (name := structuralUnificationCertificate)
+  "unification_certificate " ident " : " term:51
+    " ⋈[" term "] " term:51 " := " term : command
+
+syntax:max "structural_unification_complete% " term:51
+  " ⋈[" term "] " term:51 : term
+
+elab_rules : term
+  | `(structural_unification_complete% $left:term ⋈[$theory:term]
+        $right:term) => do
+      let left ← Term.elabTerm left none
+      let right ← Term.elabTerm right none
+      let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+      let theory ← Term.elabTerm theory (some theoryType)
+      let problem : Problem.Input := {
+        theory? := some theory
+        lhs := ← Problem.saturatePattern left
+        rhs := ← Problem.saturatePattern right
+      }
+      let solutionSet ← solveStructuralTheory theory problem
+      ModCertificate.completenessType theory problem solutionSet
+
+macro_rules
+  | `(unification_certificate $name:ident : $left:term ⋈[$theory:term]
+        $right:term := $proof:term) =>
+      `(theorem $name :
+          structural_unification_complete% $left ⋈[$theory] $right :=
+        $proof)
 
 
 namespace Exposure
@@ -1036,10 +1099,9 @@ end Exposure
 
 
 /-
-`Tactic` orchestrates the complete user command: parse the semantic problem,
-run a selected backend, check candidate soundness, emit completeness, and use
-`Exposure` to open the certified alternatives. It is the main replaceable
-frontend/backend boundary.
+`Tactic` orchestrates the user command: parse the semantic problem, run a
+selected backend, emit completeness, and use `Exposure` to open the covered
+alternatives. It is the main replaceable frontend/backend boundary.
 -/
 namespace Tactic
 
@@ -1089,18 +1151,6 @@ private partial def withOriginalArguments
   else
     continuation arguments
 
-private partial def withBasisArguments
-    {α : Type}
-    (types : Array Expr) (index : Nat) (arguments : Array Expr)
-    (continuation : Array Expr → MetaM α) : MetaM α := do
-  if _h : index < types.size then
-    withLocalDeclD (Name.mkSimple s!"u{index + 1}") types[index]!
-      fun argument =>
-        withBasisArguments types (index + 1) (arguments.push argument)
-          continuation
-  else
-    continuation arguments
-
 private def equationType
     (problem : Problem.Input) (arguments : Array Expr) : MetaM Expr := do
   unless arguments.size == Problem.argumentCount problem do
@@ -1122,47 +1172,6 @@ private def completenessType
       Certificate.solutionSetType solutionSet arguments
     let body ← mkArrow equation factorization
     mkForallFVars arguments body
-
-/-- State that every basis instance of one returned alternative is a unifier. -/
-private def soundnessType
-    (problem : Problem.Input) (alternative : Certificate.Alternative) : MetaM Expr :=
-  withBasisArguments alternative.basisTypes 0 #[] fun basis => do
-    let mut images := #[]
-    for image in alternative.images do
-      images := images.push (← whnf
-        (Certificate.instantiateImage image basis))
-    let equation ← equationType problem images
-    mkForallFVars basis equation
-
-private def proveSoundness
-    (ref : Syntax) (problem : Problem.Input)
-    (solutionSet : Certificate.SolutionSet) (hypothesisId : FVarId) : TacticM
-      Certificate.SoundSolutionSet := do
-  let originalGoal ← getMainGoal
-  let mut propositions := #[]
-  let mut proofs := #[]
-  for alternative in solutionSet.alternatives do
-    let proposition ← originalGoal.withContext do
-      soundnessType problem alternative
-    let proof ← originalGoal.withContext do
-      mkFreshExprMVar (some proposition)
-    let soundnessGoal ← proof.mvarId!.clear hypothesisId
-    replaceMainGoal [soundnessGoal]
-    try
-      evalTactic (← `(tactic|
-        intros <;> simp_all [C.Operator.eq_iff] <;> grind))
-    catch exception =>
-      throwErrorAt ref m!"failed to certify a computed unifier's soundness:\n{exception.toMessageData}"
-    unless ← proof.mvarId!.isAssigned do
-      throwErrorAt ref "failed to construct a unifier soundness proof"
-    propositions := propositions.push proposition
-    proofs := proofs.push (← instantiateMVars proof)
-    setGoals [originalGoal]
-  return {
-    solutionSet
-    soundnessPropositions := propositions
-    soundnessProofs := proofs
-  }
 
 private def exposeSemantics
     (ref : Syntax) (h : Ident) (problem : Problem.Input) : TacticM
@@ -1240,9 +1249,8 @@ private def clearSemantics (witnesses : SemanticWitnesses) : TacticM Unit := do
   setGoals clearedGoals.toList
 
 /--
-Shared frontend/backend boundary.  A backend computes alternatives; their
-soundness is checked immediately, while completeness becomes an explicit
-user-level proof goal.  Result goals depend on that completeness certificate.
+Shared frontend/backend boundary. A backend suggests alternatives;
+completeness is the sole proof-relevant certificate used to expose results.
 -/
 private def runWith {Output : Type}
     (solve : Problem.Input → MetaM Output)
@@ -1256,9 +1264,9 @@ private def runWith {Output : Type}
     let output ← solve problem
     return (problem, output)
 
-  let sound ← proveSoundness ref problem (solutions output) hypothesisId
+  let solutionSet := solutions output
   let completenessProposition ← initialGoal.withContext do
-    completenessType problem sound.solutionSet
+    completenessType problem solutionSet
   let completenessName ← initialGoal.withContext do
     return (← getLCtx).getUnusedName `completeness
   let completenessValue ← initialGoal.withContext do
@@ -1276,20 +1284,15 @@ private def runWith {Output : Type}
   let goal ← getMainGoal
   let (branchPropositions, proposition, proof) ← goal.withContext do
     let (branchPropositions, proposition) ←
-      Certificate.solutionSetType sound.solutionSet witnesses.actualArguments
+      Certificate.solutionSetType solutionSet witnesses.actualArguments
     let specialized := mkAppN completenessProof witnesses.actualArguments
     let proof := mkApp specialized (mkFVar witnesses.equalityId)
     let proofType ← inferType proof
     unless ← isDefEq proofType proposition do
       throwError "the completeness certificate does not match the computed solution set"
     return (branchPropositions, proposition, proof)
-  let exact : Certificate.ExactSolutionSet := {
-    sound with
-    completenessProposition
-    completenessProof
-  }
   let proven : Certificate.ProvenSolutionSet := {
-    solutionSet := exact.solutionSet
+    solutionSet
     branchPropositions
     proposition
     proof
@@ -1387,17 +1390,11 @@ elab "#unify " left:term " with " right:term " in " theory:term : command => do
     logInfo (← Inspect.structuralUnifiers left right theory)
 
 
-/--
-Compute the free first-order solution set for `h`, check candidate soundness,
-and expose completeness followed by one result goal per candidate.
--/
+/-- Compute a free solution set and expose completeness, then its branches. -/
 elab "unify " h:ident : tactic =>
   Unification.Tactic.run h.raw h
 
-/--
-Compute all candidates modulo registered free commutative operations, check
-their soundness, and expose completeness followed by the result goals.
--/
+/-- Compute C candidates and expose completeness, then their branches. -/
 elab "c_unify " h:ident : tactic =>
   Unification.Tactic.runC h.raw h
 
@@ -1409,7 +1406,9 @@ elab "unify " h:ident " in " theory:term : tactic =>
 elab "unify_complete" : tactic =>
   Unification.Completeness.run
 
+/-- Prove completeness for a computed free-C unification solution set. -/
+elab "structural_complete" : tactic =>
+  Unification.ModCompleteness.run
+
 
 end Unification
-
-

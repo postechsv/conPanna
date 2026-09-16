@@ -103,6 +103,18 @@ def NarrowsToMod (theory : Structural.Theory.{u})
 notation:40 rule " ⊢[" theory "] " source " ↝ " post =>
   NarrowsToMod theory rule source post
 
+/-- A computed post overapproximates every semantic one-step result. -/
+def CoversPostMod (theory : Structural.Theory.{u})
+    {α : Type u} {P : Type v} {Post : Type w} {R : Type x}
+    [State α] [PatternMod theory α P] [PatternMod theory α Post]
+    [AtRuleMod theory α R]
+    (rule : R) (source : P) (post : Post) : Prop :=
+  ∀ after, postImageMod theory rule source after →
+    PatternMod.semantics theory post after
+
+notation:40 rule " ⊢[" theory "] " source " ↝≤ " post =>
+  CoversPostMod theory rule source post
+
 def mapsIntoMod (theory : Structural.Theory.{u})
     {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
     [State α] [PatternMod theory α P] [PatternMod theory α Q]
@@ -130,6 +142,20 @@ theorem mapsInto_of_narrowsTo_of_subsumes_mod
   apply hsubsumes after
   exact (hnarrow after).2 ⟨before, hsource, hrule⟩
 
+theorem mapsInto_of_cover_of_subsumes_mod
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {P : Type v} {Post : Type w} {Q : Type x}
+    {R : Type y} [State α] [PatternMod theory α P]
+    [PatternMod theory α Post] [PatternMod theory α Q]
+    [AtRuleMod theory α R]
+    {rule : R} {source : P} {post : Post} {target : Q}
+    (hcover : CoversPostMod theory rule source post)
+    (hsubsumes : SubsumesMod theory post target) :
+    mapsIntoMod theory rule source target := by
+  intro before after hsource hrule
+  apply hsubsumes after
+  exact hcover after ⟨before, hsource, hrule⟩
+
 theorem mapsInto_via_narrowing_mod
     {theory : Structural.Theory.{u}}
     {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
@@ -140,21 +166,22 @@ theorem mapsInto_via_narrowing_mod
     (decomposition :
       ∃ (Post : Type y) (postPattern : PatternMod theory α Post)
           (post : Post),
-        @NarrowsToMod theory α P Post R state sourcePattern postPattern
+        @CoversPostMod theory α P Post R state sourcePattern postPattern
             ruleSemantics rule source post ∧
         @SubsumesMod theory α Post Q state postPattern targetPattern
             post target) :
     mapsIntoMod theory rule source target := by
   rcases decomposition with
     ⟨Post, postPattern, post, narrowing, subsumption⟩
-  exact @mapsInto_of_narrowsTo_of_subsumes_mod theory α P Post Q R
+  exact @mapsInto_of_cover_of_subsumes_mod theory α P Post Q R
     state sourcePattern postPattern targetPattern ruleSemantics
     rule source post target narrowing subsumption
 
 end Rules
 
 export Patterns (APattMod PatternMod SubsumesMod)
-export Rules (AtRuleMod postImageMod NarrowsToMod mapsIntoMod
-  mapsInto_of_narrowsTo_of_subsumes_mod mapsInto_via_narrowing_mod)
+export Rules (AtRuleMod postImageMod NarrowsToMod CoversPostMod mapsIntoMod
+  mapsInto_of_narrowsTo_of_subsumes_mod mapsInto_of_cover_of_subsumes_mod
+  mapsInto_via_narrowing_mod)
 
 end framework

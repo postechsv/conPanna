@@ -181,15 +181,32 @@ structure BranchAlternative where
   problem : Problem.Input
   alternative : Unification.Certificate.Alternative
 
+/-- One atomic source branch and its complete computed solution set. -/
+structure BranchSolution where
+  problem : Problem.Input
+  solutionSet : Unification.Certificate.SolutionSet
+
+/-- Branch-local solution sets together with their flattened alternatives. -/
+structure PatternSolution where
+  branches : Array BranchSolution
+  alternatives : Array BranchAlternative
+
+/-- Solve every atomic branch and retain both completeness boundaries. -/
+def solvePatternDetailed (input : Problem.PatternInput)
+    (theory? : Option Expr := none) : MetaM PatternSolution := do
+  let mut branches := #[]
+  let mut alternatives := #[]
+  for problem in input.branches do
+    let solutionSet ← solve problem theory?
+    branches := branches.push { problem, solutionSet }
+    for alternative in solutionSet.alternatives do
+      alternatives := alternatives.push { problem, alternative }
+  return { branches, alternatives }
+
 /-- Solve every atomic branch while retaining its branch-local substitutions. -/
 def solvePattern (input : Problem.PatternInput) (theory? : Option Expr := none) :
     MetaM (Array BranchAlternative) := do
-  let mut results := #[]
-  for problem in input.branches do
-    let solutionSet ← solve problem theory?
-    for alternative in solutionSet.alternatives do
-      results := results.push { problem, alternative }
-  return results
+  return (← solvePatternDetailed input theory?).alternatives
 
 end Backend
 
@@ -362,6 +379,79 @@ def prove (ref : Syntax) (unfoldingExpressions : Array Expr)
     throwErrorAt ref m!"failed to certify the generated narrowing post:\n{exception.toMessageData}"
   return narrowingIdent
 
+private def conjunction (propositions : Array Expr) : MetaM Expr := do
+  if propositions.isEmpty then
+    return mkConst ``True
+  let mut result := propositions[propositions.size - 1]!
+  for proposition in propositions.toList.dropLast.reverse do
+    result ← mkAppM ``And #[proposition, result]
+  return result
+
+/-- One completeness proposition per atomic source branch. -/
+def completenessBundleType (theory : Expr)
+    (branches : Array Backend.BranchSolution) : MetaM (Array Expr × Expr) := do
+  let mut propositions := #[]
+  for branch in branches do
+    propositions := propositions.push
+      (← Unification.ModCertificate.completenessType theory
+        branch.problem.unification branch.solutionSet)
+  return (propositions, ← conjunction propositions)
+
+private def splitConjunction (propositions : Array Expr) (proof : Expr) :
+    MetaM (Array Expr) := do
+  if propositions.isEmpty then
+    return #[]
+  if propositions.size == 1 then
+    return #[proof]
+  let mut result := #[]
+  let mut remaining := proof
+  for _ in [:propositions.size - 1] do
+    result := result.push (← mkAppM ``And.left #[remaining])
+    remaining ← mkAppM ``And.right #[remaining]
+  return result.push remaining
+
+/--
+Lift atomic unification completeness into semantic post coverage. The lifting
+is generic; solver-specific reasoning is confined to the supplied proofs.
+-/
+def proveCoverage (ref : Syntax) (rule source : Expr)
+    (sourceBranches : Array Expr)
+    (ruleSyntax sourceSyntax theorySyntax : TSyntax `term)
+    (postIdent : Ident) (propositions : Array Expr) (bundleProof : Expr) :
+    TacticM Ident := do
+  let proofs ← splitConjunction propositions bundleProof
+  let mut goal ← getMainGoal
+  for i in [:proofs.size] do
+    let name ← goal.withContext do
+      return (← getLCtx).getUnusedName
+        (Name.mkSimple s!"unificationCompleteness{i + 1}")
+    let (_, nextGoal) ← goal.withContext do
+      goal.note name proofs[i]! (some propositions[i]!)
+    goal := nextGoal
+  setGoals [goal]
+
+  let coverageIdent ←
+    Unification.Exposure.freshVisibleIdent ref `coverage
+  let unfoldNames ← Closure.unfoldingDefinitions
+    (#[rule, source] ++ sourceBranches)
+  let unfoldSimps ← unfoldNames.mapM fun name =>
+    `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
+  try
+    evalTactic (← `(tactic|
+      have $coverageIdent:ident :
+          framework.Rules.CoversPostMod $theorySyntax
+            $ruleSyntax $sourceSyntax ($postIdent:term) := by
+        simp only [framework.Rules.CoversPostMod,
+          framework.Rules.postImageMod,
+          framework.Patterns.PatternMod.semantics,
+          framework.Patterns.APattMod.semantics,
+          framework.Rules.AtRuleMod.semantics,
+          $postIdent:term, $unfoldSimps,*]
+        grind))
+  catch exception =>
+    throwErrorAt ref m!"failed to lift unification completeness into post coverage:\n{exception.toMessageData}"
+  return coverageIdent
+
 end Certification
 
 
@@ -413,71 +503,39 @@ def run (ref : Syntax) (ruleSyntax sourceSyntax : TSyntax `term) : TacticM Unit 
       $narrowingIdent:term, ?_⟩))
 
 /--
-Generate a post modulo a structural theory. Candidate soundness is checked and
-added to the context; exact post-image certification and subsumption remain as
-the first and second user goals respectively.
+Run theory-indexed narrowing, accept one completeness certificate per atomic
+unification problem, and leave subsumption as the ordinary proof continuation.
 -/
-def runMod (ref : Syntax) (ruleSyntax sourceSyntax theorySyntax : TSyntax `term) :
+def runModCertified (ref : Syntax)
+    (ruleSyntax sourceSyntax theorySyntax certificateSyntax : TSyntax `term) :
     TacticM Unit := do
   let initialGoal ← getMainGoal
-  let (theory, alternatives, generatedPost) ←
-      initialGoal.withContext do
+  let (rule, source, sourceBranches, generatedPost,
+      propositions, bundleType) ← initialGoal.withContext do
     ensureDecompositionGoal initialGoal
     let rule ← Tactic.elabTerm ruleSyntax.raw none
     let source ← Tactic.elabTerm sourceSyntax.raw none
     let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
     let theory ← Tactic.elabTerm theorySyntax.raw (some theoryType)
     let problem ← Problem.ofPattern rule source
-    let alternatives ← Backend.solvePattern problem (some theory)
-    let generatedPost ← Materialization.post problem.stateType alternatives
-    return (theory, alternatives, generatedPost)
+    let solution ← Backend.solvePatternDetailed problem (some theory)
+    let generatedPost ←
+      Materialization.post problem.stateType solution.alternatives
+    let (propositions, bundleType) ←
+      Certification.completenessBundleType theory solution.branches
+    return (rule, source, problem.sources, generatedPost,
+      propositions, bundleType)
 
-  let mut soundnessProofs := #[]
-  for alternative in alternatives do
-    let proof ← initialGoal.withContext do
-      Unification.ModCertificate.proveSoundness theory
-        alternative.problem.unification alternative.alternative
-    soundnessProofs := soundnessProofs.push proof
-
+  let bundleProof ← initialGoal.withContext do
+    Lean.Elab.Tactic.elabTermEnsuringType certificateSyntax.raw
+      (some bundleType)
   let postIdent ← bindPost ref generatedPost
-  let mut goal ← getMainGoal
-  for i in [:soundnessProofs.size] do
-    let proof := soundnessProofs[i]!
-    let proposition ← goal.withContext do inferType proof
-    let name ← goal.withContext do
-      return (← getLCtx).getUnusedName
-        (Name.mkSimple s!"unifierSoundness{i + 1}")
-    let (_, nextGoal) ← goal.withContext do
-      goal.note name proof (some proposition)
-    goal := nextGoal
-  setGoals [goal]
+  let coverageIdent ← Certification.proveCoverage ref rule source
+    sourceBranches ruleSyntax sourceSyntax theorySyntax postIdent propositions
+    bundleProof
 
   evalTactic (← `(tactic|
-    refine ⟨_, inferInstance, $postIdent:term, ?_, ?_⟩))
-  match ← getGoals with
-  | [certificationGoal, subsumptionGoal] =>
-      certificationGoal.setTag `certification
-      subsumptionGoal.setTag `subsumption
-  | _ =>
-      throwError "theory-indexed narrowing produced an unexpected goal shape"
-
-/--
-Run theory-indexed narrowing, discharge its certification goal with the given
-term, and leave subsumption as the ordinary proof continuation.
--/
-def runModCertified (ref : Syntax)
-    (ruleSyntax sourceSyntax theorySyntax certificateSyntax : TSyntax `term) :
-    TacticM Unit := do
-  runMod ref ruleSyntax sourceSyntax theorySyntax
-  match ← getGoals with
-  | [certificationGoal, subsumptionGoal] =>
-      setGoals [certificationGoal]
-      evalTactic (← `(tactic| exact $certificateSyntax))
-      unless (← getGoals).isEmpty do
-        throwError "the narrowing certification proof left unsolved goals"
-      setGoals [subsumptionGoal]
-  | _ =>
-      throwError "theory-indexed narrowing produced an unexpected goal shape"
+    refine ⟨_, inferInstance, $postIdent:term, $coverageIdent:term, ?_⟩))
 
 end Tactic
 
