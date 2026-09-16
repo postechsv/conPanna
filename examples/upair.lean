@@ -27,44 +27,20 @@ inductive Status where
 
 inductive Conf where
   | proc : Status → Conf
-  | upair : Conf → Conf → Conf -- commutative
+  | upair : Conf → Conf → Conf -- [comm]
   deriving Repr
 
-/- register structural axioms -/
+-- register Conf as top-level sort for rewriting
+instance : State Conf := ⟨⟩
+
+-- register structural axioms
 open scoped Structural -- TODO : avoid naming collision
 
 structural UPairTheory where
   comm Conf.upair
 
-instance : State Conf := ⟨⟩
-
 #reduce UPairTheory
-/-!
-The declaration above is surface syntax for the following ordinary value:
-
-```
-def UPairTheory : Structural.Theory where
-  symbols := [
-    Structural.Symbol.declare Conf.upair [
-      Structural.OperatorLaw.commutative
-    ]
-  ]
-  commutative := [
-    Structural.CommutativeDeclaration.declare Conf.upair
-  ]
-
-instance : Structural.HasSymbol UPairTheory Conf.upair where
-  declaration := Structural.Symbol.declare Conf.upair [
-    Structural.OperatorLaw.commutative
-  ]
-  member := by simp [UPairTheory]
-  operation_eq := HEq.rfl
-
-instance : Structural.HasComm UPairTheory Conf.upair where
-  declaration := Structural.CommutativeDeclaration.declare Conf.upair
-  member := by simp [UPairTheory]
-  operation_eq := HEq.rfl
-```
+/-
 
 Because `Conf.upair` is an inductive constructor and this theory is C-only,
 the command also derives internal solver metadata from constructor injectivity.
@@ -111,20 +87,6 @@ def mutexInv := hasIdle ⊔ hasWait
 
 #print mutexInv
 
--- Manual checks of the two C-unifiers needed by `c2i`. Swapping the outer
--- `upair` gives respectively `X = idle, Y = crit` and
--- `X = wait, Y = crit`.
-example : (c2i idle).lhs =[UPairTheory] (hasIdle crit).term := by
-  simpa [c2i, hasIdle] using
-    (Structural.EqMod.comm Conf.upair (proc crit) (proc idle))
-
-example : (c2i wait).lhs =[UPairTheory] (hasWait crit).term := by
-  simpa [c2i, hasWait] using
-    (Structural.EqMod.comm Conf.upair (proc crit) (proc wait))
-
-#narrow i2w against mutexInv -- ⟨wait, X⟩
-#narrow w2c against mutexInv -- ⟨crit, idle⟩
-#narrow c2i against mutexInv -- ⊥ under free unification
 
 -- Atomic C-unification problems underlying the three disjunctive narrowings.
 #unify (fun X : Status => (i2w X).lhs) with
@@ -142,7 +104,9 @@ example : (c2i wait).lhs =[UPairTheory] (hasWait crit).term := by
 #unify (fun X : Status => (c2i X).lhs) with
   (fun Y : Status => (hasWait Y).term) in UPairTheory
 
-
+#narrow i2w against mutexInv -- ⟨wait, X⟩
+#narrow w2c against mutexInv -- ⟨crit, idle⟩
+#narrow c2i against mutexInv -- ⊥ under free unification
 
 -- possible renaming: #narrow .. for .. mod ..
 #narrow i2w against mutexInv in UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩
