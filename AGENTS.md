@@ -6,3 +6,4 @@
 - When action is not explicitly authorized, explain the idea and tradeoffs, then wait.
 - Keep explanations as compact as possible. Lead with the conclusion and include only essential reasoning.
 - If authorization is ambiguous, ask before changing anything.
+- After modifying code, recommend a concise, descriptive one-line Git commit message.
