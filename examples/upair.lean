@@ -147,23 +147,38 @@ example : Structural.EqMod UPairTheory
 example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing_mod
   narrow i2w from mutexInv mod UPairTheory := by
+    -- Certification root: generated post ↔ semantic one-step post-image.
+    -- Unifier soundness is available here; this also proves complete overlap
+    -- coverage and correct RHS/constraint materialization.
     intro after
     constructor
-    · intro hpost
+    · -- Soundness: every generated result is a semantic rule result.
+      intro hpost
       rcases hpost with hpost | hpost | hpost
-      · rcases hpost with ⟨X, hafter, _⟩
+      · -- Generic generated branch: ⟨wait, X⟩.
+        rcases hpost with ⟨X, hafter, _⟩
         refine ⟨upair (proc idle) (proc X), ?_, ?_⟩
-        · exact Or.inl ⟨X, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
-        · exact ⟨X, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
-      · rcases hpost with ⟨hafter, _⟩
+        · -- Its predecessor ⟨idle, X⟩ belongs to `mutexInv`.
+          exact Or.inl ⟨X, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
+        · -- `i2w X` rewrites that predecessor to `after`.
+          exact ⟨X, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
+      · -- Specialized generated branch: ⟨wait, idle⟩.
+        rcases hpost with ⟨hafter, _⟩
         refine ⟨upair (proc idle) (proc idle), ?_, ?_⟩
-        · exact Or.inl ⟨idle, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
-        · exact ⟨idle, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
-      · rcases hpost with ⟨hafter, _⟩
+        · -- Its predecessor ⟨idle, idle⟩ belongs to `mutexInv`.
+          exact Or.inl ⟨idle, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
+        · -- `i2w idle` rewrites that predecessor to `after`.
+          exact ⟨idle, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
+      · -- Specialized generated branch: ⟨wait, wait⟩.
+        rcases hpost with ⟨hafter, _⟩
         refine ⟨upair (proc idle) (proc wait), ?_, ?_⟩
-        · exact Or.inl ⟨wait, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
-        · exact ⟨wait, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
-    · rintro ⟨_, _, X, _, hafter, _⟩
+        · -- Its predecessor ⟨idle, wait⟩ belongs to `mutexInv`.
+          exact Or.inl ⟨wait, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
+        · -- `i2w wait` rewrites that predecessor to `after`.
+          exact ⟨wait, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
+    · -- Completeness: every semantic result is in the generated post.
+      rintro ⟨_, _, X, _, hafter, _⟩
+      -- The generic ⟨wait, X⟩ branch covers every such result.
       exact Or.inl ⟨X, hafter, ⟨True.intro, True.intro⟩⟩
 
   -- goal: post ⊑[UPairTheory] mutexInv
