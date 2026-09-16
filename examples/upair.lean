@@ -1,6 +1,7 @@
 import conPanna.conPanna
 
 open framework
+open Structural
 
 /- # Step 1 - Modeling UPair (Unordered Pairs)
   idle | waiting | critical
@@ -34,8 +35,6 @@ inductive Conf where
 instance : State Conf := ⟨⟩
 
 -- register structural axioms
-open scoped Structural -- TODO : avoid naming collision
-
 structural UPairTheory where
   comm Conf.upair
 
