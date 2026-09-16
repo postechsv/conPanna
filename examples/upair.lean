@@ -142,10 +142,9 @@ example : Structural.EqMod UPairTheory
 
 -- Theory-indexed proof interface.
 example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
-  apply mapsInto_via_narrowing_mod
-  narrow i2w against mutexInv in UPairTheory
-  · sorry -- unification completeness / exact-post certification
-  · sorry -- subsumption modulo UPairTheory
+  intro before after _ hstep
+  rcases hstep with ⟨X, _, hrhs, _⟩
+  exact Or.inr ⟨X, hrhs, True.intro⟩
 
 example : i2w ⊢ mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing
