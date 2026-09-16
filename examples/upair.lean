@@ -114,13 +114,11 @@ def mutexInv := hasIdle ⊔ hasWait
 -- Manual checks of the two C-unifiers needed by `c2i`. Swapping the outer
 -- `upair` gives respectively `X = idle, Y = crit` and
 -- `X = wait, Y = crit`.
-example : Structural.EqMod UPairTheory
-    (c2i idle).lhs (hasIdle crit).term := by
+example : (c2i idle).lhs =[UPairTheory] (hasIdle crit).term := by
   simpa [c2i, hasIdle] using
     (Structural.EqMod.comm Conf.upair (proc crit) (proc idle))
 
-example : Structural.EqMod UPairTheory
-    (c2i wait).lhs (hasWait crit).term := by
+example : (c2i wait).lhs =[UPairTheory] (hasWait crit).term := by
   simpa [c2i, hasWait] using
     (Structural.EqMod.comm Conf.upair (proc crit) (proc wait))
 
@@ -158,19 +156,18 @@ example : Structural.EqMod UPairTheory
 
 /- Complete C-unifiers for `i2w.lhs` against `hasIdle.term`. -/
 theorem i2w_hasIdle_complete :
-    ∀ (X Y : Status) (state : Conf),
-      Structural.EqMod UPairTheory (i2w X).lhs state →
-      Structural.EqMod UPairTheory (hasIdle Y).term state →
-      (∃ U : Status, X = U ∧ Y = U ∧ True) ∨
-        X = idle ∧ Y = idle ∧ True := by
-  intro X Y state lhsMatch sourceMatch
-  have overlap := Structural.EqMod.trans lhsMatch sourceMatch.symm
+    ∀ X Y,
+      upair (proc idle) (proc X) =[UPairTheory]
+        upair (proc idle) (proc Y) →
+      (∃ U : Status, X = U ∧ Y = U) ∨
+        X = idle ∧ Y = idle := by
+  intro X Y overlap
   have cases :=
     (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
-  clear lhsMatch sourceMatch state overlap
-  cases cases <;> simp_all [i2w, hasIdle]
-  all_goals
-    rename_i first second
+  clear overlap
+  cases cases with
+  | ofEq equality => simp_all
+  | direct first second | swapped first second =>
     have firstEq := Structural.CEquiv.eq_of_left_not_operation
       (equation := first) (by simp)
     have secondEq := Structural.CEquiv.eq_of_left_not_operation
@@ -179,18 +176,17 @@ theorem i2w_hasIdle_complete :
 
 /- Complete C-unifiers for `i2w.lhs` against `hasWait.term`. -/
 theorem i2w_hasWait_complete :
-    ∀ (X Y : Status) (state : Conf),
-      Structural.EqMod UPairTheory (i2w X).lhs state →
-      Structural.EqMod UPairTheory (hasWait Y).term state →
-      X = wait ∧ Y = idle ∧ True := by
-  intro X Y state lhsMatch sourceMatch
-  have overlap := Structural.EqMod.trans lhsMatch sourceMatch.symm
+    ∀ X Y,
+      upair (proc idle) (proc X) =[UPairTheory]
+        upair (proc wait) (proc Y) →
+      X = wait ∧ Y = idle := by
+  intro X Y overlap
   have cases :=
     (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
-  clear lhsMatch sourceMatch state overlap
-  cases cases <;> simp_all [i2w, hasWait]
-  all_goals
-    rename_i first second
+  clear overlap
+  cases cases with
+  | ofEq equality => simp_all
+  | direct first second | swapped first second =>
     have firstEq := Structural.CEquiv.eq_of_left_not_operation
       (equation := first) (by simp)
     have secondEq := Structural.CEquiv.eq_of_left_not_operation

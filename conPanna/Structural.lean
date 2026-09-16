@@ -227,6 +227,9 @@ inductive EqMod (theory : Theory.{u}) : {α : Type u} → α → α → Prop whe
       [HasIdentity theory operation element] :
       EqMod theory (operation value element) value
 
+notation:50 left:50 " =[" theory "] " right:51 =>
+  EqMod theory left right
+
 namespace EqMod
 
 theorem reflAt (theory : Theory.{u}) {α : Type u} (value : α) :

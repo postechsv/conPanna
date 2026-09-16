@@ -342,8 +342,10 @@ structure ProvenSolutionSet where
   proof : Expr
 
 private def mkAndAll (propositions : Array Expr) : MetaM Expr := do
-  let mut result := Lean.mkConst ``True
-  for proposition in propositions.toList.reverse do
+  if propositions.isEmpty then
+    return Lean.mkConst ``True
+  let mut result := propositions[propositions.size - 1]!
+  for proposition in propositions.toList.dropLast.reverse do
     result ← mkAppM ``And #[proposition, result]
   return result
 
@@ -384,7 +386,7 @@ def instantiateImage (image : Expr) (basis : Array Expr) : Expr :=
 /--
 Turn a branch into its public logical meaning:
 
-`∃ u₁ ... uₖ, x₁ = image₁ u ∧ ... ∧ xₙ = imageₙ u ∧ True`.
+`∃ u₁ ... uₖ, x₁ = image₁ u ∧ ... ∧ xₙ = imageₙ u`.
 -/
 def factorizationType
     (alternative : Alternative) (actualArguments : Array Expr) : MetaM Expr := do
@@ -793,9 +795,9 @@ private partial def withOriginalArguments
     continuation arguments
 
 /--
-State that every common instance modulo `theory` factors through one of the
-computed alternatives. This is the only solver-specific fact required by the
-safety-oriented narrowing interface.
+State that every solution of the explicit equation modulo `theory` factors
+through one of the computed alternatives. This is the only solver-specific
+fact required by the safety-oriented narrowing interface.
 -/
 def completenessType (theory : Expr) (problem : Problem.Input)
     (solutionSet : Certificate.SolutionSet) : MetaM Expr :=
@@ -806,14 +808,11 @@ def completenessType (theory : Expr) (problem : Problem.Input)
     let rhs ← withTransparency .all <| whnf
       (instantiateApplication problem.rhs
         (arguments.extract lhsCount arguments.size))
-    let stateType ← inferType lhs
-    withLocalDeclD `state stateType fun state => do
-      let lhsMatch ← mkAppM ``Structural.EqMod #[theory, lhs, state]
-      let rhsMatch ← mkAppM ``Structural.EqMod #[theory, rhs, state]
-      let (_, factorization) ←
-        Certificate.solutionSetType solutionSet arguments
-      let body ← mkArrow lhsMatch (← mkArrow rhsMatch factorization)
-      mkForallFVars (arguments.push state) body
+    let equation ← mkAppM ``Structural.EqMod #[theory, lhs, rhs]
+    let (_, factorization) ←
+      Certificate.solutionSetType solutionSet arguments
+    let body ← mkArrow equation factorization
+    mkForallFVars arguments body
 
 end ModCertificate
 
@@ -893,7 +892,8 @@ private def exposeAlternativeAt
     goal ← nextGoal.rename fields[0]! basisName
     bodyId := fields[fields.size - 1]!
 
-  for i in [:proven.alternative.images.size] do
+  let equationCount := proven.alternative.images.size
+  for i in [:equationCount - 1] do
     let (nextGoal, fields) ← goal.withContext do singleCases goal bodyId
     unless fields.size >= 2 do
       throwError "malformed conjunction in unifier certificate"
@@ -902,9 +902,13 @@ private def exposeAlternativeAt
     goal ← nextGoal.rename fields[0]! equationName
     bodyId := fields[fields.size - 1]!
 
-  -- The conjunction has a final `True`, used to make the zero-argument case
-  -- uniform.  It is an implementation detail and is removed here.
-  goal ← goal.clear bodyId
+  if equationCount == 0 then
+    goal ← goal.clear bodyId
+  else
+    let equationName ← goal.withContext do
+      return (← getLCtx).getUnusedName
+        (Name.mkSimple s!"h{equationCount}")
+    goal ← goal.rename bodyId equationName
   return goal
 
 private partial def exposeAlternativesAt
