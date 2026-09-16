@@ -461,6 +461,24 @@ def runMod (ref : Syntax) (ruleSyntax sourceSyntax theorySyntax : TSyntax `term)
   | _ =>
       throwError "theory-indexed narrowing produced an unexpected goal shape"
 
+/--
+Run theory-indexed narrowing, discharge its certification goal with the given
+term, and leave subsumption as the ordinary proof continuation.
+-/
+def runModCertified (ref : Syntax)
+    (ruleSyntax sourceSyntax theorySyntax certificateSyntax : TSyntax `term) :
+    TacticM Unit := do
+  runMod ref ruleSyntax sourceSyntax theorySyntax
+  match ← getGoals with
+  | [certificationGoal, subsumptionGoal] =>
+      setGoals [certificationGoal]
+      evalTactic (← `(tactic| exact $certificateSyntax))
+      unless (← getGoals).isEmpty do
+        throwError "the narrowing certification proof left unsolved goals"
+      setGoals [subsumptionGoal]
+  | _ =>
+      throwError "theory-indexed narrowing produced an unexpected goal shape"
+
 end Tactic
 
 
@@ -520,9 +538,13 @@ elab "#narrow " rule:term " against " source:term " in " theory:term : command =
 elab "narrow " rule:term " against " source:term : tactic =>
   Narrowing.Tactic.run rule.raw rule source
 
-/-- Generate a theory-indexed post, certification goal, and subsumption goal. -/
-elab "narrow " rule:term " against " source:term " in " theory:term : tactic =>
-  Narrowing.Tactic.runMod rule.raw rule source theory
+/--
+Generate a theory-indexed post, certify it with the nested term, and leave
+subsumption as the proof continuation.
+-/
+elab "narrow " rule:term " from " source:term " mod " theory:term
+    " := " certificate:term : tactic =>
+  Narrowing.Tactic.runModCertified rule.raw rule source theory certificate
 
 /-- Prove the residual pattern-subsumption phase. -/
 elab "subsume" : tactic =>

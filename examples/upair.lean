@@ -140,18 +140,14 @@ example : Structural.EqMod UPairTheory
 -- but this quality is not from narrowing itself
 -- quality should be handled in unification & post-processing
 
--- Theory-indexed proof interface.
-example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
-  intro before after _ hstep
-  rcases hstep with ⟨X, _, hrhs, _⟩
-  exact Or.inr ⟨X, hrhs, True.intro⟩
 
--- `narrow` generates the post; its certification and subsumption goals are
--- proved explicitly below, without dedicated automation.
+
+-- `narrow` generates the post-image. The nested proof certifies that image;
+-- the following proof is the subsumption continuation.
 example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing_mod
-  narrow i2w against mutexInv in UPairTheory
-  · intro after
+  narrow i2w from mutexInv mod UPairTheory := by
+    intro after
     constructor
     · intro hpost
       rcases hpost with hpost | hpost | hpost
@@ -169,14 +165,24 @@ example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
         · exact ⟨wait, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
     · rintro ⟨_, _, X, _, hafter, _⟩
       exact Or.inl ⟨X, hafter, ⟨True.intro, True.intro⟩⟩
-  · intro after hpost
-    rcases hpost with hpost | hpost | hpost
-    · rcases hpost with ⟨X, hafter, _⟩
-      exact Or.inr ⟨X, hafter, True.intro⟩
-    · rcases hpost with ⟨hafter, _⟩
-      exact Or.inr ⟨idle, hafter, True.intro⟩
-    · rcases hpost with ⟨hafter, _⟩
-      exact Or.inr ⟨wait, hafter, True.intro⟩
+
+  -- goal: post ⊑[UPairTheory] mutexInv
+  intro after hpost
+  rcases hpost with hpost | hpost | hpost
+  · rcases hpost with ⟨X, hafter, _⟩
+    exact Or.inr ⟨X, hafter, True.intro⟩
+  · rcases hpost with ⟨hafter, _⟩
+    exact Or.inr ⟨idle, hafter, True.intro⟩
+  · rcases hpost with ⟨hafter, _⟩
+    exact Or.inr ⟨wait, hafter, True.intro⟩
+
+-- Theory-indexed proof interface.
+-- this proof is unusually short because the rule i2w is assumed as hypothesis
+-- whose rhs always contains `wait`, trivially proving the invaraint pattern
+example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
+  intro before after _ hstep
+  rcases hstep with ⟨X, hlhs, hrhs, hcond⟩
+  exact Or.inr ⟨X, hrhs, True.intro⟩
 
 example : i2w ⊢ mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing
