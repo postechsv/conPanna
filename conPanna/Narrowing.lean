@@ -447,7 +447,7 @@ def proveCoverage (ref : Syntax) (rule source : Expr)
           framework.Patterns.APattMod.semantics,
           framework.Rules.AtRuleMod.semantics,
           $postIdent:term, $unfoldSimps,*]
-        grind))
+        grind [Structural.EqMod.trans, Structural.EqMod.symm]))
   catch exception =>
     throwErrorAt ref m!"failed to lift unification completeness into post coverage:\n{exception.toMessageData}"
   return coverageIdent

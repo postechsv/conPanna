@@ -121,10 +121,9 @@ def mutexInv := hasIdle ⊔ hasWait
 /- Complete C-unifiers for `i2w.lhs` against `hasIdle.term`. -/
 theorem i2w_hasIdle_complete :
     ∀ X Y,
-      upair (proc idle) (proc X) =[UPairTheory]
-        upair (proc idle) (proc Y) →
-      (∃ U : Status, X = U ∧ Y = U) ∨
-        X = idle ∧ Y = idle := by
+      upair (proc idle) (proc X) =[UPairTheory] upair (proc idle) (proc Y)
+    →
+      (∃ U : Status, X = U ∧ Y = U) ∨ (X = idle ∧ Y = idle) := by
   intro X Y overlap
   have cases :=
     (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
@@ -141,8 +140,8 @@ theorem i2w_hasIdle_complete :
 /- Complete C-unifiers for `i2w.lhs` against `hasWait.term`. -/
 theorem i2w_hasWait_complete :
     ∀ X Y,
-      upair (proc idle) (proc X) =[UPairTheory]
-        upair (proc wait) (proc Y) →
+      upair (proc idle) (proc X) =[UPairTheory] upair (proc wait) (proc Y)
+    →
       X = wait ∧ Y = idle := by
   intro X Y overlap
   have cases :=
@@ -176,6 +175,34 @@ example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
     exact Or.inr ⟨idle, hafter, True.intro⟩
   · rcases hpost with ⟨hafter, _⟩
     exact Or.inr ⟨wait, hafter, True.intro⟩
+
+example : w2c ⊢ mutexInv ↪[UPairTheory] mutexInv := by
+  apply mapsInto_via_narrowing_mod
+
+  narrow w2c from mutexInv mod UPairTheory := by
+    sorry
+
+  intro after hpost
+  rcases hpost with ⟨hafter, _⟩ | ⟨hafter, _⟩
+  all_goals
+    exact Or.inl ⟨crit,
+      Structural.EqMod.trans
+        (Structural.EqMod.comm Conf.upair (proc idle) (proc crit))
+        hafter,
+      True.intro⟩
+
+example : c2i ⊢ mutexInv ↪[UPairTheory] mutexInv := by
+  apply mapsInto_via_narrowing_mod
+
+  narrow c2i from mutexInv mod UPairTheory := by
+    sorry
+
+  intro after hpost
+  rcases hpost with hpost | hpost
+  · rcases hpost with ⟨hafter, _⟩
+    exact Or.inl ⟨idle, hafter, True.intro⟩
+  · rcases hpost with ⟨hafter, _⟩
+    exact Or.inl ⟨wait, hafter, True.intro⟩
 
 -- Theory-indexed proof interface.
 -- this proof is unusually short because the rule i2w is assumed as hypothesis
