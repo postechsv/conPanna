@@ -818,95 +818,6 @@ def completenessType (theory : Expr) (problem : Problem.Input)
 end ModCertificate
 
 
-namespace ModCompleteness
-
-private partial def collectUnfoldingDefinitions (expression : Expr)
-    (seen : Array Name := #[]) : CoreM (Array Name) := do
-  let environment ← getEnv
-  match expression.consumeMData with
-  | .const name _ =>
-      let isDefinition := match environment.find? name with
-        | some (.defnInfo _) | some (.opaqueInfo _) => true
-        | _ => false
-      return if isDefinition && !seen.contains name then
-        seen.push name
-      else
-        seen
-  | .app function argument =>
-      let seen ← collectUnfoldingDefinitions function seen
-      collectUnfoldingDefinitions argument seen
-  | .lam _ type body _ | .forallE _ type body _ =>
-      let seen ← collectUnfoldingDefinitions type seen
-      collectUnfoldingDefinitions body seen
-  | .letE _ type value body _ =>
-      let seen ← collectUnfoldingDefinitions type seen
-      let seen ← collectUnfoldingDefinitions value seen
-      collectUnfoldingDefinitions body seen
-  | .proj _ _ value => collectUnfoldingDefinitions value seen
-  | _ => return seen
-
-private def freshAlias (goal : MVarId) (base : Name) (value type : Expr) :
-    MetaM (Ident × MVarId) := do
-  let name ← goal.withContext do
-    return (← getLCtx).getUnusedName base
-  let (_, nextGoal) ← goal.withContext do goal.note name value (some type)
-  return (mkIdent name, nextGoal)
-
-/-- Replay completeness for the currently implemented free-C backend. -/
-def run : TacticM Unit := do
-  evalTactic (← `(tactic| intros))
-  let initialGoal ← getMainGoal
-  let equations ← initialGoal.withContext do
-    let mut result := #[]
-    for declaration in ← getLCtx do
-      unless declaration.isImplementationDetail do
-        let type ← whnf declaration.type
-        if type.getAppFn.isConstOf ``Structural.EqMod then
-          result := result.push (declaration.fvarId, type)
-    return result
-  unless equations.size >= 2 do
-    throwError "`structural_complete` expected two `EqMod` hypotheses"
-  let (leftId, leftType) := equations[equations.size - 2]!
-  let (rightId, rightType) := equations[equations.size - 1]!
-  let leftArgs := leftType.getAppArgs
-  let rightArgs := rightType.getAppArgs
-  unless leftArgs.size >= 3 && rightArgs.size >= 3 do
-    throwError "malformed `EqMod` hypotheses"
-  let unfoldNames ← initialGoal.withContext do
-    let fromLeft ← collectUnfoldingDefinitions leftArgs[leftArgs.size - 2]!
-    collectUnfoldingDefinitions rightArgs[rightArgs.size - 2]! fromLeft
-  let unfoldSimps ← unfoldNames.mapM fun name =>
-    `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
-
-  let (equationProof, equationType) ← initialGoal.withContext do
-    let rightSymm ← mkAppM ``Structural.EqMod.symm #[mkFVar rightId]
-    let equation ← mkAppM ``Structural.EqMod.trans
-      #[mkFVar leftId, rightSymm]
-    return (equation, ← inferType equation)
-  let (equationIdent, goal) ← freshAlias initialGoal `equation
-    equationProof equationType
-  setGoals [goal]
-  let equationTerm ← `(term| $equationIdent:ident)
-  evalTactic (← `(tactic|
-    have cEquation :=
-      (Structural.EqMod.iff_cEquiv _).mp $equationTerm))
-  evalTactic (← `(tactic| cases cEquation))
-  evalTactic (← `(tactic|
-    all_goals simp_all [true_and, $unfoldSimps,*]))
-  evalTactic (← `(tactic|
-    all_goals
-      rename_i first second
-      have firstEq := Structural.CEquiv.eq_of_left_not_operation
-        (equation := first) (by simp)
-      have secondEq := Structural.CEquiv.eq_of_left_not_operation
-        (equation := second) (by simp)
-      skip))
-  evalTactic (← `(tactic|
-    all_goals simp_all [true_and, $unfoldSimps,*]))
-
-end ModCompleteness
-
-
 namespace Inspect
 
 private def formatAlternative (problem : Problem.Input)
@@ -937,41 +848,6 @@ def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
   return message
 
 end Inspect
-
-
-/--
-Declare the completeness certificate computed for one structural unification
-problem. The bowtie is the problem description; the declared theorem has the
-solver-generated completeness proposition as its actual type.
--/
-syntax (name := structuralUnificationCertificate)
-  "unification_certificate " ident " : " term:51
-    " ⋈[" term "] " term:51 " := " term : command
-
-syntax:max "structural_unification_complete% " term:51
-  " ⋈[" term "] " term:51 : term
-
-elab_rules : term
-  | `(structural_unification_complete% $left:term ⋈[$theory:term]
-        $right:term) => do
-      let left ← Term.elabTerm left none
-      let right ← Term.elabTerm right none
-      let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
-      let theory ← Term.elabTerm theory (some theoryType)
-      let problem : Problem.Input := {
-        theory? := some theory
-        lhs := ← Problem.saturatePattern left
-        rhs := ← Problem.saturatePattern right
-      }
-      let solutionSet ← solveStructuralTheory theory problem
-      ModCertificate.completenessType theory problem solutionSet
-
-macro_rules
-  | `(unification_certificate $name:ident : $left:term ⋈[$theory:term]
-        $right:term := $proof:term) =>
-      `(theorem $name :
-          structural_unification_complete% $left ⋈[$theory] $right :=
-        $proof)
 
 
 namespace Exposure
@@ -1405,10 +1281,6 @@ elab "unify " h:ident " in " theory:term : tactic =>
 /-- Attempt to discharge the explicit completeness goal emitted by `unify`. -/
 elab "unify_complete" : tactic =>
   Unification.Completeness.run
-
-/-- Prove completeness for a computed free-C unification solution set. -/
-elab "structural_complete" : tactic =>
-  Unification.ModCompleteness.run
 
 
 end Unification

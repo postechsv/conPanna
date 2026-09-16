@@ -68,8 +68,8 @@ instance : Structural.HasComm UPairTheory Conf.upair where
 
 Because `Conf.upair` is an inductive constructor and this theory is C-only,
 the command also derives internal solver metadata from constructor injectivity.
-That metadata is what lets `structural_complete` replay C completeness without
-model-specific freeness lemmas.
+That metadata supports the reusable C-equivalence lemmas below without
+model-specific freeness assumptions.
 
 `comm` records an equation for the theory-indexed `Structural.EqMod` relation.
 It does not assert the inconsistent Lean equality
@@ -157,16 +157,45 @@ example : Structural.EqMod UPairTheory
 
 
 /- Complete C-unifiers for `i2w.lhs` against `hasIdle.term`. -/
-unification_certificate i2w_hasIdle_complete :
-    (fun X : Status => (i2w X).lhs) ⋈[UPairTheory]
-      (fun Y : Status => (hasIdle Y).term) := by
-  structural_complete
+theorem i2w_hasIdle_complete :
+    ∀ (X Y : Status) (state : Conf),
+      Structural.EqMod UPairTheory (i2w X).lhs state →
+      Structural.EqMod UPairTheory (hasIdle Y).term state →
+      (∃ U : Status, X = U ∧ Y = U ∧ True) ∨
+        X = idle ∧ Y = idle ∧ True := by
+  intro X Y state lhsMatch sourceMatch
+  have overlap := Structural.EqMod.trans lhsMatch sourceMatch.symm
+  have cases :=
+    (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
+  clear lhsMatch sourceMatch state overlap
+  cases cases <;> simp_all [i2w, hasIdle]
+  all_goals
+    rename_i first second
+    have firstEq := Structural.CEquiv.eq_of_left_not_operation
+      (equation := first) (by simp)
+    have secondEq := Structural.CEquiv.eq_of_left_not_operation
+      (equation := second) (by simp)
+    simp_all
 
 /- Complete C-unifiers for `i2w.lhs` against `hasWait.term`. -/
-unification_certificate i2w_hasWait_complete :
-    (fun X : Status => (i2w X).lhs) ⋈[UPairTheory]
-      (fun Y : Status => (hasWait Y).term) := by
-  structural_complete
+theorem i2w_hasWait_complete :
+    ∀ (X Y : Status) (state : Conf),
+      Structural.EqMod UPairTheory (i2w X).lhs state →
+      Structural.EqMod UPairTheory (hasWait Y).term state →
+      X = wait ∧ Y = idle ∧ True := by
+  intro X Y state lhsMatch sourceMatch
+  have overlap := Structural.EqMod.trans lhsMatch sourceMatch.symm
+  have cases :=
+    (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
+  clear lhsMatch sourceMatch state overlap
+  cases cases <;> simp_all [i2w, hasWait]
+  all_goals
+    rename_i first second
+    have firstEq := Structural.CEquiv.eq_of_left_not_operation
+      (equation := first) (by simp)
+    have secondEq := Structural.CEquiv.eq_of_left_not_operation
+      (equation := second) (by simp)
+    simp_all
 
 -- `narrow` suggests a covering post. The nested proof supplies atomic
 -- unification completeness; the following proof is subsumption.
