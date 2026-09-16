@@ -756,6 +756,66 @@ def solveStructural (theory : Expr) (problem : Problem.Input) : MetaM Output := 
   let operations ← structuralCommutativeOperations symbols
   solveWith (isRegisteredOperation operations) problem
 
+private def eqModRefl (theory value : Expr) : MetaM Expr :=
+  mkAppM ``Structural.EqMod.reflAt #[theory, value]
+
+private partial def proveEqModWith (operations : Array Expr)
+    (theory left right : Expr) : MetaM Expr := do
+  if ← withoutModifyingState <| isDefEq left right then
+    return ← eqModRefl theory left
+
+  let left ← exposeHeadWith (isRegisteredOperation operations) left
+  let right ← exposeHeadWith (isRegisteredOperation operations) right
+  let leftHead := left.getAppFn
+  let rightHead := right.getAppFn
+  let leftArguments := left.getAppArgs
+  let rightArguments := right.getAppArgs
+  unless leftArguments.size == rightArguments.size &&
+      (← withoutModifyingState <| isDefEq leftHead rightHead) do
+    throwError "terms are not equivalent modulo the registered C theory"
+
+  let proveArguments (targets : Array Expr) : MetaM Expr := do
+    let mut currentArguments := leftArguments
+    let mut currentTerm := left
+    let mut proof ← eqModRefl theory left
+    for i in [:currentArguments.size] do
+      let argumentProof ←
+        proveEqModWith operations theory currentArguments[i]! targets[i]!
+      let argumentType ← inferType currentArguments[i]!
+      let (function, nextTerm) ← withLocalDeclD `_eqModArgument argumentType
+        fun argument => do
+          let nextArguments := currentArguments.set! i argument
+          let body := mkAppN leftHead nextArguments
+          return (← mkLambdaFVars #[argument] body,
+            mkAppN leftHead (currentArguments.set! i targets[i]!))
+      let step ← mkAppM ``Structural.EqMod.congrAt
+        #[theory, function, argumentProof]
+      proof ← mkAppM ``Structural.EqMod.transAt #[theory, proof, step]
+      currentArguments := currentArguments.set! i targets[i]!
+      currentTerm := nextTerm
+    unless ← withoutModifyingState <| isDefEq currentTerm (mkAppN leftHead targets) do
+      throwError "failed to construct a congruence certificate"
+    return proof
+
+  try
+    return ← proveArguments rightArguments
+  catch _ => pure ()
+
+  unless leftArguments.size == 2 &&
+      (← isRegisteredOperation operations leftHead) do
+    throwError "terms are not equivalent modulo the registered C theory"
+  let swappedTargets := #[rightArguments[1]!, rightArguments[0]!]
+  let congruence ← proveArguments swappedTargets
+  let commutativity ← mkAppM ``Structural.EqMod.commAt
+    #[theory, leftHead, rightArguments[1]!, rightArguments[0]!]
+  mkAppM ``Structural.EqMod.transAt #[theory, congruence, commutativity]
+
+/-- Construct a kernel-checkable `EqMod` proof for a registered C equation. -/
+def proveEqModStructural (theory left right : Expr) : MetaM Expr := do
+  let symbols ← mkAppM ``Structural.Theory.symbols #[theory]
+  let operations ← structuralCommutativeOperations symbols
+  proveEqModWith operations theory left right
+
 end C
 
 
@@ -769,6 +829,54 @@ def solveStructuralTheory (theory : Expr) (problem : Problem.Input) :
   | .c =>
       let output ← C.solveStructural theory problem
       return { alternatives := output.candidates.map (·.alternative) }
+
+
+namespace ModCertificate
+
+private def instantiateApplication (pattern : Problem.SaturatedPattern)
+    (arguments : Array Expr) : Expr :=
+  pattern.application.replace fun subterm =>
+    match subterm with
+    | .mvar id =>
+        match pattern.arguments.findIdx? fun argument =>
+            argument.isMVar && argument.mvarId! == id with
+        | some index => arguments[index]?
+        | none => none
+    | _ => none
+
+private partial def withBasisVariables
+    {α : Type} (types : Array Expr) (index : Nat) (variables : Array Expr)
+    (continuation : Array Expr → MetaM α) : MetaM α := do
+  if _h : index < types.size then
+    withLocalDeclD (Name.mkSimple s!"u{index + 1}") types[index]!
+      fun basisVariable =>
+        withBasisVariables types (index + 1) (variables.push basisVariable)
+          continuation
+  else
+    continuation variables
+
+/--
+Construct the candidate-specific soundness certificate
+`∀ basis, EqMod theory (lhs σ) (rhs σ)`.
+-/
+def proveSoundness (theory : Expr) (problem : Problem.Input)
+    (alternative : Certificate.Alternative) : MetaM Expr :=
+  withBasisVariables alternative.basisTypes 0 #[] fun basis => do
+    let mut images := #[]
+    for image in alternative.images do
+      images := images.push (← whnf
+        (Certificate.instantiateImage image basis))
+    let lhsCount := problem.lhs.arguments.size
+    unless images.size == lhsCount + problem.rhs.arguments.size do
+      throwError "a structural unifier has the wrong number of images"
+    let lhs ← withTransparency .all <| whnf
+      (instantiateApplication problem.lhs (images.extract 0 lhsCount))
+    let rhs ← withTransparency .all <| whnf
+      (instantiateApplication problem.rhs (images.extract lhsCount images.size))
+    let proof ← C.proveEqModStructural theory lhs rhs
+    mkLambdaFVars basis proof
+
+end ModCertificate
 
 
 namespace Inspect
@@ -1303,8 +1411,5 @@ elab "unify_complete" : tactic =>
 
 
 end Unification
-
-
-
 
 

@@ -49,8 +49,14 @@ def UPairTheory : Structural.Theory where
       Structural.OperatorLaw.commutative
     ]
   ]
+  commutative := [
+    Structural.CommutativeDeclaration.declare Conf.upair
+  ]
 
-instance : Structural.HasComm UPairTheory Conf.upair := ⟨True.intro⟩
+instance : Structural.HasComm UPairTheory Conf.upair where
+  declaration := Structural.CommutativeDeclaration.declare Conf.upair
+  member := by simp [UPairTheory]
+  operation_eq := HEq.rfl
 ```
 
 `comm` records an equation for the theory-indexed `Structural.EqMod` relation.
@@ -133,6 +139,13 @@ example : Structural.EqMod UPairTheory
 -- above result is correct but contains redundant patterns (low quality)
 -- but this quality is not from narrowing itself
 -- quality should be handled in unification & post-processing
+
+-- Theory-indexed proof interface.
+example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow i2w against mutexInv in UPairTheory
+  · sorry -- unification completeness / exact-post certification
+  · sorry -- subsumption modulo UPairTheory
 
 example : i2w ⊢ mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing

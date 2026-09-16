@@ -1,4 +1,5 @@
 import conPanna.Unification
+import conPanna.StructuralSemantics
 
 open Lean Meta Elab Term Tactic
 open framework framework.Patterns
@@ -411,6 +412,55 @@ def run (ref : Syntax) (ruleSyntax sourceSyntax : TSyntax `term) : TacticM Unit 
     refine ⟨_, inferInstance, $postIdent:term,
       $narrowingIdent:term, ?_⟩))
 
+/--
+Generate a post modulo a structural theory. Candidate soundness is checked and
+added to the context; exact post-image certification and subsumption remain as
+the first and second user goals respectively.
+-/
+def runMod (ref : Syntax) (ruleSyntax sourceSyntax theorySyntax : TSyntax `term) :
+    TacticM Unit := do
+  let initialGoal ← getMainGoal
+  let (theory, alternatives, generatedPost) ←
+      initialGoal.withContext do
+    ensureDecompositionGoal initialGoal
+    let rule ← Tactic.elabTerm ruleSyntax.raw none
+    let source ← Tactic.elabTerm sourceSyntax.raw none
+    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+    let theory ← Tactic.elabTerm theorySyntax.raw (some theoryType)
+    let problem ← Problem.ofPattern rule source
+    let alternatives ← Backend.solvePattern problem (some theory)
+    let generatedPost ← Materialization.post problem.stateType alternatives
+    return (theory, alternatives, generatedPost)
+
+  let mut soundnessProofs := #[]
+  for alternative in alternatives do
+    let proof ← initialGoal.withContext do
+      Unification.ModCertificate.proveSoundness theory
+        alternative.problem.unification alternative.alternative
+    soundnessProofs := soundnessProofs.push proof
+
+  let postIdent ← bindPost ref generatedPost
+  let mut goal ← getMainGoal
+  for i in [:soundnessProofs.size] do
+    let proof := soundnessProofs[i]!
+    let proposition ← goal.withContext do inferType proof
+    let name ← goal.withContext do
+      return (← getLCtx).getUnusedName
+        (Name.mkSimple s!"unifierSoundness{i + 1}")
+    let (_, nextGoal) ← goal.withContext do
+      goal.note name proof (some proposition)
+    goal := nextGoal
+  setGoals [goal]
+
+  evalTactic (← `(tactic|
+    refine ⟨_, inferInstance, $postIdent:term, ?_, ?_⟩))
+  match ← getGoals with
+  | [certificationGoal, subsumptionGoal] =>
+      certificationGoal.setTag `certification
+      subsumptionGoal.setTag `subsumption
+  | _ =>
+      throwError "theory-indexed narrowing produced an unexpected goal shape"
+
 end Tactic
 
 
@@ -469,6 +519,10 @@ elab "#narrow " rule:term " against " source:term " in " theory:term : command =
 /-- Generate the post and certify one constrained narrowing phase. -/
 elab "narrow " rule:term " against " source:term : tactic =>
   Narrowing.Tactic.run rule.raw rule source
+
+/-- Generate a theory-indexed post, certification goal, and subsumption goal. -/
+elab "narrow " rule:term " against " source:term " in " theory:term : tactic =>
+  Narrowing.Tactic.runMod rule.raw rule source theory
 
 /-- Prove the residual pattern-subsumption phase. -/
 elab "subsume" : tactic =>
