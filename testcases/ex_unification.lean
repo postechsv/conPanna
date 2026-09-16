@@ -83,6 +83,7 @@ def pairRight (y1 y2 : Conf) : Conf := f (f y1 y2) (f y2 y1)
 -- Y2 --> %2:Term
 
 #check pairLeft ⋈ pairRight -- : Prop
+#unify pairLeft with pairRight
 
 example (h : pairLeft ⋈ pairRight) : True := by
   unify h

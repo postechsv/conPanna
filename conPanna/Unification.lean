@@ -832,12 +832,8 @@ private def formatAlternative (problem : Problem.Input)
     message := m!"{message}\n  {side}.{name} ↦ {image}"
   return message
 
-/-- Display a structural unification solution set without opening a proof. -/
-def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
-  let lhs ← Problem.saturatePattern left
-  let rhs ← Problem.saturatePattern right
-  let problem : Problem.Input := { theory? := some theory, lhs, rhs }
-  let solutionSet ← solveStructuralTheory theory problem
+private def formatSolutionSet (problem : Problem.Input)
+    (solutionSet : Certificate.SolutionSet) : MetaM MessageData := do
   if solutionSet.alternatives.isEmpty then
     return m!"no unifier"
   let mut message := m!""
@@ -845,6 +841,24 @@ def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
     let alternative ← formatAlternative problem solutionSet.alternatives[i]! i
     message := if i == 0 then alternative else m!"{message}\n{alternative}"
   return message
+
+/-- Display a free unification solution set without opening a proof. -/
+def unifiers (left right : Expr) : MetaM MessageData := do
+  let lhs ← Problem.saturatePattern left
+  let rhs ← Problem.saturatePattern right
+  let problem : Problem.Input := { lhs, rhs }
+  let output ← Free.solve problem
+  formatSolutionSet problem {
+    alternatives := output.candidates.map (·.alternative)
+  }
+
+/-- Display a structural unification solution set without opening a proof. -/
+def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
+  let lhs ← Problem.saturatePattern left
+  let rhs ← Problem.saturatePattern right
+  let problem : Problem.Input := { theory? := some theory, lhs, rhs }
+  let solutionSet ← solveStructuralTheory theory problem
+  formatSolutionSet problem solutionSet
 
 end Inspect
 
@@ -1260,8 +1274,15 @@ def run : TacticM Unit := do
 end Completeness
 
 
+/-- Compute and display free unifiers. -/
+elab "#unify " left:term " with " right:term : command => do
+  Lean.Elab.Command.liftTermElabM do
+    let left ← Term.elabTerm left none
+    let right ← Term.elabTerm right none
+    logInfo (← Inspect.unifiers left right)
+
 /-- Compute and display unifiers modulo a declarative structural theory. -/
-elab "#unify " left:term " with " right:term " in " theory:term : command => do
+elab "#unify " left:term " with " right:term " mod " theory:term : command => do
   Lean.Elab.Command.liftTermElabM do
     let left ← Term.elabTerm left none
     let right ← Term.elabTerm right none

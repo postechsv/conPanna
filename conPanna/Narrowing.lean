@@ -571,7 +571,7 @@ def run : TacticM Unit := do
 end Subsumption
 
 /-- Compute and display a narrowing post without opening a proof goal. -/
-elab "#narrow " rule:term " against " source:term : command => do
+elab "#narrow " rule:term " from " source:term : command => do
   Lean.Elab.Command.liftTermElabM do
     let rule ← Term.elabTerm rule none
     let source ← Term.elabTerm source none
@@ -581,7 +581,7 @@ elab "#narrow " rule:term " against " source:term : command => do
     logInfo m!"post: {post.value}\ntype: {post.type}"
 
 /-- Compute and display a narrowing post modulo a structural theory. -/
-elab "#narrow " rule:term " against " source:term " in " theory:term : command => do
+elab "#narrow " rule:term " from " source:term " mod " theory:term : command => do
   Lean.Elab.Command.liftTermElabM do
     let rule ← Term.elabTerm rule none
     let source ← Term.elabTerm source none

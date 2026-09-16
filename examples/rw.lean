@@ -98,7 +98,7 @@ def inv' :=
   (fun N => framework.Patterns.APattBody.mk (Conf.mk N o) True) ⊔
   framework.Patterns.APattBody.mk (Conf.mk o (s o)) True
 
-#narrow enter_w against inv
+#narrow enter_w from inv
 
 example : enter_w ⊢ inv ↪ inv := by
   apply mapsInto_via_narrowing
@@ -128,6 +128,6 @@ def inc_rw (R W : Natural) : RuleBody Conf where
 
 -- < N, 0 > => < s N, s 0 >
 -- < 0, s(0) > => < s 0, s s(0) >
-#narrow inc_rw against inv
+#narrow inc_rw from inv
 -- (fun u1 ↦ { term := { first := u1.s, second := o.s }, requires := True ∧ True })
 -- ⊔ { term := { first := o.s, second := o.s.s }, requires := True ∧ True }

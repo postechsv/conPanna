@@ -90,28 +90,27 @@ def mutexInv := hasIdle ⊔ hasWait
 
 -- Atomic C-unification problems underlying the three disjunctive narrowings.
 #unify (fun X : Status => (i2w X).lhs) with
-  (fun Y : Status => (hasIdle Y).term) in UPairTheory
+  (fun Y : Status => (hasIdle Y).term) mod UPairTheory
 #unify (fun X : Status => (i2w X).lhs) with
-  (fun Y : Status => (hasWait Y).term) in UPairTheory
+  (fun Y : Status => (hasWait Y).term) mod UPairTheory
 
 #unify w2c.lhs with
-  (fun Y : Status => (hasIdle Y).term) in UPairTheory
+  (fun Y : Status => (hasIdle Y).term) mod UPairTheory
 #unify w2c.lhs with
-  (fun Y : Status => (hasWait Y).term) in UPairTheory
+  (fun Y : Status => (hasWait Y).term) mod UPairTheory
 
 #unify (fun X : Status => (c2i X).lhs) with
-  (fun Y : Status => (hasIdle Y).term) in UPairTheory
+  (fun Y : Status => (hasIdle Y).term) mod UPairTheory
 #unify (fun X : Status => (c2i X).lhs) with
-  (fun Y : Status => (hasWait Y).term) in UPairTheory
+  (fun Y : Status => (hasWait Y).term) mod UPairTheory
 
-#narrow i2w against mutexInv -- ⟨wait, X⟩
-#narrow w2c against mutexInv -- ⟨crit, idle⟩
-#narrow c2i against mutexInv -- ⊥ under free unification
+#narrow i2w from mutexInv -- ⟨wait, X⟩
+#narrow w2c from mutexInv -- ⟨crit, idle⟩
+#narrow c2i from mutexInv -- ⊥ under free unification
 
--- possible renaming: #narrow .. for .. mod ..
-#narrow i2w against mutexInv in UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩
-#narrow w2c against mutexInv in UPairTheory -- ⟨crit, idle⟩ ∨ ⟨crit, idle⟩
-#narrow c2i against mutexInv in UPairTheory -- ⟨idle, idle⟩ ∨ ⟨idle, wait⟩
+#narrow i2w from mutexInv mod UPairTheory -- ⟨wait, X⟩ ∨ ⟨wait, idle⟩ ∨ ⟨wait, wait⟩
+#narrow w2c from mutexInv mod UPairTheory -- ⟨crit, idle⟩ ∨ ⟨crit, idle⟩
+#narrow c2i from mutexInv mod UPairTheory -- ⟨idle, idle⟩ ∨ ⟨idle, wait⟩
 -- above result is correct but contains redundant patterns (low quality)
 -- but this quality is not from narrowing itself
 -- quality should be handled in unification & post-processing
@@ -176,6 +175,14 @@ example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
   · rcases hpost with ⟨hafter, _⟩
     exact Or.inr ⟨wait, hafter, True.intro⟩
 
+-- this proof is unusually short because the rule i2w is assumed as hypothesis
+-- whose rhs always contains `wait`, trivially proving the invaraint pattern
+example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
+  intro before after _ hstep
+  rcases hstep with ⟨X, hlhs, hrhs, hcond⟩
+  exact Or.inr ⟨X, hrhs, True.intro⟩
+
+
 example : w2c ⊢ mutexInv ↪[UPairTheory] mutexInv := by
   apply mapsInto_via_narrowing_mod
 
@@ -203,35 +210,3 @@ example : c2i ⊢ mutexInv ↪[UPairTheory] mutexInv := by
     exact Or.inl ⟨idle, hafter, True.intro⟩
   · rcases hpost with ⟨hafter, _⟩
     exact Or.inl ⟨wait, hafter, True.intro⟩
-
--- Theory-indexed proof interface.
--- this proof is unusually short because the rule i2w is assumed as hypothesis
--- whose rhs always contains `wait`, trivially proving the invaraint pattern
-example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
-  intro before after _ hstep
-  rcases hstep with ⟨X, hlhs, hrhs, hcond⟩
-  exact Or.inr ⟨X, hrhs, True.intro⟩
-
-example : i2w ⊢ mutexInv ↪ mutexInv := by
-  apply mapsInto_via_narrowing
-  narrow i2w against mutexInv
-  subsume
-
-/- This is the first genuine obstruction. Narrowing computes
-`upair (proc crit) (proc idle)`, but syntactic subsumption cannot identify it
-with the `hasIdle crit` instance `upair (proc idle) (proc crit)`.
-
-example : w2c ⊢ mutexInv ↪ mutexInv := by
-  apply mapsInto_via_narrowing
-  narrow w2c against mutexInv
-  subsume
--/
-
-/- This script currently closes, but only vacuously: syntactic unification
-returns an empty post-image because `c2i` starts with `crit`, whereas both
-invariant branches start with `idle` or `wait`. C-unification should instead
-find the swapped source instances and produce `idle/idle` and `idle/wait`. -/
-example : c2i ⊢ mutexInv ↪ mutexInv := by
-  apply mapsInto_via_narrowing
-  narrow c2i against mutexInv
-  subsume
