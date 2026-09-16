@@ -100,9 +100,6 @@ def NarrowsToMod (theory : Structural.Theory.{u})
     PatternMod.semantics theory post after ↔
       postImageMod theory rule source after
 
-notation:40 rule " ⊢[" theory "] " source " ↝ " post =>
-  NarrowsToMod theory rule source post
-
 /-- A computed post overapproximates every semantic one-step result. -/
 def CoversPostMod (theory : Structural.Theory.{u})
     {α : Type u} {P : Type v} {Post : Type w} {R : Type x}
@@ -112,7 +109,7 @@ def CoversPostMod (theory : Structural.Theory.{u})
   ∀ after, postImageMod theory rule source after →
     PatternMod.semantics theory post after
 
-notation:40 rule " ⊢[" theory "] " source " ↝≤ " post =>
+notation:40 rule:41 " ⊢ " source:41 " ↝[" theory "] " post:41 =>
   CoversPostMod theory rule source post
 
 def mapsIntoMod (theory : Structural.Theory.{u})
@@ -125,7 +122,7 @@ def mapsIntoMod (theory : Structural.Theory.{u})
     AtRuleMod.semantics theory rule before after →
     PatternMod.semantics theory target after
 
-notation:40 rule " ⊢[" theory "] " source " ↪ " target =>
+notation:40 rule:41 " ⊢ " source:41 " ↪[" theory "] " target:41 =>
   mapsIntoMod theory rule source target
 
 theorem mapsInto_of_narrowsTo_of_subsumes_mod

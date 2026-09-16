@@ -195,7 +195,7 @@ theorem i2w_hasWait_complete :
 
 -- `narrow` suggests a covering post. The nested proof supplies atomic
 -- unification completeness; the following proof is subsumption.
-example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
+example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
   -- step 1) decompose
   apply mapsInto_via_narrowing_mod
 
@@ -216,7 +216,7 @@ example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
 -- Theory-indexed proof interface.
 -- this proof is unusually short because the rule i2w is assumed as hypothesis
 -- whose rhs always contains `wait`, trivially proving the invaraint pattern
-example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
+example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
   intro before after _ hstep
   rcases hstep with ⟨X, hlhs, hrhs, hcond⟩
   exact Or.inr ⟨X, hrhs, True.intro⟩
