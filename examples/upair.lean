@@ -146,6 +146,38 @@ example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
   rcases hstep with ⟨X, _, hrhs, _⟩
   exact Or.inr ⟨X, hrhs, True.intro⟩
 
+-- `narrow` generates the post; its certification and subsumption goals are
+-- proved explicitly below, without dedicated automation.
+example : i2w ⊢[UPairTheory] mutexInv ↪ mutexInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow i2w against mutexInv in UPairTheory
+  · intro after
+    constructor
+    · intro hpost
+      rcases hpost with hpost | hpost | hpost
+      · rcases hpost with ⟨X, hafter, _⟩
+        refine ⟨upair (proc idle) (proc X), ?_, ?_⟩
+        · exact Or.inl ⟨X, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
+        · exact ⟨X, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
+      · rcases hpost with ⟨hafter, _⟩
+        refine ⟨upair (proc idle) (proc idle), ?_, ?_⟩
+        · exact Or.inl ⟨idle, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
+        · exact ⟨idle, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
+      · rcases hpost with ⟨hafter, _⟩
+        refine ⟨upair (proc idle) (proc wait), ?_, ?_⟩
+        · exact Or.inl ⟨wait, Structural.EqMod.reflAt UPairTheory _, True.intro⟩
+        · exact ⟨wait, Structural.EqMod.reflAt UPairTheory _, hafter, True.intro⟩
+    · rintro ⟨_, _, X, _, hafter, _⟩
+      exact Or.inl ⟨X, hafter, ⟨True.intro, True.intro⟩⟩
+  · intro after hpost
+    rcases hpost with hpost | hpost | hpost
+    · rcases hpost with ⟨X, hafter, _⟩
+      exact Or.inr ⟨X, hafter, True.intro⟩
+    · rcases hpost with ⟨hafter, _⟩
+      exact Or.inr ⟨idle, hafter, True.intro⟩
+    · rcases hpost with ⟨hafter, _⟩
+      exact Or.inr ⟨wait, hafter, True.intro⟩
+
 example : i2w ⊢ mutexInv ↪ mutexInv := by
   apply mapsInto_via_narrowing
   narrow i2w against mutexInv
