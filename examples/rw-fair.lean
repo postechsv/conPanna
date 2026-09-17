@@ -1,3 +1,4 @@
+import Mathlib.Data.Multiset.AddSub
 import conPanna.conPanna
 
 set_option conPanna.unification.useMaude true
@@ -277,3 +278,79 @@ R ⊢ S ↪ T₁   R ⊢ S ↪ T₂
          (R₁ ⊔ R₂)* ⊢ I ↪[B] I
 
 -/
+
+/-!
+## Optional Mathlib multiset view
+
+This section is deliberately separate from the ordinary narrowing proofs
+above.  It interprets the free ACU `Count` syntax in Mathlib and transports a
+Mathlib equality back to `EqMod`.
+-/
+
+namespace Count
+
+def toMultiset : Count → Multiset Unit
+  | zero => 0
+  | one => {()}
+  | add left right => left.toMultiset + right.toMultiset
+
+@[simp] theorem toMultiset_zero : zero.toMultiset = 0 := rfl
+@[simp] theorem toMultiset_one : one.toMultiset = {()} := rfl
+@[simp] theorem toMultiset_add (left right : Count) :
+    (add left right).toMultiset = left.toMultiset + right.toMultiset := rfl
+
+private def fromCard : Nat → Count
+  | 0 => zero
+  | n + 1 => add one (fromCard n)
+
+private theorem fromCard_add (left right : Nat) :
+    add (fromCard left) (fromCard right) =[B] fromCard (left + right) := by
+  induction left with
+  | zero =>
+      simpa [fromCard] using
+        (Structural.EqMod.identityLeft (theory := B)
+          Count.add Count.zero (fromCard right))
+  | succ left ih =>
+      simpa [fromCard, Nat.succ_add] using Structural.EqMod.transAt B
+        (.assoc Count.add Count.one (fromCard left) (fromCard right))
+        (.congr Count.add (.ofEq rfl) ih)
+
+private theorem eqMod_normalize (value : Count) :
+    value =[B] fromCard value.toMultiset.card := by
+  induction value with
+  | zero => exact .ofEq rfl
+  | one => exact .symm (.identityRight Count.add Count.zero Count.one)
+  | add left right leftIH rightIH =>
+      simpa using Structural.EqMod.transAt B
+        (.congr Count.add leftIH rightIH)
+        (fromCard_add left.toMultiset.card right.toMultiset.card)
+
+theorem viaMultiset {left right : Count}
+    (equality : left.toMultiset = right.toMultiset) : left =[B] right := by
+  exact Structural.EqMod.transAt B (eqMod_normalize left) <|
+    Structural.EqMod.transAt B
+      (.ofEq (congrArg (fromCard ∘ Multiset.card) equality))
+      (.symm (eqMod_normalize right))
+
+end Count
+
+example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow writerIn from rwFairInv mod B := by
+    sorry
+  subsume_cases
+  · intro state hpost
+    rcases hpost with ⟨u, hstate, _⟩
+    refine Or.inr (Or.inl ⟨u, ?_, True.intro⟩)
+    apply Structural.EqMod.transAt B ?_ hstate
+    change
+      Conf.mk (Count.add u Count.one) Count.zero true Count.zero
+          (Count.add u Count.one) =[B]
+        Conf.mk (Count.add Count.one u) Count.zero true Count.zero
+          (Count.add Count.one u)
+    have hcount : (u + 1) =[B] (1 + u) := by
+      apply Count.viaMultiset
+      exact Multiset.add_comm _ _
+    exact Structural.EqMod.constructorAt B <|
+      .app (.app (.app (.app (.app (.head Conf.mk)
+        hcount) (.ofEq rfl)) (.ofEq rfl)) (.ofEq rfl)) hcount
