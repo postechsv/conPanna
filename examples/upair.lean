@@ -157,10 +157,10 @@ theorem i2w_hasWait_complete :
 -- `narrow` suggests a covering post. The nested proof supplies atomic
 -- unification completeness; the following proof is subsumption.
 example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
-  -- step 1) decompose
+  -- step 1) decompose (pivoting on post)
   apply mapsInto_via_narrowing_mod
 
-  -- step 2) narrowing
+  -- step 2) narrowing (i2w ⊢ mutexInv ↪[UPairTheory] ?post)
   narrow i2w from mutexInv mod UPairTheory := by
     exact ⟨i2w_hasIdle_complete, i2w_hasWait_complete⟩
 

@@ -411,10 +411,10 @@ private def splitConjunction (propositions : Array Expr) (proof : Expr) :
   return result.push remaining
 
 /--
-Lift atomic unification completeness into semantic post coverage. The lifting
+Lift atomic unification completeness into a `mapsIntoMod` proof. The lifting
 is generic; solver-specific reasoning is confined to the supplied proofs.
 -/
-def proveCoverage (ref : Syntax) (rule source : Expr)
+def proveMapsInto (ref : Syntax) (rule source : Expr)
     (sourceBranches : Array Expr)
     (ruleSyntax sourceSyntax theorySyntax : TSyntax `term)
     (postIdent : Ident) (propositions : Array Expr) (bundleProof : Expr) :
@@ -430,27 +430,26 @@ def proveCoverage (ref : Syntax) (rule source : Expr)
     goal := nextGoal
   setGoals [goal]
 
-  let coverageIdent ←
-    Unification.Exposure.freshVisibleIdent ref `coverage
+  let mapsIntoIdent ←
+    Unification.Exposure.freshVisibleIdent ref `mapsInto
   let unfoldNames ← Closure.unfoldingDefinitions
     (#[rule, source] ++ sourceBranches)
   let unfoldSimps ← unfoldNames.mapM fun name =>
     `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
   try
     evalTactic (← `(tactic|
-      have $coverageIdent:ident :
-          framework.Rules.CoversPostMod $theorySyntax
+      have $mapsIntoIdent:ident :
+          framework.Rules.mapsIntoMod $theorySyntax
             $ruleSyntax $sourceSyntax ($postIdent:term) := by
-        simp only [framework.Rules.CoversPostMod,
-          framework.Rules.postImageMod,
+        simp only [framework.Rules.mapsIntoMod,
           framework.Patterns.PatternMod.semantics,
           framework.Patterns.APattMod.semantics,
           framework.Rules.AtRuleMod.semantics,
           $postIdent:term, $unfoldSimps,*]
         grind [Structural.EqMod.trans, Structural.EqMod.symm]))
   catch exception =>
-    throwErrorAt ref m!"failed to lift unification completeness into post coverage:\n{exception.toMessageData}"
-  return coverageIdent
+    throwErrorAt ref m!"failed to lift unification completeness into maps-into:\n{exception.toMessageData}"
+  return mapsIntoIdent
 
 end Certification
 
@@ -530,12 +529,12 @@ def runModCertified (ref : Syntax)
     Lean.Elab.Tactic.elabTermEnsuringType certificateSyntax.raw
       (some bundleType)
   let postIdent ← bindPost ref generatedPost
-  let coverageIdent ← Certification.proveCoverage ref rule source
+  let mapsIntoIdent ← Certification.proveMapsInto ref rule source
     sourceBranches ruleSyntax sourceSyntax theorySyntax postIdent propositions
     bundleProof
 
   evalTactic (← `(tactic|
-    refine ⟨_, inferInstance, $postIdent:term, $coverageIdent:term, ?_⟩))
+    refine ⟨_, inferInstance, $postIdent:term, $mapsIntoIdent:term, ?_⟩))
 
 end Tactic
 

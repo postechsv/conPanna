@@ -91,7 +91,8 @@ def postImageMod (theory : Structural.Theory.{u})
     PatternMod.semantics theory source before ∧
     AtRuleMod.semantics theory rule before after
 
-def NarrowsToMod (theory : Structural.Theory.{u})
+/-- Strong narrowing: `post` is exactly the semantic one-step image. -/
+def MapsInAndOnto (theory : Structural.Theory.{u})
     {α : Type u} {P : Type v} {Post : Type w} {R : Type x}
     [State α] [PatternMod theory α P] [PatternMod theory α Post]
     [AtRuleMod theory α R]
@@ -100,17 +101,8 @@ def NarrowsToMod (theory : Structural.Theory.{u})
     PatternMod.semantics theory post after ↔
       postImageMod theory rule source after
 
-/-- A computed post overapproximates every semantic one-step result. -/
-def CoversPostMod (theory : Structural.Theory.{u})
-    {α : Type u} {P : Type v} {Post : Type w} {R : Type x}
-    [State α] [PatternMod theory α P] [PatternMod theory α Post]
-    [AtRuleMod theory α R]
-    (rule : R) (source : P) (post : Post) : Prop :=
-  ∀ after, postImageMod theory rule source after →
-    PatternMod.semantics theory post after
-
 notation:40 rule:41 " ⊢ " source:41 " ↝[" theory "] " post:41 =>
-  CoversPostMod theory rule source post
+  MapsInAndOnto theory rule source post
 
 def mapsIntoMod (theory : Structural.Theory.{u})
     {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
@@ -125,33 +117,33 @@ def mapsIntoMod (theory : Structural.Theory.{u})
 notation:40 rule:41 " ⊢ " source:41 " ↪[" theory "] " target:41 =>
   mapsIntoMod theory rule source target
 
-theorem mapsInto_of_narrowsTo_of_subsumes_mod
+theorem mapsInto_of_mapsInAndOnto_of_subsumes_mod
     {theory : Structural.Theory.{u}}
     {α : Type u} {P : Type v} {Post : Type w} {Q : Type x}
     {R : Type y} [State α] [PatternMod theory α P]
     [PatternMod theory α Post] [PatternMod theory α Q]
     [AtRuleMod theory α R]
     {rule : R} {source : P} {post : Post} {target : Q}
-    (hnarrow : NarrowsToMod theory rule source post)
+    (hnarrow : MapsInAndOnto theory rule source post)
     (hsubsumes : SubsumesMod theory post target) :
     mapsIntoMod theory rule source target := by
   intro before after hsource hrule
   apply hsubsumes after
   exact (hnarrow after).2 ⟨before, hsource, hrule⟩
 
-theorem mapsInto_of_cover_of_subsumes_mod
+theorem mapsInto_of_mapsInto_of_subsumes_mod
     {theory : Structural.Theory.{u}}
     {α : Type u} {P : Type v} {Post : Type w} {Q : Type x}
     {R : Type y} [State α] [PatternMod theory α P]
     [PatternMod theory α Post] [PatternMod theory α Q]
     [AtRuleMod theory α R]
     {rule : R} {source : P} {post : Post} {target : Q}
-    (hcover : CoversPostMod theory rule source post)
+    (hpost : mapsIntoMod theory rule source post)
     (hsubsumes : SubsumesMod theory post target) :
     mapsIntoMod theory rule source target := by
   intro before after hsource hrule
   apply hsubsumes after
-  exact hcover after ⟨before, hsource, hrule⟩
+  exact hpost before after hsource hrule
 
 theorem mapsInto_via_narrowing_mod
     {theory : Structural.Theory.{u}}
@@ -163,22 +155,23 @@ theorem mapsInto_via_narrowing_mod
     (decomposition :
       ∃ (Post : Type y) (postPattern : PatternMod theory α Post)
           (post : Post),
-        @CoversPostMod theory α P Post R state sourcePattern postPattern
+        @mapsIntoMod theory α P Post R state sourcePattern postPattern
             ruleSemantics rule source post ∧
         @SubsumesMod theory α Post Q state postPattern targetPattern
             post target) :
     mapsIntoMod theory rule source target := by
   rcases decomposition with
     ⟨Post, postPattern, post, narrowing, subsumption⟩
-  exact @mapsInto_of_cover_of_subsumes_mod theory α P Post Q R
+  exact @mapsInto_of_mapsInto_of_subsumes_mod theory α P Post Q R
     state sourcePattern postPattern targetPattern ruleSemantics
     rule source post target narrowing subsumption
 
 end Rules
 
 export Patterns (APattMod PatternMod SubsumesMod)
-export Rules (AtRuleMod postImageMod NarrowsToMod CoversPostMod mapsIntoMod
-  mapsInto_of_narrowsTo_of_subsumes_mod mapsInto_of_cover_of_subsumes_mod
+export Rules (AtRuleMod postImageMod MapsInAndOnto mapsIntoMod
+  mapsInto_of_mapsInAndOnto_of_subsumes_mod
+  mapsInto_of_mapsInto_of_subsumes_mod
   mapsInto_via_narrowing_mod)
 
 end framework
