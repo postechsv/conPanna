@@ -282,9 +282,40 @@ R ⊢ S ↪ T₁   R ⊢ S ↪ T₂
 /-!
 ## Optional Mathlib multiset view
 
-This section is deliberately separate from the ordinary narrowing proofs
-above.  It interprets the free ACU `Count` syntax in Mathlib and transports a
-Mathlib equality back to `EqMod`.
+This experiment is deliberately separate from the ordinary narrowing proofs.
+-/
+
+/-!
+### Library-side API prototype
+
+This generic definition and theorem should eventually move into `conPanna`.
+They are not specific to `Count` or the readers-writers model.
+-/
+
+namespace Structural
+
+structure MultisetView (theory : Theory) (Term Atom : Type) where
+  encode : Term → Multiset Atom
+  decode : Multiset Atom → Term
+  normalize : ∀ term, term =[theory] decode (encode term)
+
+theorem MultisetView.eqMod_of_eq
+    {theory : Theory} {Term Atom : Type}
+    (view : MultisetView theory Term Atom) {left right : Term}
+    (equality : view.encode left = view.encode right) :
+    left =[theory] right := by
+  exact EqMod.transAt theory (view.normalize left) <|
+    EqMod.transAt theory
+      (.ofEq (congrArg view.decode equality))
+      (.symm (view.normalize right))
+
+end Structural
+
+/-!
+### Generated model bridge prototype
+
+This block is model-specific, but a future extension of `structural B` should
+generate it.  An end user should not have to write or inspect these proofs.
 -/
 
 namespace Count
@@ -325,14 +356,22 @@ private theorem eqMod_normalize (value : Count) :
         (.congr Count.add leftIH rightIH)
         (fromCard_add left.toMultiset.card right.toMultiset.card)
 
+def multisetView : Structural.MultisetView B Count Unit where
+  encode := toMultiset
+  decode := fromCard ∘ Multiset.card
+  normalize := eqMod_normalize
+
 theorem viaMultiset {left right : Count}
     (equality : left.toMultiset = right.toMultiset) : left =[B] right := by
-  exact Structural.EqMod.transAt B (eqMod_normalize left) <|
-    Structural.EqMod.transAt B
-      (.ofEq (congrArg (fromCard ∘ Multiset.card) equality))
-      (.symm (eqMod_normalize right))
+  exact multisetView.eqMod_of_eq equality
 
 end Count
+
+/-!
+### User-level proof
+
+Only this part should remain handwritten in the model's user file.
+-/
 
 example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod
