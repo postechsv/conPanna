@@ -528,7 +528,8 @@ def maudeExecutable : IO String := do
   return (← IO.getEnv "CONPANNA_MAUDE").getD "maude"
 
 def runMaude (moduleText query : String) : IO String := do
-  let input := moduleText ++ "\n\n" ++ query ++ "\nquit\n"
+  let input := "set include BOOL off .\n" ++
+    moduleText ++ "\n\n" ++ query ++ "\nquit\n"
   let executable ← maudeExecutable
   let output ← IO.Process.output {
     cmd := executable
