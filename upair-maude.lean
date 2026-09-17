@@ -69,6 +69,22 @@ structure OperatorDecl where
   leanName : Name
   laws : Array OperatorLaw
 
+/-- A symbolic Lean argument together with its typed Maude name. -/
+structure MaudeVariable where
+  expression : Expr
+  leanName : Name
+  maudeName : String
+  sort : Name
+
+/-- Constructor terms accepted by the generated Maude signature. -/
+inductive MaudeTerm where
+  | variable (name : String) (sort : Name)
+  | application (constructor result : Name) (arguments : Array MaudeTerm)
+
+structure TranslatedPattern where
+  term : MaudeTerm
+  variables : Array MaudeVariable
+
 private def shortName : Name → String
   | .str _ value => value
   | name => name.toString
@@ -128,6 +144,78 @@ private partial def collectPending (pending : List Name)
 def collectSignature (root : Expr) : MetaM (Array SortDecl) := do
   let rootName ← inductiveNameOfType root
   collectPending [rootName] #[] #[]
+
+private def findConstructor? (sorts : Array SortDecl) (name : Name) :
+    Option ConstructorDecl := Id.run do
+  for sort in sorts do
+    if let some constructor := sort.constructors.find? (·.leanName == name) then
+      return some constructor
+  return none
+
+private def findVariable? (variables : Array MaudeVariable) (expression : Expr) :
+    Option MaudeVariable :=
+  variables.find? fun entry => entry.expression == expression
+
+private partial def translateTerm (sorts : Array SortDecl)
+    (variables : Array MaudeVariable) (expression : Expr) : MetaM MaudeTerm := do
+  let expression ← instantiateMVars expression
+  if let some entry := findVariable? variables expression then
+    return .variable entry.maudeName entry.sort
+  let expression ← withTransparency .all <| whnf expression
+  if let some entry := findVariable? variables expression then
+    return .variable entry.maudeName entry.sort
+  let some constructorName := expression.getAppFn.constName?
+    | throwError "unsupported Maude term: {expression}"
+  let some constructor := findConstructor? sorts constructorName
+    | throwError "term head is not a constructor in the generated signature: {constructorName}"
+  let arguments := expression.getAppArgs
+  unless arguments.size == constructor.fields.size do
+    throwError "unexpected constructor arity for {constructorName}"
+  let mut translated := #[]
+  for argument in arguments do
+    translated := translated.push
+      (← translateTerm sorts variables argument)
+  return .application constructor.leanName constructor.result translated
+
+private def makeVariables (stem : String)
+    (pattern : Unification.Problem.SaturatedPattern) :
+    MetaM (Array MaudeVariable) := do
+  let mut variables := #[]
+  for index in [:pattern.arguments.size] do
+    let expression := pattern.arguments[index]!
+    let sort ← inductiveNameOfType (← inferType expression)
+    variables := variables.push {
+      expression
+      leanName := pattern.argumentNames[index]!
+      maudeName := s!"{stem}{index + 1}"
+      sort
+    }
+  return variables
+
+def translatePattern (sorts : Array SortDecl) (stem : String)
+    (pattern : Unification.Problem.SaturatedPattern) :
+    MetaM TranslatedPattern := do
+  let variables ← makeVariables stem pattern
+  return {
+    term := ← translateTerm sorts variables pattern.application
+    variables
+  }
+
+partial def MaudeTerm.render : MaudeTerm → String
+  | .variable name sort => s!"{name}:{shortName sort}"
+  | .application constructor _ arguments =>
+      if arguments.isEmpty then
+        shortName constructor
+      else
+        let rendered := arguments.toList.map MaudeTerm.render
+        s!"{shortName constructor}({String.intercalate ", " rendered})"
+
+private def renderTranslatedPattern (translation : TranslatedPattern) : String :=
+  let mappings := translation.variables.toList.map fun entry =>
+    s!"  {entry.maudeName}:{shortName entry.sort} ← {entry.leanName}"
+  let mappingBlock := if mappings.isEmpty then "" else
+    "\nvariables:\n" ++ String.intercalate "\n" mappings
+  "term: " ++ translation.term.render ++ mappingBlock
 
 private def constantName (description : String) (expression : Expr) :
     MetaM Name := do
@@ -217,6 +305,17 @@ private def elaborateModule (rootSyntax theorySyntax : Syntax) :
   return renderModule
     (← collectSignature root) (← inspectTheory theory)
 
+private def elaboratePatternTranslation (patternSyntax rootSyntax : Syntax) :
+    TermElabM String := do
+  let root ← elabType rootSyntax
+  let stateType ← mkAppM ``framework.State #[root]
+  discard <| synthInstance stateType
+  let sorts ← collectSignature root
+  let pattern ← elabTerm patternSyntax none
+  let pattern ← Unification.Problem.saturatePattern pattern
+  return renderTranslatedPattern
+    (← translatePattern sorts "X" pattern)
+
 def maudeExecutable : String := "/home/byhoson/Maude/maude"
 
 def runMaude (moduleText query : String) : IO String := do
@@ -239,6 +338,10 @@ elab "#dump_maude_model " root:term " mod " theory:term : command => do
   liftTermElabM do
     logInfo (← elaborateModule root.raw theory.raw)
 
+elab "#dump_maude_term " pattern:term " from " root:term : command => do
+  liftTermElabM do
+    logInfo (← elaboratePatternTranslation pattern.raw root.raw)
+
 elab "#run_maude_unify_example " root:term " mod " theory:term : command => do
   liftTermElabM do
     let moduleText ← elaborateModule root.raw theory.raw
@@ -253,4 +356,7 @@ elab "#run_maude_unify_example " root:term " mod " theory:term : command => do
 end MaudeExperiment
 
 #dump_maude_model Conf mod UPairTheory
+#dump_maude_term
+  (fun X : Status => Conf.upair (Conf.proc Status.idle) (Conf.proc X))
+  from Conf
 #run_maude_unify_example Conf mod UPairTheory
