@@ -28,11 +28,6 @@ instance : Add Count := ⟨add⟩
 
 end Count
 
-structural B where
-  assoc Count.add
-  comm Count.add
-  id Count.add Count.zero
-
 structure Conf where
   total : Count
   readers : Count
@@ -42,6 +37,13 @@ structure Conf where
   deriving Repr
 
 instance : State Conf := ⟨⟩
+
+-- Declaring the theory after the state lets `structural` register the ordinary
+-- constructors needed to lift ACU equality through `Conf` automatically.
+structural B where
+  assoc Count.add
+  comm Count.add
+  id Count.add Count.zero
 
 open Count
 
@@ -171,3 +173,27 @@ def splitRight (a b : Count) : Conf where
 #narrow writerOut from rwFairInv mod B
 #narrow readerIn from rwFairInv mod B
 #narrow readerOut from rwFairInv mod B
+
+example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow writerIn from rwFairInv mod B := by
+    sorry
+  subsume
+
+example : writerOut ⊢ rwFairInv ↪[B] rwFairInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow writerOut from rwFairInv mod B := by
+    sorry
+  subsume
+
+example : readerIn ⊢ rwFairInv ↪[B] rwFairInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow readerIn from rwFairInv mod B := by
+    sorry
+  subsume
+
+example : readerOut ⊢ rwFairInv ↪[B] rwFairInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow readerOut from rwFairInv mod B := by
+    sorry
+  subsume

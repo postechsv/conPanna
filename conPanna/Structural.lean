@@ -1,4 +1,4 @@
-import Lean
+import Expresso.Expresso
 
 /-!
 A prototype declarative interface for Maude-style structural equations.
@@ -57,8 +57,19 @@ def IdentityDeclaration.declare {α : Type u}
   operation := operation
   element := element
 
+/-- An ordinary inductive constructor through which structural equality is
+propagated.  Constructor symbols carry no equations of their own. -/
+structure ConstructorDeclaration where
+  {constructorType : Type u}
+  constructor : constructorType
+
+def ConstructorDeclaration.declare {constructorType : Type u}
+    (constructor : constructorType) : ConstructorDeclaration where
+  constructor := constructor
+
 structure Theory where
   symbols : List (Symbol.{u}) := []
+  constructors : List (ConstructorDeclaration.{u}) := []
   commutative : List (CommutativeDeclaration.{u}) := []
   associative : List (AssociativeDeclaration.{u}) := []
   identities : List (IdentityDeclaration.{u}) := []
@@ -69,6 +80,14 @@ class HasSymbol (theory : Theory.{u}) {α : Type u}
   declaration : Symbol.{u}
   member : declaration ∈ theory.symbols
   operation_eq : HEq declaration.operation operation
+
+/-- Proof-level evidence that an ordinary constructor belongs to the term
+signature associated with a structural theory. -/
+class HasConstructor (theory : Theory.{u}) {constructorType : Type u}
+    (constructor : constructorType) where
+  declaration : ConstructorDeclaration.{u}
+  member : declaration ∈ theory.constructors
+  constructor_eq : HEq declaration.constructor constructor
 
 /-- Proof-level evidence that a theory declares an operation commutative. -/
 class HasComm (theory : Theory.{u}) {α : Type u}
@@ -114,6 +133,8 @@ class ConstructorCTheory (theory : Theory.{u}) {α : Type u}
     [HasAssoc theory candidate] → False
   no_identity : ∀ {β : Type u} (candidate : β → β → β) (element : β),
     [HasIdentity theory candidate element] → False
+  no_constructor : ∀ {constructorType : Type u}
+    (candidate : constructorType), [HasConstructor theory candidate] → False
 
 /-- Recursive equality for a free binary constructor modulo commutativity. -/
 inductive CEquiv {α : Type u} (operation : α → α → α) : α → α → Prop where
@@ -212,7 +233,42 @@ inductive EqMod (theory : Theory.{u}) : {α : Type u} → α → α → Prop whe
       [HasSymbol theory operation]
       {left left' right right' : α} :
       EqMod theory left left' → EqMod theory right right' →
-        EqMod theory (operation left right) (operation left' right')
+      EqMod theory (operation left right) (operation left' right')
+  | constructor₁ {α β : Type u} (constructor : α → β)
+      [HasConstructor theory constructor] {value value' : α} :
+      EqMod theory value value' →
+        EqMod theory (constructor value) (constructor value')
+  | constructor₂ {α β γ : Type u} (constructor : α → β → γ)
+      [HasConstructor theory constructor]
+      {first first' : α} {second second' : β} :
+      EqMod theory first first' → EqMod theory second second' →
+        EqMod theory (constructor first second) (constructor first' second')
+  | constructor₃ {α β γ δ : Type u} (constructor : α → β → γ → δ)
+      [HasConstructor theory constructor]
+      {first first' : α} {second second' : β} {third third' : γ} :
+      EqMod theory first first' → EqMod theory second second' →
+      EqMod theory third third' →
+        EqMod theory (constructor first second third)
+          (constructor first' second' third')
+  | constructor₄ {α β γ δ ε : Type u}
+      (constructor : α → β → γ → δ → ε)
+      [HasConstructor theory constructor]
+      {first first' : α} {second second' : β} {third third' : γ}
+      {fourth fourth' : δ} :
+      EqMod theory first first' → EqMod theory second second' →
+      EqMod theory third third' → EqMod theory fourth fourth' →
+        EqMod theory (constructor first second third fourth)
+          (constructor first' second' third' fourth')
+  | constructor₅ {α β γ δ ε ζ : Type u}
+      (constructor : α → β → γ → δ → ε → ζ)
+      [HasConstructor theory constructor]
+      {first first' : α} {second second' : β} {third third' : γ}
+      {fourth fourth' : δ} {fifth fifth' : ε} :
+      EqMod theory first first' → EqMod theory second second' →
+      EqMod theory third third' → EqMod theory fourth fourth' →
+      EqMod theory fifth fifth' →
+        EqMod theory (constructor first second third fourth fifth)
+          (constructor first' second' third' fourth' fifth')
   | comm {α : Type u} (operation : α → α → α)
       [HasComm theory operation] (left right : α) :
       EqMod theory (operation left right) (operation right left)
@@ -242,6 +298,11 @@ theorem transAt (theory : Theory.{u}) {α : Type u}
       EqMod theory first third :=
   .trans
 
+theorem symmAt (theory : Theory.{u}) {α : Type u}
+    {left right : α} :
+    EqMod theory left right → EqMod theory right left :=
+  .symm
+
 theorem congrAt (theory : Theory.{u}) {α : Type u}
     (operation : α → α → α) [HasSymbol theory operation]
     {left left' right right' : α} :
@@ -249,11 +310,98 @@ theorem congrAt (theory : Theory.{u}) {α : Type u}
       EqMod theory (operation left right) (operation left' right') :=
   .congr operation
 
+theorem constructor₁At (theory : Theory.{u}) {α β : Type u}
+    (constructor : α → β) [HasConstructor theory constructor]
+    {value value' : α} :
+    EqMod theory value value' →
+      EqMod theory (constructor value) (constructor value') :=
+  .constructor₁ constructor
+
+theorem constructor₂At (theory : Theory.{u}) {α β γ : Type u}
+    (constructor : α → β → γ) [HasConstructor theory constructor]
+    {first first' : α} {second second' : β} :
+    EqMod theory first first' → EqMod theory second second' →
+      EqMod theory (constructor first second) (constructor first' second') :=
+  .constructor₂ constructor
+
+theorem constructor₃At (theory : Theory.{u}) {α β γ δ : Type u}
+    (constructor : α → β → γ → δ) [HasConstructor theory constructor]
+    {first first' : α} {second second' : β} {third third' : γ} :
+    EqMod theory first first' → EqMod theory second second' →
+    EqMod theory third third' →
+      EqMod theory (constructor first second third)
+        (constructor first' second' third') :=
+  .constructor₃ constructor
+
+theorem constructor₄At (theory : Theory.{u}) {α β γ δ ε : Type u}
+    (constructor : α → β → γ → δ → ε)
+    [HasConstructor theory constructor]
+    {first first' : α} {second second' : β} {third third' : γ}
+    {fourth fourth' : δ} :
+    EqMod theory first first' → EqMod theory second second' →
+    EqMod theory third third' → EqMod theory fourth fourth' →
+      EqMod theory (constructor first second third fourth)
+        (constructor first' second' third' fourth') :=
+  .constructor₄ constructor
+
+theorem constructor₅At (theory : Theory.{u}) {α β γ δ ε ζ : Type u}
+    (constructor : α → β → γ → δ → ε → ζ)
+    [HasConstructor theory constructor]
+    {first first' : α} {second second' : β} {third third' : γ}
+    {fourth fourth' : δ} {fifth fifth' : ε} :
+    EqMod theory first first' → EqMod theory second second' →
+    EqMod theory third third' → EqMod theory fourth fourth' →
+    EqMod theory fifth fifth' →
+      EqMod theory (constructor first second third fourth fifth)
+        (constructor first' second' third' fourth' fifth') :=
+  .constructor₅ constructor
+
 theorem commAt (theory : Theory.{u}) {α : Type u}
     (operation : α → α → α) [HasComm theory operation]
     (left right : α) :
     EqMod theory (operation left right) (operation right left) :=
   .comm operation left right
+
+theorem identityRightAt (theory : Theory.{u}) {α : Type u}
+    (operation : α → α → α) (element value : α)
+    [HasIdentity theory operation element] :
+    EqMod theory (operation value element) value :=
+  .identityRight operation element value
+
+private def foldOperation {α : Type u} (operation : α → α → α)
+    (identity : α) : List α → α
+  | [] => identity
+  | value :: values => operation value (foldOperation operation identity values)
+
+theorem foldOperation_append (theory : Theory.{u}) {α : Type u}
+    (operation : α → α → α) (identity : α)
+    [HasSymbol theory operation] [HasAssoc theory operation]
+    [HasIdentity theory operation identity] (left right : List α) :
+    EqMod theory
+      (operation (foldOperation operation identity left)
+        (foldOperation operation identity right))
+      (foldOperation operation identity (left ++ right)) := by
+  induction left with
+  | nil => exact .identityLeft operation identity _
+  | cons value values ih =>
+      exact .trans (.assoc operation value _ _)
+        (.congr operation (.ofEq rfl) ih)
+
+theorem foldOperation_perm (theory : Theory.{u}) {α : Type u}
+    (operation : α → α → α) (identity : α)
+    [HasSymbol theory operation] [HasAssoc theory operation]
+    [HasComm theory operation] [HasIdentity theory operation identity]
+    {left right : List α} (permutation : left.Perm right) :
+    EqMod theory (foldOperation operation identity left)
+      (foldOperation operation identity right) := by
+  induction permutation with
+  | nil => exact .ofEq rfl
+  | cons value _ ih => exact .congr operation (.ofEq rfl) ih
+  | swap first second values =>
+      exact .trans (.symm (.assoc operation second first _)) <|
+        .trans (.congr operation (.comm operation second first) (.ofEq rfl))
+          (.assoc operation first second _)
+  | trans _ _ ihLeft ihRight => exact .trans ihLeft ihRight
 
 /-- For a registered free C constructor, `EqMod` is precisely recursive C equality. -/
 theorem iff_cEquiv {theory : Theory.{u}} {α : Type u}
@@ -266,14 +414,32 @@ theorem iff_cEquiv {theory : Theory.{u}} {α : Type u}
   · intro equation
     induction equation with
     | ofEq equality => exact .ofEq equality
-    | symm _ ih => exact ih.symm
-    | trans _ _ ihLeft ihRight => exact ihLeft.trans ihRight
+    | symm _ ih => exact (ih operation).symm
+    | trans _ _ ihLeft ihRight =>
+        exact (ihLeft operation).trans (ihRight operation)
     | congr candidate _ _ ihLeft ihRight =>
+        have leftProof := ihLeft operation
+        have rightProof := ihRight operation
         have operationEquality :=
           ConstructorCTheory.symbol_unique (theory := theory)
             (operation := operation) candidate
         cases operationEquality
-        exact .direct ihLeft ihRight
+        exact .direct leftProof rightProof
+    | constructor₁ candidate _ =>
+        exact (ConstructorCTheory.no_constructor (theory := theory)
+          (operation := operation) (candidate := candidate)).elim
+    | constructor₂ candidate _ _ =>
+        exact (ConstructorCTheory.no_constructor (theory := theory)
+          (operation := operation) (candidate := candidate)).elim
+    | constructor₃ candidate _ _ _ =>
+        exact (ConstructorCTheory.no_constructor (theory := theory)
+          (operation := operation) (candidate := candidate)).elim
+    | constructor₄ candidate _ _ _ _ =>
+        exact (ConstructorCTheory.no_constructor (theory := theory)
+          (operation := operation) (candidate := candidate)).elim
+    | constructor₅ candidate _ _ _ _ _ =>
+        exact (ConstructorCTheory.no_constructor (theory := theory)
+          (operation := operation) (candidate := candidate)).elim
     | «comm» candidate first second =>
         have operationEquality :=
           ConstructorCTheory.comm_unique (theory := theory)
@@ -305,7 +471,7 @@ end EqMod
 end Structural
 
 
-open Lean Elab Command
+open Lean Elab Command Meta
 
 declare_syntax_cat structuralLaw
 
@@ -338,6 +504,68 @@ private def addStructuralLaw (groups : Array StructuralGroup)
       return groups
   return groups.push { operation, laws := #[law] }
 
+private def stateRootNames : Lean.Elab.Term.TermElabM (Array Name) := do
+  let environment ← getEnv
+  let mut roots := #[]
+  for (declarationName, declaration) in environment.constants.toList do
+    unless Lean.Meta.isInstanceCore environment declarationName do
+      continue
+    let rootName? ← Lean.Meta.forallTelescopeReducing declaration.type fun _ resultType => do
+      let resultType ← whnf resultType
+      unless resultType.isAppOfArity ``framework.State 1 do
+        return none
+      let rootType ← whnf resultType.getAppArgs[0]!
+      return rootType.getAppFn.constName?
+    if let some rootName := rootName? then
+      unless roots.contains rootName do
+        roots := roots.push rootName
+  return roots
+
+private partial def collectConstructorNames (pending : List Name)
+    (visited constructors : Array Name) :
+    Lean.Elab.Term.TermElabM (Array Name) := do
+  match pending with
+  | [] => return constructors
+  | inductiveName :: rest =>
+      if visited.contains inductiveName then
+        collectConstructorNames rest visited constructors
+      else
+        let info ← getConstInfoInduct inductiveName
+        unless info.numParams == 0 && info.numIndices == 0 do
+          throwError "parameterized or indexed state sort is not supported: {inductiveName}"
+        let mut dependencies := #[]
+        let mut constructors := constructors
+        for constructorName in info.ctors do
+          let constructorInfo ← getConstInfoCtor constructorName
+          unless constructorInfo.numParams == 0 do
+            throwError "parameterized state constructor is not supported: {constructorName}"
+          constructors := constructors.push constructorName
+          let fieldNames ← Lean.Meta.forallTelescopeReducing
+              constructorInfo.type fun arguments _ => do
+            unless arguments.size == constructorInfo.numFields do
+              throwError "unexpected constructor telescope for {constructorName}"
+            let mut fieldNames := #[]
+            for argument in arguments do
+              let fieldType ← whnf (← inferType argument)
+              let some fieldName := fieldType.getAppFn.constName?
+                | throwError "expected an inductive constructor field, got: {fieldType}"
+              match (← getEnv).find? fieldName with
+              | some (.inductInfo _) =>
+                  unless fieldNames.contains fieldName do
+                    fieldNames := fieldNames.push fieldName
+              | _ =>
+                  throwError "expected an inductive constructor field, got: {fieldType}"
+            return fieldNames
+          for fieldName in fieldNames do
+            unless dependencies.contains fieldName do
+              dependencies := dependencies.push fieldName
+        collectConstructorNames (rest ++ dependencies.toList)
+          (visited.push inductiveName) constructors
+
+private def stateConstructorNames :
+    Lean.Elab.Term.TermElabM (Array Name) := do
+  collectConstructorNames (← stateRootNames).toList #[] #[]
+
 elab_rules : command
   | `(structural $name:ident where $laws:structuralLaw*) => do
       let mut groups : Array StructuralGroup := #[]
@@ -367,12 +595,39 @@ elab_rules : command
               identities := identities.push (operation, element)
         | _ => throwUnsupportedSyntax
 
+      let isConstructorC ←
+        if groups.size == 1 && commutativeOperations.size == 1 &&
+            associativeOperations.isEmpty && identities.isEmpty then
+          let operation := commutativeOperations[0]!
+          Lean.Elab.Command.liftTermElabM do
+            let expression ← Lean.Elab.Term.elabTerm operation none
+            let environment ← getEnv
+            return match expression.getAppFn with
+              | .const declaration _ =>
+                  match environment.find? declaration with
+                  | some (.ctorInfo _) => true
+                  | _ => false
+              | _ => false
+        else
+          pure false
+
+      let constructorNames ←
+        if isConstructorC then pure #[]
+        else Lean.Elab.Command.liftTermElabM stateConstructorNames
+
       let mut symbols : Array (TSyntax `term) := #[]
       for group in groups do
         let declaration ← `(term|
           Structural.Symbol.declare $(group.operation) [$(group.laws),*])
         symbols := symbols.push declaration
       let symbolList ← `(term| [$symbols,*])
+
+      let mut constructors : Array (TSyntax `term) := #[]
+      for constructorName in constructorNames do
+        constructors := constructors.push
+          (← `(term| Structural.ConstructorDeclaration.declare
+            $(mkIdent constructorName)))
+      let constructorList ← `(term| [$constructors,*])
 
       let mut commutativeDeclarations : Array (TSyntax `term) := #[]
       for operation in commutativeOperations do
@@ -396,6 +651,7 @@ elab_rules : command
       elabCommand (← `(command|
         def $name : Structural.Theory where
           symbols := $symbolList
+          constructors := $constructorList
           commutative := $commutativeList
           associative := $associativeList
           identities := $identityList))
@@ -406,6 +662,14 @@ elab_rules : command
               $(group.operation) [$(group.laws),*]
             member := by simp [$(name):ident]
             operation_eq := HEq.rfl))
+      for constructorName in constructorNames do
+        let constructor := mkIdent constructorName
+        elabCommand (← `(command|
+          instance : Structural.HasConstructor $name $constructor where
+            declaration := Structural.ConstructorDeclaration.declare
+              $constructor
+            member := by simp [$(name):ident]
+            constructor_eq := HEq.rfl))
       for operation in commutativeOperations do
         elabCommand (← `(command|
           instance : Structural.HasComm $name $operation where
@@ -426,41 +690,34 @@ elab_rules : command
             member := by simp [$(name):ident]
             operation_eq := HEq.rfl
             element_eq := HEq.rfl))
-      if groups.size == 1 && commutativeOperations.size == 1 &&
-          associativeOperations.isEmpty && identities.isEmpty then
+      if isConstructorC then
         let operation := commutativeOperations[0]!
-        let isConstructor ← Lean.Elab.Command.liftTermElabM do
-          let expression ← Lean.Elab.Term.elabTerm operation none
-          let environment ← getEnv
-          return match expression.getAppFn with
-            | .const declaration _ =>
-                match environment.find? declaration with
-                | some (.ctorInfo _) => true
-                | _ => false
-            | _ => false
-        if isConstructor then
-          elabCommand (← `(command|
-            instance : Structural.ConstructorCTheory $name $operation where
-              operation_eq_iff := by simp
-              symbol := inferInstance
-              commEvidence := inferInstance
-              symbol_unique := by
-                intro β candidate hasSymbol
-                rcases hasSymbol with ⟨declaration, member, operation_eq⟩
-                simp [$(name):ident] at member
-                subst declaration
-                exact operation_eq.symm
-              comm_unique := by
-                intro β candidate hasComm
-                rcases hasComm with ⟨declaration, member, operation_eq⟩
-                simp [$(name):ident] at member
-                subst declaration
-                exact operation_eq.symm
-              no_assoc := by
-                intro β candidate hasAssoc
-                have member := hasAssoc.member
-                simp [$(name):ident] at member
-              no_identity := by
-                intro β candidate element hasIdentity
-                have member := hasIdentity.member
-                simp [$(name):ident] at member))
+        elabCommand (← `(command|
+          instance : Structural.ConstructorCTheory $name $operation where
+            operation_eq_iff := by simp
+            symbol := inferInstance
+            commEvidence := inferInstance
+            symbol_unique := by
+              intro β candidate hasSymbol
+              rcases hasSymbol with ⟨declaration, member, operation_eq⟩
+              simp [$(name):ident] at member
+              subst declaration
+              exact operation_eq.symm
+            comm_unique := by
+              intro β candidate hasComm
+              rcases hasComm with ⟨declaration, member, operation_eq⟩
+              simp [$(name):ident] at member
+              subst declaration
+              exact operation_eq.symm
+            no_assoc := by
+              intro β candidate hasAssoc
+              have member := hasAssoc.member
+              simp [$(name):ident] at member
+            no_identity := by
+              intro β candidate element hasIdentity
+              have member := hasIdentity.member
+              simp [$(name):ident] at member
+            no_constructor := by
+              intro constructorType candidate hasConstructor
+              have member := hasConstructor.member
+              simp [$(name):ident] at member))

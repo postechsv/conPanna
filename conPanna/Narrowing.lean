@@ -139,17 +139,26 @@ will be proved.
 structure SubsumptionInput where
   source : Expr
   target : Expr
+  theory? : Option Expr := none
 
 def ofSubsumesType (type : Expr) : MetaM SubsumptionInput := do
   let type ← instantiateMVars type
   let arguments := type.getAppArgs
-  unless type.getAppFn.isConstOf ``framework.Patterns.Subsumes &&
-      arguments.size >= 2 do
-    throwError "`subsume` expects a goal of the form `source ⊑ target`"
-  return {
-    source := arguments[arguments.size - 2]!
-    target := arguments[arguments.size - 1]!
-  }
+  if type.getAppFn.isConstOf ``framework.Patterns.Subsumes &&
+      arguments.size >= 2 then
+    return {
+      source := arguments[arguments.size - 2]!
+      target := arguments[arguments.size - 1]!
+    }
+  if type.getAppFn.isConstOf ``framework.Patterns.SubsumesMod &&
+      arguments.size >= 3 then
+    return {
+      source := arguments[arguments.size - 2]!
+      target := arguments[arguments.size - 1]!
+      theory? := some arguments[0]!
+    }
+  throwError
+    "`subsume` expects a goal of the form `source ⊑ target` or `source ⊑[theory] target`"
 
 end Goal
 
@@ -547,6 +556,283 @@ between the generated post and the user's target pattern. Its semantic goal
 is stable even if stronger constraint automation replaces this prototype.
 -/
 
+namespace Structural
+
+private structure ACUOperator where
+  operation : Expr
+  identity : Expr
+
+private partial def identityDeclarations (declarations : Expr) : MetaM (Array ACUOperator) := do
+  let declarations ← withTransparency .all <| whnf declarations
+  let arguments := declarations.getAppArgs
+  if declarations.getAppFn.isConstOf ``List.nil then
+    return #[]
+  unless declarations.getAppFn.isConstOf ``List.cons && arguments.size >= 3 do
+    throwError "could not reduce structural identity declarations"
+  let declaration := arguments[arguments.size - 2]!
+  let tail := arguments[arguments.size - 1]!
+  let remaining ← identityDeclarations tail
+  let operation ← withTransparency .all <|
+    whnf (← mkAppM ``_root_.Structural.IdentityDeclaration.operation #[declaration])
+  let identity ← withTransparency .all <|
+    whnf (← mkAppM ``_root_.Structural.IdentityDeclaration.element #[declaration])
+  return remaining.push { operation, identity }
+
+private def acuOperators (theory : Expr) : MetaM (Array ACUOperator) := do
+  identityDeclarations (← mkAppM ``_root_.Structural.Theory.identities #[theory])
+
+private partial def mvarCount : Expr → Nat
+  | .mvar _ => 1
+  | .app function argument => mvarCount function + mvarCount argument
+  | .lam _ type body _ | .forallE _ type body _ =>
+      mvarCount type + mvarCount body
+  | .letE _ type value body _ =>
+      mvarCount type + mvarCount value + mvarCount body
+  | .mdata _ expression | .proj _ _ expression => mvarCount expression
+  | _ => 0
+
+private partial def normalize (theory : Expr) (acu : ACUOperator)
+    (expression : Expr) : MetaM (List Expr × Expr) := do
+  let expression ← instantiateMVars expression
+  if !expression.hasExprMVar &&
+      (← withoutModifyingState <| isDefEq expression acu.identity) then
+    return ([], ← mkAppM ``_root_.Structural.EqMod.reflAt #[theory, expression])
+  let exposed ← withTransparency .reducible <| whnf expression
+  match exposed with
+  | .app (.app operation left) right =>
+      if ← withoutModifyingState <| isDefEq operation acu.operation then
+        let (leftAtoms, leftProof) ← normalize theory acu left
+        let (rightAtoms, rightProof) ← normalize theory acu right
+        let congruence ← mkAppM ``_root_.Structural.EqMod.congrAt
+          #[theory, acu.operation, leftProof, rightProof]
+        let leftList ← mkListLit (← inferType acu.identity) leftAtoms
+        let rightList ← mkListLit (← inferType acu.identity) rightAtoms
+        let append ← mkAppM ``_root_.Structural.EqMod.foldOperation_append
+          #[theory, acu.operation, acu.identity, leftList, rightList]
+        return (leftAtoms ++ rightAtoms,
+          ← mkAppM ``_root_.Structural.EqMod.transAt
+            #[theory, congruence, append])
+  | _ => pure ()
+  let identityInstance ← synthInstance (← mkAppM
+    ``_root_.Structural.HasIdentity #[theory, acu.operation, acu.identity])
+  let identityRight ← mkAppOptM
+    ``_root_.Structural.EqMod.identityRightAt
+    #[some theory, none, some acu.operation, some acu.identity,
+      some expression, some identityInstance]
+  return ([expression], ← mkAppM ``_root_.Structural.EqMod.symmAt
+    #[theory, identityRight])
+
+private def swapAt (elementType : Expr) (values : Array Expr) (index : Nat) :
+    MetaM (Array Expr × Expr) := do
+  let left := values[index - 1]!
+  let right := values[index]!
+  let tail := values.toList.drop (index + 1)
+  let tailExpression ← mkListLit elementType tail
+  let mut proof ← mkAppM ``List.Perm.swap #[right, left, tailExpression]
+  for prefixValue in (values.toList.take (index - 1)).reverse do
+    proof ← mkAppM ``List.Perm.cons #[prefixValue, proof]
+  let mut swapped := values
+  swapped := swapped.set! (index - 1) right
+  swapped := swapped.set! index left
+  return (swapped, proof)
+
+private partial def permutationProof (elementType : Expr)
+    (left right : Array Expr) : MetaM Expr := do
+  unless left.size == right.size do
+    throwError "ACU normal forms have different sizes"
+  if left.isEmpty then
+    let empty ← mkListLit elementType []
+    return ← mkAppM ``List.Perm.refl #[empty]
+  let target := right[0]!
+  let mut matchIndex? : Option Nat := none
+  for preferRigid in [true, false] do
+    for index in [:left.size] do
+      if matchIndex?.isNone &&
+          (!left[index]!.hasExprMVar == preferRigid) then
+        if ← isDefEq left[index]! target then
+          matchIndex? := some index
+  let some matchIndex := matchIndex?
+    | throwError "ACU normal forms contain different atoms"
+  let mut current := left
+  let originalList ← mkListLit elementType left.toList
+  let mut frontProof ← mkAppM ``List.Perm.refl #[originalList]
+  for offset in [:matchIndex] do
+    let index := matchIndex - offset
+    let (next, swapProof) ← swapAt elementType current index
+    frontProof ← mkAppM ``List.Perm.trans #[frontProof, swapProof]
+    current := next
+  let tailProof ← permutationProof elementType
+    (current.extract 1 current.size) (right.extract 1 right.size)
+  let restProof ← mkAppM ``List.Perm.cons #[target, tailProof]
+  return ← mkAppM ``List.Perm.trans #[frontProof, restProof]
+
+private def proveACU (theory left right : Expr) : MetaM Expr := do
+  for acu in ← acuOperators theory do
+    let saved ← saveState
+    try
+      let (leftAtoms, leftProof) ← normalize theory acu left
+      let (rightAtoms, rightProof) ← normalize theory acu right
+      let elementType ← inferType acu.identity
+      let permutation ← permutationProof elementType
+        leftAtoms.toArray rightAtoms.toArray
+      let permutationProof ← mkAppM
+        ``_root_.Structural.EqMod.foldOperation_perm
+        #[theory, acu.operation, acu.identity, permutation]
+      let reverseRight ← mkAppM ``_root_.Structural.EqMod.symmAt
+        #[theory, rightProof]
+      return ← mkAppM ``_root_.Structural.EqMod.transAt #[theory,
+        leftProof, ← mkAppM ``_root_.Structural.EqMod.transAt
+          #[theory, permutationProof, reverseRight]]
+    catch _ =>
+      restoreState saved
+  throwError "the terms are not equal modulo a registered ACU operation"
+
+private def constructorLemma (arity : Nat) : Option Name :=
+  match arity with
+  | 1 => some ``_root_.Structural.EqMod.constructor₁At
+  | 2 => some ``_root_.Structural.EqMod.constructor₂At
+  | 3 => some ``_root_.Structural.EqMod.constructor₃At
+  | 4 => some ``_root_.Structural.EqMod.constructor₄At
+  | 5 => some ``_root_.Structural.EqMod.constructor₅At
+  | _ => none
+
+private partial def proveEqMod (theory left right : Expr) : MetaM Expr := do
+  let left ← instantiateMVars left
+  let right ← instantiateMVars right
+  if ← isDefEq left right then
+    return ← mkAppM ``_root_.Structural.EqMod.reflAt #[theory, left]
+
+  let left ← withTransparency .all <| whnf left
+  let right ← withTransparency .all <| whnf right
+  let leftArguments := left.getAppArgs
+  let rightArguments := right.getAppArgs
+  if leftArguments.size == rightArguments.size then
+    if let some lemma := constructorLemma leftArguments.size then
+      let saved ← saveState
+      try
+        unless ← withoutModifyingState <|
+            isDefEq left.getAppFn right.getAppFn do
+          throwError "different constructor heads"
+        discard <| synthInstance (← mkAppM
+          ``_root_.Structural.HasConstructor #[theory, left.getAppFn])
+        let mut order := (Array.range leftArguments.size).toList
+        order := order.mergeSort fun first second =>
+          mvarCount leftArguments[first]! + mvarCount rightArguments[first]! <
+          mvarCount leftArguments[second]! + mvarCount rightArguments[second]!
+        let mut proofs : Array (Option Expr) :=
+          Array.replicate leftArguments.size none
+        for index in order do
+          proofs := proofs.set! index (some (← proveEqMod theory
+            leftArguments[index]! rightArguments[index]!))
+        let arguments := #[theory, left.getAppFn] ++ proofs.map (·.get!)
+        return ← mkAppM lemma arguments
+      catch _ =>
+        restoreState saved
+  proveACU theory left right
+
+private def eqModParts? (type : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
+  let type ← withTransparency .reducible <| whnf (← instantiateMVars type)
+  let arguments := type.getAppArgs
+  unless type.getAppFn.isConstOf ``_root_.Structural.EqMod &&
+      arguments.size >= 3 do
+    return none
+  return some (arguments[0]!, arguments[arguments.size - 2]!,
+    arguments[arguments.size - 1]!)
+
+private def proveEqModGoal (goal : MVarId) : MetaM Unit := goal.withContext do
+  let some (theory, left, right) ← eqModParts? (← goal.getType)
+    | throwError "not a structural equality goal"
+  let saved ← saveState
+  try
+    goal.assign (← proveEqMod theory left right)
+    return
+  catch _ =>
+    restoreState saved
+
+  for declaration in ← getLCtx do
+    let some (hypTheory, hypLeft, hypRight) ← eqModParts? declaration.type
+      | continue
+    unless ← withoutModifyingState <| isDefEq theory hypTheory do continue
+    if ← withoutModifyingState <| isDefEq right hypRight then
+      let saved ← saveState
+      try
+        let initialProof ← proveEqMod theory left hypLeft
+        goal.assign (← mkAppM ``_root_.Structural.EqMod.transAt
+          #[theory, initialProof, mkFVar declaration.fvarId])
+        return
+      catch _ => restoreState saved
+    if ← withoutModifyingState <| isDefEq right hypLeft then
+      let saved ← saveState
+      try
+        let initialProof ← proveEqMod theory left hypRight
+        let reversed ← mkAppM ``_root_.Structural.EqMod.symmAt
+          #[theory, mkFVar declaration.fvarId]
+        goal.assign (← mkAppM ``_root_.Structural.EqMod.transAt
+          #[theory, initialProof, reversed])
+        return
+      catch _ => restoreState saved
+  throwError m!"could not prove structural equality modulo the registered theory:\n  {left}\n  {right}"
+
+private def decomposableHypothesis? (type : Expr) : MetaM Bool := do
+  let type ← withTransparency .reducible <| whnf type
+  let head := type.getAppFn
+  return head.isConstOf ``And || head.isConstOf ``Or ||
+    head.isConstOf ``Exists || head.isConstOf ``False
+
+private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
+  let target ← withTransparency .reducible <| whnf (← goal.getType)
+
+  for declaration in ← getLCtx do
+    if ← isDefEq declaration.type target then
+      goal.assign (mkFVar declaration.fvarId)
+      return
+
+  if target.isForall then
+    let (_, next) ← goal.intro1P
+    solve next
+    return
+
+  for declaration in ← getLCtx do
+    if ← decomposableHypothesis? declaration.type then
+      let branches ← goal.cases declaration.fvarId
+      for branch in branches do
+        solve branch.mvarId
+      return
+
+  let head := target.getAppFn
+  if head.isConstOf ``True then
+    goal.assign (mkConst ``True.intro)
+    return
+  if head.isConstOf ``And then
+    let subgoals ← goal.apply (mkConst ``And.intro)
+    for subgoal in subgoals do solve subgoal
+    return
+  if head.isConstOf ``Exists then
+    let arguments := target.getAppArgs
+    let witness ← mkFreshExprMVar (some arguments[0]!)
+    let body ← whnf (mkApp arguments[1]! witness)
+    let proof ← mkFreshExprMVar (some body)
+    goal.assign (← mkAppOptM ``Exists.intro
+      #[some arguments[0]!, some arguments[1]!, some witness, some proof])
+    solve proof.mvarId!
+    return
+  if head.isConstOf ``Or then
+    for lemma in [``Or.inl, ``Or.inr] do
+      let saved ← saveState
+      try
+        let [subgoal] ← goal.apply (mkConst lemma)
+          | throwError "unexpected disjunction subgoals"
+        solve subgoal
+        return
+      catch _ => restoreState saved
+    throwError "no target disjunct subsumes this post branch"
+  if (← eqModParts? target).isSome then
+    proveEqModGoal goal
+    return
+  throwError m!"`subsume` could not close {target}"
+
+end Structural
+
 /-- Simplify and prove the residual semantic inclusion between patterns. -/
 def run : TacticM Unit := do
   let goal ← getMainGoal
@@ -560,12 +846,24 @@ def run : TacticM Unit := do
     (#[input.source, input.target] ++ sourceBranches ++ targetBranches)
   let unfoldSimps ← unfoldNames.mapM fun name =>
     `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
-  evalTactic (← `(tactic|
-    simp [framework.Patterns.Subsumes,
-      framework.Patterns.Pattern.semantics,
-      framework.Patterns.APatt.semantics,
-      $unfoldSimps,*] <;>
-      grind))
+  match input.theory? with
+  | none =>
+      evalTactic (← `(tactic|
+        simp [framework.Patterns.Subsumes,
+          framework.Patterns.Pattern.semantics,
+          framework.Patterns.APatt.semantics,
+          $unfoldSimps,*] <;>
+          grind))
+  | some _ =>
+      evalTactic (← `(tactic|
+        simp only [framework.Patterns.SubsumesMod,
+          framework.Patterns.PatternMod.semantics,
+          framework.Patterns.APattMod.semantics,
+          $unfoldSimps,*]))
+      let goals ← getGoals
+      for goal in goals do
+        Structural.solve goal
+      setGoals []
 
 end Subsumption
 
