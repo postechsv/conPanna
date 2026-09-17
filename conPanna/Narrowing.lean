@@ -42,9 +42,10 @@ structure Input where
   source : SaturatedConstrainedPattern
   unification : Unification.Problem.Input
 
-/-- The atomic problems obtained by decomposing one finite source pattern. -/
-structure PatternInput where
+/-- Atomic problems obtained from finite rule and source-pattern choices. -/
+structure CompositeInput where
   stateType : Expr
+  rules : Array Expr
   sources : Array Expr
   branches : Array Input
 
@@ -107,19 +108,35 @@ partial def atomicSources (source : Expr) : MetaM (Array Expr) := do
     return #[]
   return #[source]
 
-/-- Decompose a finite source pattern and form one problem per atomic leaf. -/
-def ofPattern (rule source : Expr) : MetaM PatternInput := do
-  let typeRule ← saturateRule rule
+/-- Expose the atomic leaves of a finite rule collection built with `⊔`. -/
+partial def atomicRules (rules : Expr) : MetaM (Array Expr) := do
+  let reduced ← withTransparency .all <| whnf rules
+  let arguments := reduced.getAppArgs
+  if reduced.getAppFn.isConstOf ``framework.Patterns.Disjunction.mk then
+    unless arguments.size >= 2 do
+      throwError "malformed rule disjunction"
+    let left ← atomicRules arguments[arguments.size - 2]!
+    let right ← atomicRules arguments[arguments.size - 1]!
+    return left ++ right
+  return #[rules]
+
+/-- Form one problem for every atomic rule/source pair. -/
+def ofRulesAndPattern (rule source : Expr) : MetaM CompositeInput := do
+  let rules ← atomicRules rule
+  let some firstRule := rules[0]?
+    | throwError "`narrow` expects at least one atomic rule"
+  let typeRule ← saturateRule firstRule
   let stateType ← inferType typeRule.lhs
   let sources ← atomicSources source
   let mut branches := #[]
-  for atomicSource in sources do
-    try
-      branches := branches.push (← ofTerms rule atomicSource)
-    catch _ =>
-      throwError
-        "`narrow` expects a finite pattern built from `APattBody` closures, `Disjunction`, and `EmptyPattern`"
-  return { stateType, sources, branches }
+  for atomicRule in rules do
+    for atomicSource in sources do
+      try
+        branches := branches.push (← ofTerms atomicRule atomicSource)
+      catch _ =>
+        throwError
+          "`narrow` expects finite rules built from `RuleBody` closures and `Disjunction`, and a finite pattern built from `APattBody` closures, `Disjunction`, and `EmptyPattern`"
+  return { stateType, rules, sources, branches }
 
 def symbolicArguments (problem : Input) : Array Expr :=
   Unification.Problem.symbolicArguments problem.unification
@@ -185,12 +202,12 @@ def solve (problem : Problem.Input) (theory? : Option Expr := none) :
   | some theory =>
       Unification.solveStructuralTheory theory problem.unification
 
-/-- One unifier together with the source branch from which it was computed. -/
+/-- One unifier together with its atomic rule/source problem. -/
 structure BranchAlternative where
   problem : Problem.Input
   alternative : Unification.Certificate.Alternative
 
-/-- One atomic source branch and its complete computed solution set. -/
+/-- One atomic rule/source problem and its complete computed solution set. -/
 structure BranchSolution where
   problem : Problem.Input
   solutionSet : Unification.Certificate.SolutionSet
@@ -201,7 +218,7 @@ structure PatternSolution where
   alternatives : Array BranchAlternative
 
 /-- Solve every atomic branch and retain both completeness boundaries. -/
-def solvePatternDetailed (input : Problem.PatternInput)
+def solvePatternDetailed (input : Problem.CompositeInput)
     (theory? : Option Expr := none) : MetaM PatternSolution := do
   let mut branches := #[]
   let mut alternatives := #[]
@@ -213,7 +230,7 @@ def solvePatternDetailed (input : Problem.PatternInput)
   return { branches, alternatives }
 
 /-- Solve every atomic branch while retaining its branch-local substitutions. -/
-def solvePattern (input : Problem.PatternInput) (theory? : Option Expr := none) :
+def solvePattern (input : Problem.CompositeInput) (theory? : Option Expr := none) :
     MetaM (Array BranchAlternative) := do
   return (← solvePatternDetailed input theory?).alternatives
 
@@ -381,7 +398,8 @@ def prove (ref : Syntax) (unfoldingExpressions : Array Expr)
         simp [framework.Rules.postImage,
           framework.Patterns.Pattern.semantics,
           framework.Patterns.APatt.semantics,
-          framework.Rules.AtRule.semantics,
+          framework.Rules.Rules.semantics,
+          framework.Rules.Rule.semantics,
           $unfoldSimps,*] <;>
           grind))
   catch exception =>
@@ -396,7 +414,7 @@ private def conjunction (propositions : Array Expr) : MetaM Expr := do
     result ← mkAppM ``And #[proposition, result]
   return result
 
-/-- One completeness proposition per atomic source branch. -/
+/-- One completeness proposition per atomic rule/source problem. -/
 def completenessBundleType (theory : Expr)
     (branches : Array Backend.BranchSolution) : MetaM (Array Expr × Expr) := do
   let mut propositions := #[]
@@ -424,7 +442,7 @@ Lift atomic unification completeness into a `mapsIntoMod` proof. The lifting
 is generic; solver-specific reasoning is confined to the supplied proofs.
 -/
 def proveMapsInto (ref : Syntax) (rule source : Expr)
-    (sourceBranches : Array Expr)
+    (atomicBranches : Array Expr)
     (ruleSyntax sourceSyntax theorySyntax : TSyntax `term)
     (postIdent : Ident) (propositions : Array Expr) (bundleProof : Expr) :
     TacticM Ident := do
@@ -434,7 +452,7 @@ def proveMapsInto (ref : Syntax) (rule source : Expr)
     return (← getLCtx).getUnusedName `mapsInto
   let mapsIntoIdent := mkIdentFrom ref mapsIntoName
   let unfoldNames ← Closure.unfoldingDefinitions
-    (#[rule, source] ++ sourceBranches)
+    (#[rule, source] ++ atomicBranches)
   let unfoldSimps ← unfoldNames.mapM fun name =>
     `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
 
@@ -465,7 +483,8 @@ def proveMapsInto (ref : Syntax) (rule source : Expr)
       simp only [framework.Rules.mapsIntoMod,
         framework.Patterns.PatternMod.semantics,
         framework.Patterns.APattMod.semantics,
-        framework.Rules.AtRuleMod.semantics,
+        framework.Rules.RulesMod.semantics,
+        framework.Rules.RuleMod.semantics,
         $postIdent:ident, $unfoldSimps,*] <;>
         grind [Structural.EqMod.trans, Structural.EqMod.symm]))
   catch exception =>
@@ -513,18 +532,18 @@ parts of the explicit decomposition.  Only subsumption remains.
 -/
 def run (ref : Syntax) (ruleSyntax sourceSyntax : TSyntax `term) : TacticM Unit := do
   let initialGoal ← getMainGoal
-  let (rule, source, sourceBranches, generatedPost) ← initialGoal.withContext do
+  let (rule, source, atomicBranches, generatedPost) ← initialGoal.withContext do
     ensureDecompositionGoal initialGoal
     let rule ← Tactic.elabTerm ruleSyntax.raw none
     let source ← Tactic.elabTerm sourceSyntax.raw none
-    let problem ← Problem.ofPattern rule source
+    let problem ← Problem.ofRulesAndPattern rule source
     let alternatives ← Backend.solvePattern problem
     let generatedPost ← Materialization.post problem.stateType alternatives
-    return (rule, source, problem.sources, generatedPost)
+    return (rule, source, problem.rules ++ problem.sources, generatedPost)
 
   let postIdent ← bindPost ref generatedPost
   let narrowingIdent ← Certification.prove ref
-    (#[rule, source] ++ sourceBranches)
+    (#[rule, source] ++ atomicBranches)
     ruleSyntax sourceSyntax postIdent
 
   evalTactic (← `(tactic|
@@ -539,20 +558,20 @@ def runModCertified (ref : Syntax)
     (ruleSyntax sourceSyntax theorySyntax certificateSyntax : TSyntax `term) :
     TacticM Unit := do
   let initialGoal ← getMainGoal
-  let (rule, source, sourceBranches, generatedPost,
+  let (rule, source, atomicBranches, generatedPost,
       propositions, bundleType) ← initialGoal.withContext do
     ensureDecompositionGoal initialGoal
     let rule ← Tactic.elabTerm ruleSyntax.raw none
     let source ← Tactic.elabTerm sourceSyntax.raw none
     let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
     let theory ← Tactic.elabTerm theorySyntax.raw (some theoryType)
-    let problem ← Problem.ofPattern rule source
+    let problem ← Problem.ofRulesAndPattern rule source
     let solution ← Backend.solvePatternDetailed problem (some theory)
     let generatedPost ←
       Materialization.post problem.stateType solution.alternatives
     let (propositions, bundleType) ←
       Certification.completenessBundleType theory solution.branches
-    return (rule, source, problem.sources, generatedPost,
+    return (rule, source, problem.rules ++ problem.sources, generatedPost,
       propositions, bundleType)
 
   let bundleProof ← initialGoal.withContext do
@@ -560,7 +579,7 @@ def runModCertified (ref : Syntax)
       (some bundleType)
   let postIdent ← bindPost ref generatedPost
   let mapsIntoIdent ← Certification.proveMapsInto ref rule source
-    sourceBranches ruleSyntax sourceSyntax theorySyntax postIdent propositions
+    atomicBranches ruleSyntax sourceSyntax theorySyntax postIdent propositions
     bundleProof
 
   evalTactic (← `(tactic|
@@ -998,7 +1017,7 @@ elab "#narrow " rule:term " from " source:term : command => do
   Lean.Elab.Command.liftTermElabM do
     let rule ← Term.elabTerm rule none
     let source ← Term.elabTerm source none
-    let problem ← Problem.ofPattern rule source
+    let problem ← Problem.ofRulesAndPattern rule source
     let alternatives ← Backend.solvePattern problem
     let post ← Materialization.post problem.stateType alternatives
     logInfo m!"post: {post.value}\ntype: {post.type}"
@@ -1010,7 +1029,7 @@ elab "#narrow " rule:term " from " source:term " mod " theory:term : command => 
     let source ← Term.elabTerm source none
     let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
     let theory ← Term.elabTerm theory (some theoryType)
-    let problem ← Problem.ofPattern rule source
+    let problem ← Problem.ofRulesAndPattern rule source
     let alternatives ← Backend.solvePattern problem (some theory)
     let post ← Materialization.post problem.stateType alternatives
     logInfo m!"post: {post.value}\ntype: {post.type}"

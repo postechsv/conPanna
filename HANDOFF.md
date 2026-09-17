@@ -79,7 +79,10 @@ Canonical `APatt` instances cover ground terms, `APattBody`, and lambda closures
 Important declarations:
 
 - `RuleBody α`: `lhs`, `rhs`, and `requires`.
-- `AtRule α R`: semantics for rule representations, including lambda closures.
+- `Rule α R`: semantics for one atomic rule representation, including lambda
+  closures.
+- `Rules α R`: semantics for an atomic rule or a finite nondeterministic
+  choice of rules.
 - `postImage`: semantic image of a source through a rule.
 - `NarrowsTo`, written `r ⊢ p ↝ post`.
 - `mapsInto`, written `r ⊢ p ↪ q`.

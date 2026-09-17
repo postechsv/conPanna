@@ -112,36 +112,52 @@ structure RuleBody (α : Type u) where
   rhs : α
   requires : Prop := True
 
--- TODO: rename it to just "Rule"
 -- Atomic rules and their Lean closures denote binary transition relations.
-class AtRule (α : outParam (Type u)) [State α] (R : Type v) where
+class Rule (α : outParam (Type u)) [State α] (R : Type v) where
   semantics : R → α → α → Prop
 
 -- case 1: unquantified ground rules
 instance {α : Type u} [State α] :
-    AtRule α (RuleBody α) where
+    Rule α (RuleBody α) where
   semantics rule before after :=
     rule.lhs = before ∧ rule.rhs = after ∧ rule.requires
 
 -- case 2: quantified rules
 instance {α : Type u} {A : Type v} {R : Type w}
-    [State α] [AtRule α R] : AtRule α (A → R) where
+    [State α] [Rule α R] : Rule α (A → R) where
   semantics rule before after :=
-    ∃ argument, AtRule.semantics (rule argument) before after
+    ∃ argument, Rule.semantics (rule argument) before after
+
+/- ### Data Structure: Rule Collections -/
+/-- Rules are atomic rules closed under finite nondeterministic choice. -/
+class Rules (α : outParam (Type u)) [State α] (R : Type v) where
+  semantics : R → α → α → Prop
+
+-- case 1: a single atomic rule
+instance {α : Type u} {R : Type v} [State α] [Rule α R] :
+    Rules α R where
+  semantics := Rule.semantics
+
+-- case 2: nondeterministic choice between rule collections
+instance {α : Type u} {R : Type v} {S : Type w} [State α]
+    [Rules α R] [Rules α S] : Rules α (Disjunction R S) where
+  semantics rules before after :=
+    Rules.semantics rules.left before after ∨
+    Rules.semantics rules.right before after
 
 /- ### Derived Notions -/
 /- used for defining narrowsTo -/
 def postImage {α : Type u} {P : Type v} {R : Type w}
-    [State α] [Pattern α P] [AtRule α R]
+    [State α] [Pattern α P] [Rules α R]
     (rule : R) (source : P) (after : α) : Prop :=
   ∃ before,
     Pattern.semantics source before ∧
-    AtRule.semantics rule before after
+    Rules.semantics rule before after
 
 /-- Semantic post-image distributes over finite pattern disjunction. -/
 theorem postImage_disjunction
     {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
-    [State α] [Pattern α P] [Pattern α Q] [AtRule α R]
+    [State α] [Pattern α P] [Pattern α Q] [Rules α R]
     (rule : R) (left : P) (right : Q) (after : α) :
     postImage rule (left ⊔ right) after ↔
       postImage rule left after ∨ postImage rule right after := by
@@ -156,7 +172,7 @@ theorem postImage_disjunction
 -- TODO: NarrowsTo -> narrowsTo
 /- R ⊢ P ↝ Q iff ∀ q ∈ Q, ∃ p ∈ P, R p q -/
 def NarrowsTo {α : Type u} {P : Type v} {Post : Type w} {R : Type x}
-    [State α] [Pattern α P] [Pattern α Post] [AtRule α R]
+    [State α] [Pattern α P] [Pattern α Post] [Rules α R]
     (rule : R) (source : P) (post : Post) : Prop :=
   ∀ after,
     Pattern.semantics post after ↔ postImage rule source after
@@ -166,11 +182,11 @@ notation:40 rule " ⊢ " source " ↝ " post =>
 
 /- R ⊢ P ↪ Q iff ∀ p,q ∈ α, p ∈ P → R p q → q ∈ Q -/
 def mapsInto {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
-    [State α] [Pattern α P] [Pattern α Q] [AtRule α R]
+    [State α] [Pattern α P] [Pattern α Q] [Rules α R]
     (rule : R) (source : P) (target : Q) : Prop :=
   ∀ before after,
     Pattern.semantics source before →
-    AtRule.semantics rule before after →
+    Rules.semantics rule before after →
     Pattern.semantics target after
 
 notation:40 rule " ⊢ " source " ↪ " target =>
@@ -186,7 +202,7 @@ notation:40 rule " ⊢ " source " ↪ " target =>
 theorem mapsInto_of_narrowsTo_of_subsumes
     {α : Type u} {P : Type v} {Post : Type w} {Q : Type x}
     {R : Type y} [State α] [Pattern α P] [Pattern α Post]
-    [Pattern α Q] [AtRule α R]
+    [Pattern α Q] [Rules α R]
     {rule : R} {source : P} {post : Post} {target : Q}
     (hnarrow : NarrowsTo rule source post)
     (hsubsumes : Subsumes post target) :
@@ -208,25 +224,25 @@ concrete Lean type is not known before narrowing.
 theorem mapsInto_via_narrowing
     {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
     [state : State α] [sourcePattern : Pattern α P]
-    [targetPattern : Pattern α Q] [ruleSemantics : AtRule α R]
+    [targetPattern : Pattern α Q] [rulesSemantics : Rules α R]
     {rule : R} {source : P} {target : Q}
     (decomposition :
       ∃ (Post : Type y) (postPattern : Pattern α Post) (post : Post),
-        @NarrowsTo α P Post R state sourcePattern postPattern ruleSemantics
+        @NarrowsTo α P Post R state sourcePattern postPattern rulesSemantics
             rule source post ∧
         @Subsumes α Post Q state postPattern targetPattern post target) :
     mapsInto rule source target := by
   rcases decomposition with
     ⟨Post, postPattern, post, narrowing, subsumption⟩
   exact @mapsInto_of_narrowsTo_of_subsumes α P Post Q R
-    state sourcePattern postPattern targetPattern ruleSemantics
+    state sourcePattern postPattern targetPattern rulesSemantics
     rule source post target narrowing subsumption
 
 /-- Once the exact post is known, `mapsInto` is precisely subsumption. -/
 theorem mapsInto_iff_subsumes_of_narrowsTo
     {α : Type u} {P : Type v} {Post : Type w} {Q : Type x}
     {R : Type y} [State α] [Pattern α P] [Pattern α Post]
-    [Pattern α Q] [AtRule α R]
+    [Pattern α Q] [Rules α R]
     {rule : R} {source : P} {post : Post} {target : Q}
     (hnarrow : NarrowsTo rule source post) :
     mapsInto rule source target ↔ Subsumes post target := by
@@ -241,12 +257,9 @@ end Rules
 -- Preserve the concise modelling API while keeping declaration ownership
 -- visible in the namespace tree.
 export Patterns (APatt APattBody Pattern Disjunction EmptyPattern Subsumes)
-export Rules (RuleBody AtRule postImage NarrowsTo mapsInto
+export Rules (RuleBody Rule Rules postImage NarrowsTo mapsInto
   mapsInto_of_narrowsTo_of_subsumes mapsInto_via_narrowing
   mapsInto_iff_subsumes_of_narrowsTo)
 
 end framework
-
-
-
 

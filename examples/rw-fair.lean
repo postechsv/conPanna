@@ -22,6 +22,7 @@ inductive Count where
 
 namespace Count
 
+-- for notational convenience
 instance : OfNat Count 0 := ⟨zero⟩
 instance : OfNat Count 1 := ⟨one⟩
 instance : Add Count := ⟨add⟩
@@ -151,6 +152,8 @@ def readersActive (n m k : Count) : APattBody Conf where
 def rwFairInv :=
   readersAfter ⊔ writerActive ⊔ readersBefore ⊔ readersActive
 
+
+
 /- A small ACU probe: `one` can be assigned to either labeled summand on the
 right, so a complete solver must return two incomparable unifiers. -/
 def splitLeft (x : Count) : Conf where
@@ -209,3 +212,17 @@ example : readerOut ⊢ rwFairInv ↪[B] rwFairInv := by
   · subsume_atom -- readersAfter
   · subsume_atom -- readersAfter
   · subsume_atom -- readersAfter
+
+
+/- The complete transition relation is the nondeterministic choice of the four
+atomic rules. -/
+def rwFairRules :=
+  writerIn ⊔ writerOut ⊔ readerIn ⊔ readerOut
+
+-- #narrow rwFairRules from rwFairInv mod B
+
+example : rwFairRules ⊢ rwFairInv ↪[B] rwFairInv := by
+  apply mapsInto_via_narrowing_mod
+  narrow rwFairRules from rwFairInv mod B := by
+    sorry
+  subsume -- 8 atomic patterns
