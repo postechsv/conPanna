@@ -38,6 +38,31 @@ instance : State Conf := ⟨⟩
 structural UPairTheory where
   comm Conf.upair
 
+open Status Conf
+
+def i2w (X : Status) : RuleBody Conf where
+  lhs := upair (proc idle) (proc X)
+  rhs := upair (proc wait) (proc X)
+  requires := True
+
+def w2c : RuleBody Conf where
+  lhs := upair (proc wait) (proc idle)
+  rhs := upair (proc crit) (proc idle)
+  requires := True
+
+def c2i (X : Status) : RuleBody Conf where
+  lhs := upair (proc crit) (proc X)
+  rhs := upair (proc idle) (proc X)
+  requires := True
+
+def hasIdle (X : Status) : APattBody Conf where
+  term := upair (proc idle) (proc X)
+  requires := True
+
+def hasWait (X : Status) : APattBody Conf where
+  term := upair (proc wait) (proc X)
+  requires := True
+
 
 /-!
 ## Experimental Maude signature discovery
@@ -489,6 +514,10 @@ private def elaboratePatternTranslation (patternSyntax rootSyntax : Syntax) :
   return renderTranslatedPattern
     (← translatePattern sorts "X" pattern)
 
+private def patternResultType
+    (pattern : Unification.Problem.SaturatedPattern) : MetaM Expr := do
+  withTransparency .all <| whnf (← inferType pattern.application)
+
 def maudeExecutable : String := "/home/byhoson/Maude/maude"
 
 def runMaude (moduleText query : String) : IO String := do
@@ -515,21 +544,25 @@ elab "#dump_maude_term " pattern:term " from " root:term : command => do
   liftTermElabM do
     logInfo (← elaboratePatternTranslation pattern.raw root.raw)
 
-elab "#run_maude_unify_example " root:term " mod " theory:term : command => do
+elab "#maude_unify " leftSyntax:term " with " rightSyntax:term
+    " mod " theorySyntax:term : command => do
   liftTermElabM do
-    let moduleText ← elaborateModule root.raw theory.raw
-    let root ← elabType root.raw
+    let leftExpression ← elabTerm leftSyntax.raw none
+    let rightExpression ← elabTerm rightSyntax.raw none
+    let leftPattern ← Unification.Problem.saturatePattern leftExpression
+    let rightPattern ← Unification.Problem.saturatePattern rightExpression
+    let root ← patternResultType leftPattern
+    let rightRoot ← patternResultType rightPattern
+    unless ← isDefEq root rightRoot do
+      throwError "Maude unification requires patterns with the same result type"
+    let stateType ← mkAppM ``framework.State #[root]
+    discard <| synthInstance stateType
     let sorts ← collectSignature root
-    let leftExpression ← elabTerm
-      (← `(fun X : Status =>
-        Conf.upair (Conf.proc Status.idle) (Conf.proc X))) none
-    let rightExpression ← elabTerm
-      (← `(fun Y : Status =>
-        Conf.upair (Conf.proc Status.idle) (Conf.proc Y))) none
-    let left ← translatePattern sorts "L"
-      (← Unification.Problem.saturatePattern leftExpression)
-    let right ← translatePattern sorts "R"
-      (← Unification.Problem.saturatePattern rightExpression)
+    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+    let theory ← elabTerm theorySyntax.raw (some theoryType)
+    let moduleText := renderModule sorts (← inspectTheory theory)
+    let left ← translatePattern sorts "L" leftPattern
+    let right ← translatePattern sorts "R" rightPattern
     let query :=
       "unify in LEAN-MODEL : " ++
       left.term.render ++ " =? " ++ right.term.render ++ " ."
@@ -537,7 +570,7 @@ elab "#run_maude_unify_example " root:term " mod " theory:term : command => do
       (runMaude moduleText query : IO String)
     let unifiers ← ofExcept <|
       parseUnifiers sorts (left.variables ++ right.variables) output
-    logInfo m!"Maude output:\n{output.trim}\n\nParsed:\n{renderUnifiers unifiers}"
+    logInfo m!"{renderUnifiers unifiers}"
 
 end MaudeExperiment
 
@@ -545,4 +578,19 @@ end MaudeExperiment
 #dump_maude_term
   (fun X : Status => Conf.upair (Conf.proc Status.idle) (Conf.proc X))
   from Conf
-#run_maude_unify_example Conf mod UPairTheory
+
+-- The six atomic C-unification problems used by narrowing in `upair.lean`.
+#maude_unify (fun X : Status => (i2w X).lhs) with
+  (fun Y : Status => (hasIdle Y).term) mod UPairTheory
+#maude_unify (fun X : Status => (i2w X).lhs) with
+  (fun Y : Status => (hasWait Y).term) mod UPairTheory
+
+#maude_unify w2c.lhs with
+  (fun Y : Status => (hasIdle Y).term) mod UPairTheory
+#maude_unify w2c.lhs with
+  (fun Y : Status => (hasWait Y).term) mod UPairTheory
+
+#maude_unify (fun X : Status => (c2i X).lhs) with
+  (fun Y : Status => (hasIdle Y).term) mod UPairTheory
+#maude_unify (fun X : Status => (c2i X).lhs) with
+  (fun Y : Status => (hasWait Y).term) mod UPairTheory
