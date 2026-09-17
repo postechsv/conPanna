@@ -85,6 +85,18 @@ structure TranslatedPattern where
   term : MaudeTerm
   variables : Array MaudeVariable
 
+structure MaudeBinding where
+  domain : MaudeVariable
+  image : MaudeTerm
+
+structure MaudeUnifier where
+  index : Nat
+  bindings : Array MaudeBinding
+
+inductive RawMaudeTerm where
+  | atom (name : String) (sort? : Option String := none)
+  | application (name : String) (arguments : Array RawMaudeTerm)
+
 private def shortName : Name → String
   | .str _ value => value
   | name => name.toString
@@ -209,6 +221,167 @@ partial def MaudeTerm.render : MaudeTerm → String
       else
         let rendered := arguments.toList.map MaudeTerm.render
         s!"{shortName constructor}({String.intercalate ", " rendered})"
+
+private partial def skipWhitespace : List Char → List Char
+  | character :: rest =>
+      if character.isWhitespace then skipWhitespace rest
+      else character :: rest
+  | [] => []
+
+private def isDelimiter (character : Char) : Bool :=
+  character.isWhitespace ||
+    character == '(' || character == ')' ||
+    character == ',' || character == ':'
+
+private def takeToken (input : List Char) : String × List Char :=
+  let (token, rest) := input.span fun character => !isDelimiter character
+  (String.mk token, rest)
+
+private partial def parseRawTerm (input : List Char) :
+    Except String (RawMaudeTerm × List Char) := do
+  let input := skipWhitespace input
+  let (name, rest) := takeToken input
+  if name.isEmpty then
+    throw "expected a Maude term"
+  match skipWhitespace rest with
+  | ':' :: rest =>
+      let (sort, rest) := takeToken (skipWhitespace rest)
+      if sort.isEmpty then
+        throw s!"expected a sort after `{name}:`"
+      return (.atom name (some sort), rest)
+  | '(' :: rest =>
+      let (arguments, rest) ← parseRawArguments rest #[]
+      return (.application name arguments, rest)
+  | rest => return (.atom name none, rest)
+where
+  parseRawArguments (input : List Char) (arguments : Array RawMaudeTerm) :
+      Except String (Array RawMaudeTerm × List Char) := do
+    match skipWhitespace input with
+    | ')' :: rest => return (arguments, rest)
+    | input =>
+        let (argument, rest) ← parseRawTerm input
+        match skipWhitespace rest with
+        | ',' :: rest => parseRawArguments rest (arguments.push argument)
+        | ')' :: rest => return (arguments.push argument, rest)
+        | _ => throw "expected `,` or `)` in a Maude term"
+
+private def parseRawTermFully (input : String) : Except String RawMaudeTerm := do
+  let (term, rest) ← parseRawTerm input.toList
+  unless (skipWhitespace rest).isEmpty do
+    throw s!"unexpected text after Maude term `{input}`"
+  return term
+
+private def resolveSort (sorts : Array SortDecl) (name : String) :
+    Except String Name := do
+  let candidates := sorts.filter fun sort => shortName sort.leanName == name
+  match candidates.toList with
+  | [sort] => return sort.leanName
+  | [] => throw s!"unknown Maude sort `{name}`"
+  | _ => throw s!"ambiguous Maude sort `{name}`"
+
+private def checkExpectedSort (expected? : Option Name) (actual : Name) :
+    Except String Unit := do
+  if let some expected := expected? then
+    unless expected == actual do
+      throw s!"expected a term of sort `{shortName expected}`, got `{shortName actual}`"
+
+private def isFreshVariable (name : String) : Bool :=
+  name.startsWith "#" || name.startsWith "%"
+
+private partial def resolveRawTerm (sorts : Array SortDecl)
+    (variables : Array MaudeVariable) (expected? : Option Name) :
+    RawMaudeTerm → Except String MaudeTerm
+  | .atom name (some sortName) => do
+      let sort ← resolveSort sorts sortName
+      checkExpectedSort expected? sort
+      match variables.find? (·.maudeName == name) with
+      | some entry =>
+          unless entry.sort == sort do
+            throw s!"Maude changed the sort of input variable `{name}`"
+          return .variable name sort
+      | none =>
+          unless isFreshVariable name do
+            throw s!"unknown Maude variable `{name}`"
+          return .variable name sort
+  | .atom name none => do
+      let candidates := sorts.flatMap (·.constructors) |>.filter fun constructor =>
+        shortName constructor.leanName == name && constructor.fields.isEmpty &&
+          expected?.all (· == constructor.result)
+      match candidates.toList with
+      | [constructor] =>
+          return .application constructor.leanName constructor.result #[]
+      | [] => throw s!"unknown nullary Maude constructor `{name}`"
+      | _ => throw s!"ambiguous nullary Maude constructor `{name}`"
+  | .application name arguments => do
+      let candidates := sorts.flatMap (·.constructors) |>.filter fun constructor =>
+        shortName constructor.leanName == name &&
+          constructor.fields.size == arguments.size &&
+          expected?.all (· == constructor.result)
+      let constructor ← match candidates.toList with
+        | [constructor] => pure constructor
+        | [] => throw s!"unknown Maude constructor application `{name}`"
+        | _ => throw s!"ambiguous Maude constructor application `{name}`"
+      let mut resolved := #[]
+      for (argument, field) in arguments.zip constructor.fields do
+        resolved := resolved.push
+          (← resolveRawTerm sorts variables (some field) argument)
+      return .application constructor.leanName constructor.result resolved
+
+private def parseBinding (sorts : Array SortDecl)
+    (variables : Array MaudeVariable) (line : String) :
+    Except String MaudeBinding := do
+  let parts := line.splitOn " --> "
+  let [domainText, imageText] := parts
+    | throw s!"malformed Maude substitution line `{line}`"
+  let domainTerm ← parseRawTermFully domainText.trim
+  let (.atom domainName (some domainSortName)) := domainTerm
+    | throw s!"expected a typed variable before `-->` in `{line}`"
+  let some domain := variables.find? (·.maudeName == domainName)
+    | throw s!"Maude returned an unknown domain variable `{domainName}`"
+  let domainSort ← resolveSort sorts domainSortName
+  unless domain.sort == domainSort do
+    throw s!"Maude changed the sort of domain variable `{domainName}`"
+  let imageRaw ← parseRawTermFully imageText.trim
+  let image ← resolveRawTerm sorts variables (some domain.sort) imageRaw
+  return { domain, image }
+
+def parseUnifiers (sorts : Array SortDecl)
+    (variables : Array MaudeVariable) (output : String) :
+    Except String (Array MaudeUnifier) := do
+  let mut unifiers := #[]
+  let mut current? : Option MaudeUnifier := none
+  let mut sawNoUnifier := false
+  for rawLine in output.splitOn "\n" do
+    let line := rawLine.trim
+    if line.startsWith "Unifier " then
+      if let some current := current? then
+        unifiers := unifiers.push current
+      let some index := (line.drop 8).trim.toNat?
+        | throw s!"malformed Maude unifier heading `{line}`"
+      current? := some { index, bindings := #[] }
+    else if (line.splitOn " --> ").length > 1 then
+      let some current := current?
+        | throw s!"Maude returned a substitution outside a unifier block: `{line}`"
+      let binding ← parseBinding sorts variables line
+      current? := some { current with
+        bindings := current.bindings.push binding }
+    else if line == "No unifier." then
+      sawNoUnifier := true
+  if let some current := current? then
+    unifiers := unifiers.push current
+  if unifiers.isEmpty && !sawNoUnifier then
+    throw "Maude output contained neither a unifier nor `No unifier.`"
+  return unifiers
+
+private def renderUnifiers (unifiers : Array MaudeUnifier) : String :=
+  if unifiers.isEmpty then
+    "no unifier"
+  else
+    String.intercalate "\n" <| unifiers.toList.map fun unifier =>
+      let bindings := unifier.bindings.toList.map fun binding =>
+        s!"  {binding.domain.maudeName}:{shortName binding.domain.sort} ↦ " ++
+          binding.image.render
+      String.intercalate "\n" (s!"unifier {unifier.index}:" :: bindings)
 
 private def renderTranslatedPattern (translation : TranslatedPattern) : String :=
   let mappings := translation.variables.toList.map fun entry =>
@@ -345,13 +518,26 @@ elab "#dump_maude_term " pattern:term " from " root:term : command => do
 elab "#run_maude_unify_example " root:term " mod " theory:term : command => do
   liftTermElabM do
     let moduleText ← elaborateModule root.raw theory.raw
+    let root ← elabType root.raw
+    let sorts ← collectSignature root
+    let leftExpression ← elabTerm
+      (← `(fun X : Status =>
+        Conf.upair (Conf.proc Status.idle) (Conf.proc X))) none
+    let rightExpression ← elabTerm
+      (← `(fun Y : Status =>
+        Conf.upair (Conf.proc Status.idle) (Conf.proc Y))) none
+    let left ← translatePattern sorts "L"
+      (← Unification.Problem.saturatePattern leftExpression)
+    let right ← translatePattern sorts "R"
+      (← Unification.Problem.saturatePattern rightExpression)
     let query :=
       "unify in LEAN-MODEL : " ++
-      "upair(proc(idle), proc(X:Status)) =? " ++
-      "upair(proc(idle), proc(Y:Status)) ."
+      left.term.render ++ " =? " ++ right.term.render ++ " ."
     let output ← MonadLiftT.monadLift
       (runMaude moduleText query : IO String)
-    logInfo m!"Maude output:\n{output.trim}"
+    let unifiers ← ofExcept <|
+      parseUnifiers sorts (left.variables ++ right.variables) output
+    logInfo m!"Maude output:\n{output.trim}\n\nParsed:\n{renderUnifiers unifiers}"
 
 end MaudeExperiment
 
