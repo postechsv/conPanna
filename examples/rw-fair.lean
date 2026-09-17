@@ -179,7 +179,11 @@ example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
   narrow writerIn from rwFairInv mod B := by
     sorry
   subsume_cases
-  · subsume_atom -- writerActive
+  · -- subsume_atom works
+    intro state hpost
+    rcases hpost with ⟨u, hstate, _⟩
+    refine Or.inr (Or.inl ⟨u, ?_, True.intro⟩)
+    exact Structural.EqMod.transAt B (by structural_rfl) hstate
 
 example : writerOut ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod

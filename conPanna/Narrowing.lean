@@ -713,15 +713,6 @@ private def proveACU (theory left right : Expr) : MetaM Expr := do
       restoreState saved
   throwError "the terms are not equal modulo a registered ACU operation"
 
-private def constructorLemma (arity : Nat) : Option Name :=
-  match arity with
-  | 1 => some ``_root_.Structural.EqMod.constructor₁At
-  | 2 => some ``_root_.Structural.EqMod.constructor₂At
-  | 3 => some ``_root_.Structural.EqMod.constructor₃At
-  | 4 => some ``_root_.Structural.EqMod.constructor₄At
-  | 5 => some ``_root_.Structural.EqMod.constructor₅At
-  | _ => none
-
 private partial def proveEqMod (theory left right : Expr) : MetaM Expr := do
   let left ← instantiateMVars left
   let right ← instantiateMVars right
@@ -732,29 +723,43 @@ private partial def proveEqMod (theory left right : Expr) : MetaM Expr := do
   let right ← withTransparency .all <| whnf right
   let leftArguments := left.getAppArgs
   let rightArguments := right.getAppArgs
+  let mut constructorFailure? : Option MessageData := none
   if leftArguments.size == rightArguments.size then
-    if let some lemma := constructorLemma leftArguments.size then
-      let saved ← saveState
-      try
-        unless ← withoutModifyingState <|
-            isDefEq left.getAppFn right.getAppFn do
-          throwError "different constructor heads"
-        discard <| synthInstance (← mkAppM
-          ``_root_.Structural.HasConstructor #[theory, left.getAppFn])
-        let mut order := (Array.range leftArguments.size).toList
-        order := order.mergeSort fun first second =>
-          mvarCount leftArguments[first]! + mvarCount rightArguments[first]! <
-          mvarCount leftArguments[second]! + mvarCount rightArguments[second]!
-        let mut proofs : Array (Option Expr) :=
-          Array.replicate leftArguments.size none
-        for index in order do
-          proofs := proofs.set! index (some (← proveEqMod theory
-            leftArguments[index]! rightArguments[index]!))
-        let arguments := #[theory, left.getAppFn] ++ proofs.map (·.get!)
-        return ← mkAppM lemma arguments
-      catch _ =>
-        restoreState saved
-  proveACU theory left right
+    let saved ← saveState
+    try
+      unless ← withoutModifyingState <|
+          isDefEq left.getAppFn right.getAppFn do
+        throwError "different constructor heads"
+      let constructorInstance ← synthInstance (← mkAppM
+        ``_root_.Structural.HasConstructor #[theory, left.getAppFn])
+      let mut order := (Array.range leftArguments.size).toList
+      order := order.mergeSort fun first second =>
+        mvarCount leftArguments[first]! + mvarCount rightArguments[first]! <
+        mvarCount leftArguments[second]! + mvarCount rightArguments[second]!
+      let mut proofs : Array (Option Expr) :=
+        Array.replicate leftArguments.size none
+      for index in order do
+        proofs := proofs.set! index (some (← proveEqMod theory
+          leftArguments[index]! rightArguments[index]!))
+      let mut congruence ← mkAppOptM
+        ``_root_.Structural.ConstructorCongruence.headAt
+        #[some theory, none, some left.getAppFn, some constructorInstance]
+      for proof in proofs do
+        congruence ← mkAppM
+          ``_root_.Structural.ConstructorCongruence.appAt
+          #[theory, congruence, proof.get!]
+      return ← mkAppM ``_root_.Structural.EqMod.constructorAt
+        #[theory, congruence]
+    catch error =>
+      constructorFailure? := some error.toMessageData
+      restoreState saved
+  try
+    proveACU theory left right
+  catch error =>
+    match constructorFailure? with
+    | some constructorFailure =>
+        throwError m!"constructor congruence failed:\n{constructorFailure}\nstructural normalization failed:\n{error.toMessageData}"
+    | none => throw error
 
 private def eqModParts? (type : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
   let type ← withTransparency .reducible <| whnf (← instantiateMVars type)
@@ -871,6 +876,16 @@ private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
     proveEqModGoal goal
     return
   throwError m!"`subsume` could not close {target}"
+
+/-- Prove one fully instantiated equality modulo the registered theory. -/
+def runRfl : TacticM Unit := do
+  let goal ← getMainGoal
+  let proof ← goal.withContext do
+    let some (theory, left, right) ← eqModParts? (← goal.getType)
+      | throwError "`structural_rfl` expects an equality-modulo-theory goal"
+    proveEqMod theory left right
+  goal.assign proof
+  replaceMainGoal []
 
 end Structural
 
@@ -1002,5 +1017,9 @@ elab "subsume_cases" : tactic =>
 /-- Prove one atomic residual goal, using the registered matcher for witnesses. -/
 elab "subsume_atom" : tactic =>
   Narrowing.Subsumption.atom
+
+/-- Prove an instantiated structural equality without searching for witnesses. -/
+elab "structural_rfl" : tactic =>
+  Narrowing.Subsumption.Structural.runRfl
 
 end Narrowing
