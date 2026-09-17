@@ -429,35 +429,56 @@ def proveMapsInto (ref : Syntax) (rule source : Expr)
     (postIdent : Ident) (propositions : Array Expr) (bundleProof : Expr) :
     TacticM Ident := do
   let proofs ← splitConjunction propositions bundleProof
-  let mut goal ← getMainGoal
-  for i in [:proofs.size] do
-    let name ← goal.withContext do
-      return (← getLCtx).getUnusedName
-        (Name.mkSimple s!"unificationCompleteness{i + 1}")
-    let (_, nextGoal) ← goal.withContext do
-      goal.note name proofs[i]! (some propositions[i]!)
-    goal := nextGoal
-  setGoals [goal]
-
-  let mapsIntoIdent ←
-    Unification.Exposure.freshVisibleIdent ref `mapsInto
+  let goal ← getMainGoal
+  let mapsIntoName ← goal.withContext do
+    return (← getLCtx).getUnusedName `mapsInto
+  let mapsIntoIdent := mkIdentFrom ref mapsIntoName
   let unfoldNames ← Closure.unfoldingDefinitions
     (#[rule, source] ++ sourceBranches)
   let unfoldSimps ← unfoldNames.mapM fun name =>
     `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
+
+  let mapsIntoTypeSyntax ← `(term|
+    framework.Rules.mapsIntoMod $theorySyntax
+      $ruleSyntax $sourceSyntax ($postIdent:term))
+  let mapsIntoType ← goal.withContext do
+    Tactic.elabTerm mapsIntoTypeSyntax.raw none
+
+  -- Prove a function from the atomic completeness certificates to maps-into,
+  -- then apply it immediately.  The certificates remain scoped to this proof
+  -- instead of leaking into the user's subsumption continuation.
+  let mut liftingType := mapsIntoType
+  for offset in [:propositions.size] do
+    let i := propositions.size - offset - 1
+    liftingType := .forallE
+      (Name.mkSimple s!"unificationCompleteness{i + 1}")
+      propositions[i]! liftingType .default
+  let liftingProof ← goal.withContext do
+    mkFreshExprMVar (some liftingType)
+  let mut liftingGoal := liftingProof.mvarId!
+  for _ in propositions do
+    let (_, nextGoal) ← liftingGoal.withContext liftingGoal.intro1P
+    liftingGoal := nextGoal
+  setGoals [liftingGoal]
   try
     evalTactic (← `(tactic|
-      have $mapsIntoIdent:ident :
-          framework.Rules.mapsIntoMod $theorySyntax
-            $ruleSyntax $sourceSyntax ($postIdent:term) := by
-        simp only [framework.Rules.mapsIntoMod,
-          framework.Patterns.PatternMod.semantics,
-          framework.Patterns.APattMod.semantics,
-          framework.Rules.AtRuleMod.semantics,
-          $postIdent:term, $unfoldSimps,*]
+      simp only [framework.Rules.mapsIntoMod,
+        framework.Patterns.PatternMod.semantics,
+        framework.Patterns.APattMod.semantics,
+        framework.Rules.AtRuleMod.semantics,
+        $postIdent:ident, $unfoldSimps,*] <;>
         grind [Structural.EqMod.trans, Structural.EqMod.symm]))
   catch exception =>
+    setGoals [goal]
     throwErrorAt ref m!"failed to lift unification completeness into maps-into:\n{exception.toMessageData}"
+
+  setGoals [goal]
+  let mapsIntoProof ← goal.withContext do
+    let liftingProof ← instantiateMVars liftingProof
+    return mkAppN liftingProof proofs
+  let (_, goal) ← goal.withContext do
+    goal.note mapsIntoName mapsIntoProof (some mapsIntoType)
+  setGoals [goal]
   return mapsIntoIdent
 
 end Certification
