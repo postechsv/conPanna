@@ -742,8 +742,24 @@ def solveStructural (theory : Expr) (problem : Problem.Input) : MetaM Output := 
 end C
 
 
-/-- Run the backend selected by a declarative structural theory. -/
-def solveStructuralTheory (theory : Expr) (problem : Problem.Input) :
+/-- A pluggable solver for one structural-theory unification problem. -/
+abbrev StructuralTheorySolver :=
+  Expr → Problem.Input → MetaM Certificate.SolutionSet
+
+initialize structuralTheorySolverRef :
+    IO.Ref (Option StructuralTheorySolver) ← IO.mkRef none
+
+/-- Register an optional external structural-theory solver. -/
+def registerStructuralTheorySolver (solver : StructuralTheorySolver) : IO Unit :=
+  structuralTheorySolverRef.set (some solver)
+
+register_option conPanna.unification.useMaude : Bool := {
+  defValue := false
+  descr := "Use the registered Maude backend for structural unification and narrowing"
+}
+
+private def solveStructuralTheoryNative (theory : Expr)
+    (problem : Problem.Input) :
     MetaM Certificate.SolutionSet := do
   match ← StructuralDispatch.backend theory with
   | .free =>
@@ -752,6 +768,16 @@ def solveStructuralTheory (theory : Expr) (problem : Problem.Input) :
   | .c =>
       let output ← C.solveStructural theory problem
       return { alternatives := output.candidates.map (·.alternative) }
+
+/-- Run the selected native or explicitly enabled external structural solver. -/
+def solveStructuralTheory (theory : Expr) (problem : Problem.Input) :
+    MetaM Certificate.SolutionSet := do
+  if conPanna.unification.useMaude.get (← getOptions) then
+    let some solver ← structuralTheorySolverRef.get
+      | throwError "the Maude backend is enabled but `conPanna.Maude` is not imported"
+    solver theory problem
+  else
+    solveStructuralTheoryNative theory problem
 
 
 namespace ModCertificate
