@@ -76,7 +76,7 @@ the unification problem.
 
 namespace MaudeExperiment
 
-open Lean Meta Elab Command Term
+open Lean Meta Elab Command Term Tactic
 
 structure ConstructorDecl where
   leanName : Name
@@ -662,6 +662,54 @@ private def solveNarrowingWithMaude (sorts : Array SortDecl)
       alternatives := alternatives.push { problem, alternative }
   return { branches, alternatives }
 
+private def ensureNarrowingGoal (goal : MVarId) : MetaM Unit := do
+  let type ← whnf (← goal.getType)
+  unless type.getAppFn.isConstOf ``Exists do
+    throwError "`maude_narrow` expects the post goal from `apply mapsInto_via_narrowing_mod`"
+
+private def bindNarrowingPost (ref : Syntax)
+    (post : Narrowing.Materialization.Post) : TacticM Ident := do
+  let goal ← getMainGoal
+  let name ← goal.withContext do
+    return (← getLCtx).getUnusedName `post
+  let goal ← goal.define name post.type post.value
+  let (_, goal) ← goal.intro1P
+  setGoals [goal]
+  return mkIdentFrom ref name
+
+def runMaudeNarrowCertified (ref : Syntax)
+    (ruleSyntax sourceSyntax theorySyntax certificateSyntax : TSyntax `term) :
+    TacticM Unit := do
+  let initialGoal ← getMainGoal
+  let (rule, source, sourceBranches, generatedPost,
+      propositions, bundleType) ← initialGoal.withContext do
+    ensureNarrowingGoal initialGoal
+    let rule ← Lean.Elab.Tactic.elabTerm ruleSyntax.raw none
+    let source ← Lean.Elab.Tactic.elabTerm sourceSyntax.raw none
+    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+    let theory ← Lean.Elab.Tactic.elabTerm theorySyntax.raw (some theoryType)
+    let problem ← Narrowing.Problem.ofPattern rule source
+    let sorts ← collectSignature problem.stateType
+    let moduleText := renderModule sorts (← inspectTheory theory)
+    let solution ← solveNarrowingWithMaude sorts moduleText problem
+    let generatedPost ← Narrowing.Materialization.post
+      problem.stateType solution.alternatives
+    let (propositions, bundleType) ←
+      Narrowing.Certification.completenessBundleType theory solution.branches
+    return (rule, source, problem.sources, generatedPost,
+      propositions, bundleType)
+
+  let bundleProof ← initialGoal.withContext do
+    Lean.Elab.Tactic.elabTermEnsuringType certificateSyntax.raw
+      (some bundleType)
+  let postIdent ← bindNarrowingPost ref generatedPost
+  let mapsIntoIdent ← Narrowing.Certification.proveMapsInto ref rule source
+    sourceBranches ruleSyntax sourceSyntax theorySyntax postIdent propositions
+    bundleProof
+
+  Lean.Elab.Tactic.evalTactic (← `(tactic|
+    refine ⟨_, inferInstance, $postIdent:term, $mapsIntoIdent:term, ?_⟩))
+
 elab "#dump_maude_model " root:term " mod " theory:term : command => do
   liftTermElabM do
     logInfo (← elaborateModule root.raw theory.raw)
@@ -715,7 +763,59 @@ elab "#maude_narrow " ruleSyntax:term " from " sourceSyntax:term
       Narrowing.Certification.completenessBundleType theory solution.branches
     logInfo m!"post: {post.value}\ntype: {post.type}\ncompleteness obligation:\n{completeness}"
 
+elab "maude_narrow " ruleSyntax:term " from " sourceSyntax:term
+    " mod " theorySyntax:term " := " certificateSyntax:term : tactic =>
+  runMaudeNarrowCertified ruleSyntax.raw ruleSyntax sourceSyntax theorySyntax
+    certificateSyntax
+
 end MaudeExperiment
+
+theorem i2w_hasIdle_maude_complete :
+    ∀ X Y,
+      upair (proc idle) (proc X) =[UPairTheory]
+        upair (proc idle) (proc Y) →
+      ∃ U : Status, X = U ∧ Y = U := by
+  intro X Y overlap
+  have cases := (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
+  clear overlap
+  cases cases with
+  | ofEq equality => simp_all
+  | direct first second | swapped first second =>
+      have firstEq := Structural.CEquiv.eq_of_left_not_operation
+        (equation := first) (by simp)
+      have secondEq := Structural.CEquiv.eq_of_left_not_operation
+        (equation := second) (by simp)
+      simp_all
+
+theorem i2w_hasWait_maude_complete :
+    ∀ X Y,
+      upair (proc idle) (proc X) =[UPairTheory]
+        upair (proc wait) (proc Y) →
+      X = wait ∧ Y = idle := by
+  intro X Y overlap
+  have cases := (Structural.EqMod.iff_cEquiv Conf.upair).mp overlap
+  clear overlap
+  cases cases with
+  | ofEq equality => simp_all
+  | direct first second | swapped first second =>
+      have firstEq := Structural.CEquiv.eq_of_left_not_operation
+        (equation := first) (by simp)
+      have secondEq := Structural.CEquiv.eq_of_left_not_operation
+        (equation := second) (by simp)
+      simp_all
+
+example : i2w ⊢ mutexInv ↪[UPairTheory] mutexInv := by
+  apply mapsInto_via_narrowing_mod
+
+  maude_narrow i2w from mutexInv mod UPairTheory := by
+    exact ⟨i2w_hasIdle_maude_complete, i2w_hasWait_maude_complete⟩
+
+  intro after hpost
+  rcases hpost with hpost | hpost
+  · rcases hpost with ⟨X, hafter, _⟩
+    exact Or.inr ⟨X, hafter, True.intro⟩
+  · rcases hpost with ⟨hafter, _⟩
+    exact Or.inr ⟨wait, hafter, True.intro⟩
 
 #dump_maude_model Conf mod UPairTheory
 #dump_maude_term
