@@ -556,6 +556,32 @@ between the generated post and the user's target pattern. Its semantic goal
 is stable even if stronger constraint automation replaces this prototype.
 -/
 
+/-- One assignment proposed by an external structural matcher. -/
+structure MatchAssignment where
+  metavariable : MVarId
+  value : Expr
+
+/-- One directional match of a target atom against a source atom. -/
+structure MatchCandidate where
+  assignments : Array MatchAssignment
+
+/-- A pluggable directional matcher for structural terms. -/
+abbrev StructuralMatcher :=
+  Expr → Expr → Expr → MetaM (Array MatchCandidate)
+
+initialize structuralMatcherRef :
+    IO.Ref (Option StructuralMatcher) ← IO.mkRef none
+
+/-- Register an optional external matcher used only to find existential witnesses. -/
+def registerStructuralMatcher (matcher : StructuralMatcher) : IO Unit :=
+  structuralMatcherRef.set (some matcher)
+
+private def externalMatches (theory pattern subject : Expr) :
+    MetaM (Array MatchCandidate) := do
+  let some matcher ← structuralMatcherRef.get
+    | throwError "the Maude matcher is enabled but `conPanna.Maude` is not imported"
+  matcher theory pattern subject
+
 namespace Structural
 
 private structure ACUOperator where
@@ -739,6 +765,18 @@ private def eqModParts? (type : Expr) : MetaM (Option (Expr × Expr × Expr)) :=
   return some (arguments[0]!, arguments[arguments.size - 2]!,
     arguments[arguments.size - 1]!)
 
+private def proveMatchedEqMod (theory pattern subject : Expr) : MetaM Expr := do
+  unless (← getOptions).getBool `conPanna.unification.useMaude false do
+    return ← proveEqMod theory pattern subject
+  for candidate in ← externalMatches theory pattern subject do
+    let saved ← saveState
+    try
+      for assignment in candidate.assignments do
+        assignment.metavariable.assign assignment.value
+      return ← proveEqMod theory pattern subject
+    catch _ => restoreState saved
+  throwError "no external match passed Lean's structural-equality check"
+
 private def proveEqModGoal (goal : MVarId) : MetaM Unit := goal.withContext do
   let some (theory, left, right) ← eqModParts? (← goal.getType)
     | throwError "not a structural equality goal"
@@ -756,7 +794,7 @@ private def proveEqModGoal (goal : MVarId) : MetaM Unit := goal.withContext do
     if ← withoutModifyingState <| isDefEq right hypRight then
       let saved ← saveState
       try
-        let initialProof ← proveEqMod theory left hypLeft
+        let initialProof ← proveMatchedEqMod theory left hypLeft
         goal.assign (← mkAppM ``_root_.Structural.EqMod.transAt
           #[theory, initialProof, mkFVar declaration.fvarId])
         return
@@ -764,7 +802,7 @@ private def proveEqModGoal (goal : MVarId) : MetaM Unit := goal.withContext do
     if ← withoutModifyingState <| isDefEq right hypLeft then
       let saved ← saveState
       try
-        let initialProof ← proveEqMod theory left hypRight
+        let initialProof ← proveMatchedEqMod theory left hypRight
         let reversed ← mkAppM ``_root_.Structural.EqMod.symmAt
           #[theory, mkFVar declaration.fvarId]
         goal.assign (← mkAppM ``_root_.Structural.EqMod.transAt
@@ -778,6 +816,21 @@ private def decomposableHypothesis? (type : Expr) : MetaM Bool := do
   let head := type.getAppFn
   return head.isConstOf ``And || head.isConstOf ``Or ||
     head.isConstOf ``Exists || head.isConstOf ``False
+
+private partial def exposeSourceCases (goal : MVarId) :
+    MetaM (Array MVarId) := goal.withContext do
+  let target ← withTransparency .reducible <| whnf (← goal.getType)
+  if target.isForall then
+    let (_, next) ← goal.intro1P
+    return ← exposeSourceCases next
+  for declaration in ← getLCtx do
+    if ← decomposableHypothesis? declaration.type then
+      let branches ← goal.cases declaration.fvarId
+      let mut leaves := #[]
+      for branch in branches do
+        leaves := leaves ++ (← exposeSourceCases branch.mvarId)
+      return leaves
+  return #[goal]
 
 private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
   let target ← withTransparency .reducible <| whnf (← goal.getType)
@@ -817,6 +870,7 @@ private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
     solve proof.mvarId!
     return
   if head.isConstOf ``Or then
+    let mut failures := #[]
     for lemma in [``Or.inl, ``Or.inr] do
       let saved ← saveState
       try
@@ -824,8 +878,10 @@ private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
           | throwError "unexpected disjunction subgoals"
         solve subgoal
         return
-      catch _ => restoreState saved
-    throwError "no target disjunct subsumes this post branch"
+      catch error =>
+        failures := failures.push error.toMessageData
+        restoreState saved
+    throwError m!"no target disjunct subsumes this post branch\n{MessageData.joinSep failures.toList (m!"\n")}"
   if (← eqModParts? target).isSome then
     proveEqModGoal goal
     return
@@ -833,8 +889,8 @@ private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
 
 end Structural
 
-/-- Simplify and prove the residual semantic inclusion between patterns. -/
-def run : TacticM Unit := do
+/-- Expand pattern semantics, leaving one goal for each atomic source branch. -/
+def cases : TacticM Unit := do
   let goal ← getMainGoal
   let input ← goal.withContext do
     Goal.ofSubsumesType (← goal.getType)
@@ -861,9 +917,25 @@ def run : TacticM Unit := do
           framework.Patterns.APattMod.semantics,
           $unfoldSimps,*]))
       let goals ← getGoals
+      let mut branches := #[]
       for goal in goals do
-        Structural.solve goal
-      setGoals []
+        branches := branches ++ (← goal.withContext <|
+          Structural.exposeSourceCases goal)
+      setGoals branches.toList
+
+/-- Prove one atomic residual inclusion. -/
+def atom : TacticM Unit := do
+  let goal ← getMainGoal
+  goal.withContext <| Structural.solve goal
+  replaceMainGoal []
+
+/-- Simplify and prove the residual semantic inclusion between patterns. -/
+def run : TacticM Unit := do
+  cases
+  let goals ← getGoals
+  for goal in goals do
+    goal.withContext <| Structural.solve goal
+  setGoals []
 
 end Subsumption
 
@@ -904,5 +976,13 @@ elab "narrow " rule:term " from " source:term " mod " theory:term
 /-- Prove the residual pattern-subsumption phase. -/
 elab "subsume" : tactic =>
   Narrowing.Subsumption.run
+
+/-- Expose one residual goal per atomic post branch. -/
+elab "subsume_cases" : tactic =>
+  Narrowing.Subsumption.cases
+
+/-- Prove one atomic residual goal, using the registered matcher for witnesses. -/
+elab "subsume_atom" : tactic =>
+  Narrowing.Subsumption.atom
 
 end Narrowing

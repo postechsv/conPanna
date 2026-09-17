@@ -755,7 +755,7 @@ def registerStructuralTheorySolver (solver : StructuralTheorySolver) : IO Unit :
 
 register_option conPanna.unification.useMaude : Bool := {
   defValue := false
-  descr := "Use the registered Maude backend for structural unification and narrowing"
+  descr := "Use the registered Maude backend for structural unification, narrowing, and matching"
 }
 
 private def solveStructuralTheoryNative (theory : Expr)

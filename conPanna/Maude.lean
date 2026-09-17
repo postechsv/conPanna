@@ -344,6 +344,34 @@ def parseUnifiers (sorts : Array SortDecl)
     throw "Maude output contained neither a unifier nor `No unifier.`"
   return unifiers
 
+def parseMatchers (sorts : Array SortDecl)
+    (variables : Array MaudeVariable) (output : String) :
+    Except String (Array MaudeUnifier) := do
+  let mut matchers := #[]
+  let mut current? : Option MaudeUnifier := none
+  let mut sawNoMatch := false
+  for rawLine in output.splitOn "\n" do
+    let line := rawLine.trim
+    if line.startsWith "Matcher " then
+      if let some current := current? then
+        matchers := matchers.push current
+      let some index := (line.drop 8).trim.toNat?
+        | throw s!"malformed Maude matcher heading `{line}`"
+      current? := some { index, bindings := #[] }
+    else if (line.splitOn " --> ").length > 1 then
+      let some current := current?
+        | throw s!"Maude returned a substitution outside a matcher block: `{line}`"
+      let binding ← parseBinding sorts variables line
+      current? := some { current with
+        bindings := current.bindings.push binding }
+    else if line == "No match." then
+      sawNoMatch := true
+  if let some current := current? then
+    matchers := matchers.push current
+  if matchers.isEmpty && !sawNoMatch then
+    throw "Maude output contained neither a matcher nor `No match.`"
+  return matchers
+
 private def sameBasisVariable (left right : BasisVariable) : Bool :=
   left.name == right.name && left.sort == right.sort
 
@@ -388,6 +416,97 @@ private partial def maudeTermToExpr (basis : Array BasisVariable)
         translated := translated.push
           (← maudeTermToExpr basis basisExpressions argument)
       return mkAppN operation translated
+
+private partial def maudeTermToFixedExpr (variables : Array MaudeVariable) :
+    MaudeTerm → MetaM Expr
+  | .variable name sort =>
+      match variables.find? fun entry =>
+          entry.maudeName == name && entry.sort == sort with
+      | some entry => return entry.expression
+      | none => throwError
+          "Maude matcher introduced unsupported variable `{name}:{shortName sort}`"
+  | .application constructor _ arguments => do
+      let operation ← mkConstWithFreshMVarLevels constructor
+      let mut translated := #[]
+      for argument in arguments do
+        translated := translated.push
+          (← maudeTermToFixedExpr variables argument)
+      return mkAppN operation translated
+
+private partial def collectMVars (expression : Expr)
+    (result : Array MVarId := #[]) : Array MVarId :=
+  match expression with
+  | .mvar mvarId =>
+      if result.contains mvarId then result else result.push mvarId
+  | .app function argument =>
+      collectMVars argument (collectMVars function result)
+  | .lam _ type body _ | .forallE _ type body _ =>
+      collectMVars body (collectMVars type result)
+  | .letE _ type value body _ =>
+      collectMVars body (collectMVars value (collectMVars type result))
+  | .mdata _ body | .proj _ _ body => collectMVars body result
+  | _ => result
+
+private partial def collectFVars (expression : Expr)
+    (result : Array FVarId := #[]) : Array FVarId :=
+  match expression with
+  | .fvar fvarId =>
+      if result.contains fvarId then result else result.push fvarId
+  | .app function argument =>
+      collectFVars argument (collectFVars function result)
+  | .lam _ type body _ | .forallE _ type body _ =>
+      collectFVars body (collectFVars type result)
+  | .letE _ type value body _ =>
+      collectFVars body (collectFVars value (collectFVars type result))
+  | .mdata _ body | .proj _ _ body => collectFVars body result
+  | _ => result
+
+private def variablesForMVars (stem : String) (ids : Array MVarId) :
+    MetaM (Array MaudeVariable) := do
+  let mut variables := #[]
+  for index in [:ids.size] do
+    let expression := mkMVar ids[index]!
+    let type ← inferType expression
+    let sort ← try
+      inductiveNameOfType type
+    catch error =>
+      throwError m!"unsupported Maude match variable {expression} : {type}\n{error.toMessageData}"
+    variables := variables.push {
+      expression
+      leanName := Name.mkSimple s!"target{index + 1}"
+      maudeName := s!"{stem}{index + 1}"
+      sort
+    }
+  return variables
+
+private def variablesForFVars (stem : String) (ids : Array FVarId) :
+    MetaM (Array MaudeVariable) := do
+  let mut variables := #[]
+  for index in [:ids.size] do
+    let expression := mkFVar ids[index]!
+    let declaration ← ids[index]!.getDecl
+    variables := variables.push {
+      expression
+      leanName := declaration.userName
+      maudeName := s!"{stem}{index + 1}"
+      sort := ← inductiveNameOfType (← inferType expression)
+    }
+  return variables
+
+private def matcherToCandidate (variables targets : Array MaudeVariable)
+    (matcher : MaudeUnifier) : MetaM Narrowing.Subsumption.MatchCandidate := do
+  let mut assignments := #[]
+  for target in targets do
+    let some binding := matcher.bindings.find? fun binding =>
+        binding.domain.maudeName == target.maudeName
+      | continue
+    let value ← maudeTermToFixedExpr variables binding.image
+    if value.hasExprMVar then
+      throwError "Maude matcher returned a target variable in a match image"
+    let .mvar metavariable := target.expression
+      | throwError "internal Maude matcher target is not a metavariable"
+    assignments := assignments.push { metavariable, value }
+  return { assignments }
 
 private def unifierToAlternative (inputs : Array MaudeVariable)
     (unifier : MaudeUnifier) : MetaM Unification.Certificate.Alternative := do
@@ -559,6 +678,24 @@ private def solveWithMaude (sorts : Array SortDecl) (moduleText : String)
   let unifiers ← ofExcept <| parseUnifiers sorts inputs output
   toSolutionSet inputs unifiers
 
+private def matchWithMaude (sorts : Array SortDecl) (moduleText : String)
+    (pattern subject : Expr) :
+    MetaM (Array Narrowing.Subsumption.MatchCandidate) := do
+  let pattern ← withTransparency .all <| whnf (← instantiateMVars pattern)
+  let subject ← withTransparency .all <| whnf (← instantiateMVars subject)
+  let targets ← variablesForMVars "T" (collectMVars pattern)
+  let fixed ← variablesForFVars "S" (collectFVars subject)
+  let variables := targets ++ fixed
+  let patternTerm ← translateTerm sorts variables pattern
+  let subjectTerm ← translateTerm sorts variables subject
+  let query :=
+    "match in LEAN-MODEL : " ++ patternTerm.render ++
+    " <=? " ++ subjectTerm.render ++ " ."
+  let output ← MonadLiftT.monadLift
+    (runMaude moduleText query : IO String)
+  let matchers ← ofExcept <| parseMatchers sorts variables output
+  matchers.mapM (matcherToCandidate variables targets)
+
 /-- Solve one library unification problem through the external Maude process. -/
 def solveStructuralTheory (theory : Expr)
     (problem : Unification.Problem.Input) :
@@ -573,8 +710,26 @@ def solveStructuralTheory (theory : Expr)
   let moduleText := renderModule sorts (← inspectTheory theory)
   solveWithMaude sorts moduleText problem
 
+/-- Find directional matches of a target atom against a fixed source atom. -/
+def matchStructuralTheory (theory pattern subject : Expr) :
+    MetaM (Array Narrowing.Subsumption.MatchCandidate) := do
+  let root ← withTransparency .all <| whnf (← inferType pattern)
+  let subjectRoot ← withTransparency .all <| whnf (← inferType subject)
+  if root.isForall then
+    throwError m!"Maude received a non-atomic match pattern:\n  {pattern}\nwith type:\n  {root}\nsubject:\n  {subject}"
+  unless ← isDefEq root subjectRoot do
+    throwError "Maude matching requires terms with the same type"
+  let stateType ← mkAppM ``framework.State #[root]
+  discard <| synthInstance stateType
+  let sorts ← collectSignature root
+  let moduleText := renderModule sorts (← inspectTheory theory)
+  matchWithMaude sorts moduleText pattern subject
+
 initialize
   Unification.registerStructuralTheorySolver solveStructuralTheory
+
+initialize
+  Narrowing.Subsumption.registerStructuralMatcher matchStructuralTheory
 
 def dumpModelCommand (rootSyntax theorySyntax : Syntax) : TermElabM Unit := do
   logInfo (← elaborateModule rootSyntax theorySyntax)

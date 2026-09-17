@@ -178,22 +178,30 @@ example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod
   narrow writerIn from rwFairInv mod B := by
     sorry
-  subsume
+  subsume_cases
+  · subsume_atom -- writerActive
 
 example : writerOut ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod
   narrow writerOut from rwFairInv mod B := by
     sorry
-  subsume
+  subsume_cases
+  · subsume_atom -- readersBefore
 
 example : readerIn ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod
   narrow readerIn from rwFairInv mod B := by
     sorry
-  subsume
+  subsume_cases
+  · subsume_atom -- readersActive
+  · subsume_atom -- readersActive
+  · subsume_atom -- readersActive
 
 example : readerOut ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod
   narrow readerOut from rwFairInv mod B := by
     sorry
-  subsume
+  subsume_cases
+  · subsume_atom -- readersAfter
+  · subsume_atom -- readersAfter
+  · subsume_atom -- readersAfter
