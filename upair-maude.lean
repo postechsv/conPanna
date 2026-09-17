@@ -118,6 +118,10 @@ structure MaudeUnifier where
   index : Nat
   bindings : Array MaudeBinding
 
+structure BasisVariable where
+  name : String
+  sort : Name
+
 inductive RawMaudeTerm where
   | atom (name : String) (sort? : Option String := none)
   | application (name : String) (arguments : Array RawMaudeTerm)
@@ -408,6 +412,92 @@ private def renderUnifiers (unifiers : Array MaudeUnifier) : String :=
           binding.image.render
       String.intercalate "\n" (s!"unifier {unifier.index}:" :: bindings)
 
+private def sameBasisVariable (left right : BasisVariable) : Bool :=
+  left.name == right.name && left.sort == right.sort
+
+private partial def collectBasisVariables (term : MaudeTerm)
+    (basis : Array BasisVariable := #[]) : Array BasisVariable :=
+  match term with
+  | .variable name sort =>
+      let entry := { name, sort }
+      if basis.any (sameBasisVariable entry) then basis else basis.push entry
+  | .application _ _ arguments =>
+      arguments.foldl (fun basis argument =>
+        collectBasisVariables argument basis) basis
+
+private def imageOf (unifier : MaudeUnifier)
+    (input : MaudeVariable) : MaudeTerm :=
+  match unifier.bindings.find? fun binding =>
+      binding.domain.maudeName == input.maudeName with
+  | some binding => binding.image
+  | none => .variable input.maudeName input.sort
+
+private partial def withBasisExpressions {α : Type}
+    (basis : Array BasisVariable) (index : Nat) (expressions : Array Expr)
+    (continuation : Array Expr → MetaM α) : MetaM α := do
+  if _h : index < basis.size then
+    let type ← mkConstWithFreshMVarLevels basis[index].sort
+    withLocalDeclD (Name.mkSimple s!"u{index + 1}") type fun expression =>
+      withBasisExpressions basis (index + 1) (expressions.push expression)
+        continuation
+  else
+    continuation expressions
+
+private partial def maudeTermToExpr (basis : Array BasisVariable)
+    (basisExpressions : Array Expr) : MaudeTerm → MetaM Expr
+  | .variable name sort =>
+      match basis.findIdx? fun entry => entry.name == name && entry.sort == sort with
+      | some index => return basisExpressions[index]!
+      | none => throwError "Maude variable `{name}:{shortName sort}` is not in the unifier basis"
+  | .application constructor _ arguments => do
+      let operation ← mkConstWithFreshMVarLevels constructor
+      let mut translated := #[]
+      for argument in arguments do
+        translated := translated.push
+          (← maudeTermToExpr basis basisExpressions argument)
+      return mkAppN operation translated
+
+private def unifierToAlternative (inputs : Array MaudeVariable)
+    (unifier : MaudeUnifier) : MetaM Unification.Certificate.Alternative := do
+  let images := inputs.map (imageOf unifier)
+  let basis := images.foldl (fun basis image =>
+    collectBasisVariables image basis) #[]
+  let mut basisTypes := #[]
+  for entry in basis do
+    basisTypes := basisTypes.push (← mkConstWithFreshMVarLevels entry.sort)
+  let images ← withBasisExpressions basis 0 #[] fun basisExpressions => do
+    let mut expressions := #[]
+    for image in images do
+      let body ← maudeTermToExpr basis basisExpressions image
+      expressions := expressions.push (← mkLambdaFVars basisExpressions body)
+    return expressions
+  return { basisTypes, images }
+
+def toSolutionSet (inputs : Array MaudeVariable)
+    (unifiers : Array MaudeUnifier) :
+    MetaM Unification.Certificate.SolutionSet := do
+  let mut alternatives := #[]
+  for unifier in unifiers do
+    alternatives := alternatives.push
+      (← unifierToAlternative inputs unifier)
+  return { alternatives }
+
+private def formatSolutionSet (inputs : Array MaudeVariable)
+    (solutionSet : Unification.Certificate.SolutionSet) : MetaM MessageData := do
+  if solutionSet.alternatives.isEmpty then
+    return m!"no alternative"
+  let mut result := m!""
+  for index in [:solutionSet.alternatives.size] do
+    let alternative := solutionSet.alternatives[index]!
+    let basis := alternative.basisTypes.toList.map fun type => m!"{type}"
+    let mut branch := m!"alternative {index + 1}:\n  basis: [{MessageData.joinSep basis ", "}]"
+    for imageIndex in [:alternative.images.size] do
+      let some input := inputs[imageIndex]?
+        | throwError "certificate alternative has too many images"
+      branch := m!"{branch}\n  {input.maudeName} ↦ {alternative.images[imageIndex]!}"
+    result := if index == 0 then branch else m!"{result}\n{branch}"
+  return result
+
 private def renderTranslatedPattern (translation : TranslatedPattern) : String :=
   let mappings := translation.variables.toList.map fun entry =>
     s!"  {entry.maudeName}:{shortName entry.sort} ← {entry.leanName}"
@@ -568,9 +658,11 @@ elab "#maude_unify " leftSyntax:term " with " rightSyntax:term
       left.term.render ++ " =? " ++ right.term.render ++ " ."
     let output ← MonadLiftT.monadLift
       (runMaude moduleText query : IO String)
+    let inputs := left.variables ++ right.variables
     let unifiers ← ofExcept <|
-      parseUnifiers sorts (left.variables ++ right.variables) output
-    logInfo m!"{renderUnifiers unifiers}"
+      parseUnifiers sorts inputs output
+    let solutionSet ← toSolutionSet inputs unifiers
+    logInfo m!"{renderUnifiers unifiers}\ncertificate:\n{← formatSolutionSet inputs solutionSet}"
 
 end MaudeExperiment
 
