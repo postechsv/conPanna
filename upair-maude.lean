@@ -63,6 +63,8 @@ def hasWait (X : Status) : APattBody Conf where
   term := upair (proc wait) (proc X)
   requires := True
 
+def mutexInv := hasIdle ⊔ hasWait
+
 
 /-!
 ## Experimental Maude signature discovery
@@ -626,6 +628,40 @@ def runMaude (moduleText query : String) : IO String := do
     throw <| IO.userError s!"Maude reported a warning:\n{output.stdout}"
   return output.stdout
 
+structure MaudeSolution where
+  inputs : Array MaudeVariable
+  unifiers : Array MaudeUnifier
+  solutionSet : Unification.Certificate.SolutionSet
+
+private def solveWithMaude (sorts : Array SortDecl) (moduleText : String)
+    (problem : Unification.Problem.Input) : MetaM MaudeSolution := do
+  let left ← translatePattern sorts "L" problem.lhs
+  let right ← translatePattern sorts "R" problem.rhs
+  let query :=
+    "unify in LEAN-MODEL : " ++
+    left.term.render ++ " =? " ++ right.term.render ++ " ."
+  let output ← MonadLiftT.monadLift
+    (runMaude moduleText query : IO String)
+  let inputs := left.variables ++ right.variables
+  let unifiers ← ofExcept <| parseUnifiers sorts inputs output
+  let solutionSet ← toSolutionSet inputs unifiers
+  return { inputs, unifiers, solutionSet }
+
+private def solveNarrowingWithMaude (sorts : Array SortDecl)
+    (moduleText : String) (input : Narrowing.Problem.PatternInput) :
+    MetaM Narrowing.Backend.PatternSolution := do
+  let mut branches := #[]
+  let mut alternatives := #[]
+  for problem in input.branches do
+    let solved ← solveWithMaude sorts moduleText problem.unification
+    branches := branches.push {
+      problem
+      solutionSet := solved.solutionSet
+    }
+    for alternative in solved.solutionSet.alternatives do
+      alternatives := alternatives.push { problem, alternative }
+  return { branches, alternatives }
+
 elab "#dump_maude_model " root:term " mod " theory:term : command => do
   liftTermElabM do
     logInfo (← elaborateModule root.raw theory.raw)
@@ -656,20 +692,28 @@ elab "#maude_unify " leftSyntax:term " with " rightSyntax:term
       rhs := rightPattern
     }
     let moduleText := renderModule sorts (← inspectTheory theory)
-    let left ← translatePattern sorts "L" leftPattern
-    let right ← translatePattern sorts "R" rightPattern
-    let query :=
-      "unify in LEAN-MODEL : " ++
-      left.term.render ++ " =? " ++ right.term.render ++ " ."
-    let output ← MonadLiftT.monadLift
-      (runMaude moduleText query : IO String)
-    let inputs := left.variables ++ right.variables
-    let unifiers ← ofExcept <|
-      parseUnifiers sorts inputs output
-    let solutionSet ← toSolutionSet inputs unifiers
+    let solved ← solveWithMaude sorts moduleText problem
     let completeness ←
-      Unification.ModCertificate.completenessType theory problem solutionSet
-    logInfo m!"{renderUnifiers unifiers}\ncertificate:\n{← formatSolutionSet inputs solutionSet}\ncompleteness obligation:\n{completeness}"
+      Unification.ModCertificate.completenessType
+        theory problem solved.solutionSet
+    logInfo m!"{renderUnifiers solved.unifiers}\ncertificate:\n{← formatSolutionSet solved.inputs solved.solutionSet}\ncompleteness obligation:\n{completeness}"
+
+elab "#maude_narrow " ruleSyntax:term " from " sourceSyntax:term
+    " mod " theorySyntax:term : command => do
+  liftTermElabM do
+    let rule ← elabTerm ruleSyntax.raw none
+    let source ← elabTerm sourceSyntax.raw none
+    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+    let theory ← elabTerm theorySyntax.raw (some theoryType)
+    let problem ← Narrowing.Problem.ofPattern rule source
+    let sorts ← collectSignature problem.stateType
+    let moduleText := renderModule sorts (← inspectTheory theory)
+    let solution ← solveNarrowingWithMaude sorts moduleText problem
+    let post ← Narrowing.Materialization.post
+      problem.stateType solution.alternatives
+    let (_, completeness) ←
+      Narrowing.Certification.completenessBundleType theory solution.branches
+    logInfo m!"post: {post.value}\ntype: {post.type}\ncompleteness obligation:\n{completeness}"
 
 end MaudeExperiment
 
@@ -693,3 +737,7 @@ end MaudeExperiment
   (fun Y : Status => (hasIdle Y).term) mod UPairTheory
 #maude_unify (fun X : Status => (c2i X).lhs) with
   (fun Y : Status => (hasWait Y).term) mod UPairTheory
+
+#maude_narrow i2w from mutexInv mod UPairTheory
+#maude_narrow w2c from mutexInv mod UPairTheory
+#maude_narrow c2i from mutexInv mod UPairTheory
