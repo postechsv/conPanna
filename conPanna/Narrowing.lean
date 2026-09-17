@@ -817,21 +817,6 @@ private def decomposableHypothesis? (type : Expr) : MetaM Bool := do
   return head.isConstOf ``And || head.isConstOf ``Or ||
     head.isConstOf ``Exists || head.isConstOf ``False
 
-private partial def exposeSourceCases (goal : MVarId) :
-    MetaM (Array MVarId) := goal.withContext do
-  let target ← withTransparency .reducible <| whnf (← goal.getType)
-  if target.isForall then
-    let (_, next) ← goal.intro1P
-    return ← exposeSourceCases next
-  for declaration in ← getLCtx do
-    if ← decomposableHypothesis? declaration.type then
-      let branches ← goal.cases declaration.fvarId
-      let mut leaves := #[]
-      for branch in branches do
-        leaves := leaves ++ (← exposeSourceCases branch.mvarId)
-      return leaves
-  return #[goal]
-
 private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
   let target ← withTransparency .reducible <| whnf (← goal.getType)
 
@@ -889,17 +874,57 @@ private partial def solve (goal : MVarId) : MetaM Unit := goal.withContext do
 
 end Structural
 
-/-- Expand pattern semantics, leaving one goal for each atomic source branch. -/
+private partial def splitModDisjunctions (goal : MVarId) :
+    MetaM (Array MVarId) := goal.withContext do
+  let input ← Goal.ofSubsumesType (← goal.getType)
+  let some _ := input.theory? | return #[goal]
+  let source ← withTransparency .all <| whnf input.source
+  if source.getAppFn.isConstOf ``framework.Patterns.Disjunction.mk then
+    let lemma ← mkConstWithFreshMVarLevels
+      ``framework.Patterns.disjunction_subsumes_mod
+    let subgoals ← goal.apply
+      lemma
+    let mut leaves := #[]
+    for subgoal in subgoals do
+      leaves := leaves ++ (← splitModDisjunctions subgoal)
+    return leaves
+  return #[goal]
+
+private def unfoldingNames (input : Goal.SubsumptionInput) :
+    MetaM (Array Name) := do
+  let sourceBranches ← Problem.atomicSources input.source
+  let targetBranches ← Problem.atomicSources input.target
+  Closure.unfoldingDefinitions
+    (#[input.source, input.target] ++ sourceBranches ++ targetBranches)
+
+/-- Leave one pattern-level subsumption goal for each atomic source branch. -/
 def cases : TacticM Unit := do
   let goal ← getMainGoal
   let input ← goal.withContext do
     Goal.ofSubsumesType (← goal.getType)
-  let sourceBranches ← goal.withContext do
-    Problem.atomicSources input.source
-  let targetBranches ← goal.withContext do
-    Problem.atomicSources input.target
-  let unfoldNames ← Closure.unfoldingDefinitions
-    (#[input.source, input.target] ++ sourceBranches ++ targetBranches)
+  match input.theory? with
+  | none =>
+      let unfoldNames ← goal.withContext <| unfoldingNames input
+      let unfoldSimps ← unfoldNames.mapM fun name =>
+        `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
+      evalTactic (← `(tactic|
+        simp [framework.Patterns.Subsumes,
+          framework.Patterns.Pattern.semantics,
+          framework.Patterns.APatt.semantics,
+          $unfoldSimps,*] <;>
+          grind))
+  | some _ =>
+      let mut branches := #[]
+      for goal in ← getGoals do
+        branches := branches ++ (← splitModDisjunctions goal)
+      setGoals branches.toList
+
+/-- Prove one atomic residual inclusion. -/
+def atom : TacticM Unit := do
+  let goal ← getMainGoal
+  let input ← goal.withContext do
+    Goal.ofSubsumesType (← goal.getType)
+  let unfoldNames ← goal.withContext <| unfoldingNames input
   let unfoldSimps ← unfoldNames.mapM fun name =>
     `(Parser.Tactic.simpLemma| $(mkIdent name):ident)
   match input.theory? with
@@ -917,24 +942,17 @@ def cases : TacticM Unit := do
           framework.Patterns.APattMod.semantics,
           $unfoldSimps,*]))
       let goals ← getGoals
-      let mut branches := #[]
       for goal in goals do
-        branches := branches ++ (← goal.withContext <|
-          Structural.exposeSourceCases goal)
-      setGoals branches.toList
-
-/-- Prove one atomic residual inclusion. -/
-def atom : TacticM Unit := do
-  let goal ← getMainGoal
-  goal.withContext <| Structural.solve goal
-  replaceMainGoal []
+        goal.withContext <| Structural.solve goal
+      setGoals []
 
 /-- Simplify and prove the residual semantic inclusion between patterns. -/
 def run : TacticM Unit := do
   cases
   let goals ← getGoals
   for goal in goals do
-    goal.withContext <| Structural.solve goal
+    setGoals [goal]
+    atom
   setGoals []
 
 end Subsumption

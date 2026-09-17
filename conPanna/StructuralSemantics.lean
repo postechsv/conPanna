@@ -60,6 +60,21 @@ def SubsumesMod (theory : Structural.Theory.{u})
 notation:50 source " ⊑[" theory "] " target =>
   SubsumesMod theory source target
 
+/-- A disjunction is subsumed when each of its branches is subsumed. -/
+theorem disjunction_subsumes_mod
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
+    [State α] [PatternMod theory α P] [PatternMod theory α Q]
+    [PatternMod theory α R]
+    {left : P} {right : Q} {target : R}
+    (hleft : SubsumesMod theory left target)
+    (hright : SubsumesMod theory right target) :
+    SubsumesMod theory (left ⊔ right) target := by
+  intro state source
+  cases source with
+  | inl source => exact hleft state source
+  | inr source => exact hright state source
+
 end Patterns
 
 
@@ -168,7 +183,7 @@ theorem mapsInto_via_narrowing_mod
 
 end Rules
 
-export Patterns (APattMod PatternMod SubsumesMod)
+export Patterns (APattMod PatternMod SubsumesMod disjunction_subsumes_mod)
 export Rules (AtRuleMod postImageMod MapsInAndOnto mapsIntoMod
   mapsInto_of_mapsInAndOnto_of_subsumes_mod
   mapsInto_of_mapsInto_of_subsumes_mod
