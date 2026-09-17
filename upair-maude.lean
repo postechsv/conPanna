@@ -207,16 +207,50 @@ def renderModule (sorts : Array SortDecl)
   lines := lines.push "endfm"
   return String.intercalate "\n" lines.toList
 
+private def elaborateModule (rootSyntax theorySyntax : Syntax) :
+    TermElabM String := do
+  let root ← elabType rootSyntax
+  let stateType ← mkAppM ``framework.State #[root]
+  discard <| synthInstance stateType
+  let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+  let theory ← elabTerm theorySyntax (some theoryType)
+  return renderModule
+    (← collectSignature root) (← inspectTheory theory)
+
+def maudeExecutable : String := "/home/byhoson/Maude/maude"
+
+def runMaude (moduleText query : String) : IO String := do
+  let input := moduleText ++ "\n\n" ++ query ++ "\nquit\n"
+  let output ← IO.Process.output {
+    cmd := maudeExecutable
+    args := #["-no-banner"]
+  } (some input)
+  if output.exitCode != 0 then
+    throw <| IO.userError (
+      s!"Maude failed with exit code {output.exitCode}\n" ++
+      s!"stdout:\n{output.stdout}\nstderr:\n{output.stderr}")
+  unless output.stderr.trim.isEmpty do
+    throw <| IO.userError s!"Maude wrote to stderr:\n{output.stderr}"
+  if (output.stdout.splitOn "Warning:").length > 1 then
+    throw <| IO.userError s!"Maude reported a warning:\n{output.stdout}"
+  return output.stdout
+
 elab "#dump_maude_model " root:term " mod " theory:term : command => do
   liftTermElabM do
-    let root ← elabType root
-    let stateType ← mkAppM ``framework.State #[root]
-    discard <| synthInstance stateType
-    let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
-    let theory ← elabTerm theory (some theoryType)
-    logInfo (renderModule
-      (← collectSignature root) (← inspectTheory theory))
+    logInfo (← elaborateModule root.raw theory.raw)
+
+elab "#run_maude_unify_example " root:term " mod " theory:term : command => do
+  liftTermElabM do
+    let moduleText ← elaborateModule root.raw theory.raw
+    let query :=
+      "unify in LEAN-MODEL : " ++
+      "upair(proc(idle), proc(X:Status)) =? " ++
+      "upair(proc(idle), proc(Y:Status)) ."
+    let output ← MonadLiftT.monadLift
+      (runMaude moduleText query : IO String)
+    logInfo m!"Maude output:\n{output.trim}"
 
 end MaudeExperiment
 
 #dump_maude_model Conf mod UPairTheory
+#run_maude_unify_example Conf mod UPairTheory
