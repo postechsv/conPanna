@@ -46,6 +46,9 @@ structural B where
   comm Count.add
   id Count.add Count.zero
 
+-- shows automatically generated maude module used in tactics
+#dump_maude_model Conf mod B
+
 open Count
 
 /- The writer enters when no reader is active and every reader is in `after`. -/
@@ -170,12 +173,12 @@ def splitRight (a b : Count) : Conf where
   before := 0
   after := 0
 
-#unify splitLeft with splitRight mod B
+-- #unify splitLeft with splitRight mod B
 
-#narrow writerIn from rwFairInv mod B
-#narrow writerOut from rwFairInv mod B
-#narrow readerIn from rwFairInv mod B
-#narrow readerOut from rwFairInv mod B
+-- #narrow writerIn from rwFairInv mod B
+-- #narrow writerOut from rwFairInv mod B
+-- #narrow readerIn from rwFairInv mod B
+-- #narrow readerOut from rwFairInv mod B
 
 example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
   apply mapsInto_via_narrowing_mod
@@ -226,3 +229,51 @@ example : rwFairRules ⊢ rwFairInv ↪[B] rwFairInv := by
   narrow rwFairRules from rwFairInv mod B := by
     sorry
   subsume -- 8 atomic patterns
+
+
+#print rwFairRules
+
+
+/- todo: invariant generation -> narrowing search -/
+
+/- do another equivalent proof using rule-comp
+below holds because it is about single step (bidirectional)
+  R1 ⊢ S ↪[B] T   R2 ⊢ S ↪[B] T
+==================================[RuleComp]
+       R1 ⊔ R2 ⊢ S ↪[B] T
+
+R₁* ⊢ S ↪[B] T    R₂* ⊢ S ↪[B] T
+──────────────────────────────────  INVALID!!
+        (R₁ ⊔ R₂)* ⊢ S ↪[B] T
+-/
+
+/- what about these?
+  R ⊢ S ↪[B] T    S' ⊆ S
+---------------------
+ R ⊢ S' ↪[B] T
+
+  R ⊢ S ↪[B] T    T ⊆ T'
+----------------------
+ R ⊢ S ↪[B] T'
+
+  R ⊢ S₁ ↪ T   R ⊢ S₂ ↪ T
+──────────────────────────(bidirectional)
+      R ⊢ S₁ ⊔ S₂ ↪ T
+
+R ⊢ S ↪ T₁   R ⊢ S ↪ T₂
+──────────────────────────(bidirectional)
+      R ⊢ S ↪ T₁ ⊓ T₂
+
+  R ⊢ I ↪ I
+────────────────
+  R* ⊢ I ↪ I
+
+  S ⊑ I    R₁ ⊢ I ↪[B] I    R₂ ⊢ I ↪[B] I    I ⊑ T
+  ─────────────────────────────────────────────────── [StarInd]
+               Q* ⊢ S ↪[B] T
+
+  R₁ ⊢ I ↪[B] I    R₂ ⊢ I ↪[B] I
+  ──────────────────────────────── [StarInv]
+         (R₁ ⊔ R₂)* ⊢ I ↪[B] I
+
+-/
