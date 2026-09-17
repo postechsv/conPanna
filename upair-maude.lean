@@ -650,6 +650,11 @@ elab "#maude_unify " leftSyntax:term " with " rightSyntax:term
     let sorts ← collectSignature root
     let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
     let theory ← elabTerm theorySyntax.raw (some theoryType)
+    let problem : Unification.Problem.Input := {
+      theory? := some theory
+      lhs := leftPattern
+      rhs := rightPattern
+    }
     let moduleText := renderModule sorts (← inspectTheory theory)
     let left ← translatePattern sorts "L" leftPattern
     let right ← translatePattern sorts "R" rightPattern
@@ -662,7 +667,9 @@ elab "#maude_unify " leftSyntax:term " with " rightSyntax:term
     let unifiers ← ofExcept <|
       parseUnifiers sorts inputs output
     let solutionSet ← toSolutionSet inputs unifiers
-    logInfo m!"{renderUnifiers unifiers}\ncertificate:\n{← formatSolutionSet inputs solutionSet}"
+    let completeness ←
+      Unification.ModCertificate.completenessType theory problem solutionSet
+    logInfo m!"{renderUnifiers unifiers}\ncertificate:\n{← formatSolutionSet inputs solutionSet}\ncompleteness obligation:\n{completeness}"
 
 end MaudeExperiment
 
