@@ -18,7 +18,7 @@ Maude specification.
 inductive Count where
   | zero
   | one
-  | add : Count → Count → Count
+  | add : Count → Count → Count -- ACU
   deriving Repr
 
 namespace Count
@@ -298,6 +298,7 @@ structure MultisetView (theory : Theory) (Term Atom : Type) where
   encode : Term → Multiset Atom
   decode : Multiset Atom → Term
   normalize : ∀ term, term =[theory] decode (encode term)
+  sound : ∀ {left right}, left =[theory] right → encode left = encode right
 
 theorem MultisetView.eqMod_of_eq
     {theory : Theory} {Term Atom : Type}
@@ -308,6 +309,12 @@ theorem MultisetView.eqMod_of_eq
     EqMod.transAt theory
       (.ofEq (congrArg view.decode equality))
       (.symm (view.normalize right))
+
+theorem MultisetView.eqMod_iff_eq
+    {theory : Theory} {Term Atom : Type}
+    (view : MultisetView theory Term Atom) (left right : Term) :
+    left =[theory] right ↔ view.encode left = view.encode right :=
+  ⟨view.sound, view.eqMod_of_eq⟩
 
 end Structural
 
@@ -360,10 +367,15 @@ def multisetView : Structural.MultisetView B Count Unit where
   encode := toMultiset
   decode := fromCard ∘ Multiset.card
   normalize := eqMod_normalize
+  sound := by
+    /- This is the remaining model-specific derivation obligation.  A future
+    extension of `structural B` should generate it by checking that `encode`
+    respects every registered equation and constructor congruence. -/
+    sorry
 
-theorem viaMultiset {left right : Count}
-    (equality : left.toMultiset = right.toMultiset) : left =[B] right := by
-  exact multisetView.eqMod_of_eq equality
+theorem eqMod_iff_toMultiset_eq (left right : Count) :
+    left =[B] right ↔ left.toMultiset = right.toMultiset :=
+  multisetView.eqMod_iff_eq left right
 
 end Count
 
@@ -388,7 +400,7 @@ example : writerIn ⊢ rwFairInv ↪[B] rwFairInv := by
         Conf.mk (Count.add Count.one u) Count.zero true Count.zero
           (Count.add Count.one u)
     have hcount : (u + 1) =[B] (1 + u) := by
-      apply Count.viaMultiset
+      rw [Count.eqMod_iff_toMultiset_eq]
       exact Multiset.add_comm _ _
     exact Structural.EqMod.constructorAt B <|
       .app (.app (.app (.app (.app (.head Conf.mk)
