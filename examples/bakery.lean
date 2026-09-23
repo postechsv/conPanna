@@ -160,6 +160,32 @@ def idleWithUniqueTickets
 -- while carrying the source's `Nodup` constraint into the generated post.
 #narrow wake from idleWithUniqueTickets mod BakeryTheory
 
+/- These two probes have the same structurally applicable `enter` rule but
+different constraints.  The initial branch should retain an infeasible
+`allIdle` constraint, whereas the waiting branch may remain feasible. -/
+#narrow enter from initial mod BakeryTheory
+#narrow enter from waiting mod BakeryTheory
+
+/- The first generated residual constraint is infeasible: structural
+unification inserted a waiting process into a collection constrained to be
+entirely idle. -/
+lemma enter_initial_constraint_infeasible (ticket : Nat) (rest : ProcSet) :
+    ¬ ((allIdle rest ∧ allIdle (singleton (wait ticket))) ∧ True) := by
+  simp [allIdle]
+
+/- The second residual constraint is not merely syntactically consistent.  A
+single process waiting with ticket zero gives it a concrete Lean witness. -/
+lemma enter_waiting_constraint_feasible :
+    ∃ next serving rest,
+      (serving < next ∧
+        outsideCritical (union rest (singleton (wait serving))) ∧
+        ticketsInRange serving next
+          (union rest (singleton (wait serving))) ∧
+        (tickets (union rest (singleton (wait serving)))).Nodup) ∧
+      True := by
+  refine ⟨1, 0, empty, ?_⟩
+  simp [outsideCritical, ticketsInRange, tickets]
+
 -- Full experiments to enable once constrained unification exposes residual
 -- constraints cleanly:
 -- #narrow wake from bakeryInv mod BakeryTheory
