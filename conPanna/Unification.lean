@@ -932,7 +932,7 @@ private partial def withBasisVariables
 
 def instantiateExpression (expression : Expr)
     (originals replacements : Array Expr) : MetaM Expr := do
-  let instantiated := expression.replace fun subterm =>
+  return expression.replace fun subterm =>
     match subterm with
     | .mvar id =>
         match originals.findIdx? fun original =>
@@ -940,7 +940,6 @@ def instantiateExpression (expression : Expr)
         | some index => replacements[index]?
         | none => none
     | _ => none
-  withTransparency .all <| whnf instantiated
 
 /-- One instantiated symbolic intersection before it is closed over its basis. -/
 structure InstantiatedOverlap where
