@@ -156,8 +156,9 @@ def idleWithUniqueTickets
   }
   requires := (tickets rest).Nodup
 
--- First experiment for the next step:
--- #narrow wake from idleWithUniqueTickets mod BakeryTheory
+-- First experiment: structural ACU unification should compute the successor
+-- while carrying the source's `Nodup` constraint into the generated post.
+#narrow wake from idleWithUniqueTickets mod BakeryTheory
 
 -- Full experiments to enable once constrained unification exposes residual
 -- constraints cleanly:
