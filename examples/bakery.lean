@@ -199,9 +199,10 @@ lemma enter_waiting_constraint_feasible :
 
 -- Full experiments to enable once constrained unification exposes residual
 -- constraints cleanly:
--- #narrow wake from bakeryInv mod BakeryTheory
+/- Named posts isolate subsumption automation from narrowing certification. -/
+def wakeInvariantPost := narrow wake from bakeryInv mod BakeryTheory
 #narrow enter from bakeryInv mod BakeryTheory
--- #narrow exit from bakeryInv mod BakeryTheory
+def exitInvariantPost := narrow exit from bakeryInv mod BakeryTheory
 -- #narrow bakeryRules from bakeryInv mod BakeryTheory
 
 macro "bakery_subsume" : tactic =>
@@ -222,3 +223,23 @@ example : enter ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   · bakery_subsume
   · bakery_subsume
   · bakery_subsume
+
+example : wakeInvariantPost ⊑[BakeryTheory] bakeryInv := by
+  subsume_cases
+  -- None of the three branches is closed by the unchanged automation yet.
+  · fail_if_success bakery_subsume
+    sorry
+  · fail_if_success bakery_subsume
+    sorry
+  · fail_if_success bakery_subsume
+    sorry
+
+example : exitInvariantPost ⊑[BakeryTheory] bakeryInv := by
+  subsume_cases
+  -- The three infeasible overlaps close automatically.
+  · bakery_subsume
+  · bakery_subsume
+  · bakery_subsume
+  -- The feasible overlap requires a successor/equality case split.
+  · fail_if_success bakery_subsume
+    sorry
