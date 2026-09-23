@@ -843,6 +843,138 @@ def completenessType (theory : Expr) (problem : Problem.Input)
 end ModCertificate
 
 
+namespace Constrained
+
+/-!
+Materialization of constrained-pattern overlaps. Structural backends still
+solve only the equation between pattern terms; this layer applies every
+returned substitution to both complete patterns and conjoins their residual
+constraints.
+-/
+
+/-- A constrained-pattern closure saturated together with all its binders. -/
+structure SaturatedPattern where
+  value : Expr
+  closure : Problem.SaturatedPattern
+  term : Expr
+  stateType : Expr
+
+/-- Two constrained patterns and their underlying structural equation. -/
+structure Input where
+  left : SaturatedPattern
+  right : SaturatedPattern
+  unification : Problem.Input
+
+/-- A generated overlap and its concrete, possibly disjunctive type. -/
+structure Result where
+  type : Expr
+  value : Expr
+
+private def project (projection : Name) (value : Expr) : MetaM Expr := do
+  withTransparency .all <| whnf (← mkAppM projection #[value])
+
+private def saturate? (pattern : Expr) : MetaM (Option SaturatedPattern) := do
+  let closure ← Problem.saturatePattern pattern
+  let application ← withTransparency .all <| whnf closure.application
+  let applicationType ← withTransparency .all <| whnf (← inferType application)
+  let arguments := applicationType.getAppArgs
+  unless applicationType.getAppFn.isConstOf
+      ``framework.Patterns.APattBody && !arguments.isEmpty do
+    return none
+  let stateType := arguments[arguments.size - 1]!
+  return some {
+    value := pattern
+    closure
+    term := ← project ``framework.Patterns.APattBody.term application
+    stateType
+  }
+
+/-- Recognize two constrained-pattern inputs and form their term equation. -/
+def ofPatterns? (left right : Expr) : MetaM (Option Input) := do
+  let left? ← saturate? left
+  let right? ← saturate? right
+  match left?, right? with
+  | none, none => return none
+  | some _, none | none, some _ =>
+      throwError "constrained unification requires two constrained patterns"
+  | some left, some right =>
+      unless ← isDefEq left.stateType right.stateType do
+        throwError "constrained unification requires patterns over the same state type"
+      let lhs : Problem.SaturatedPattern := {
+        left.closure with application := left.term
+      }
+      let rhs : Problem.SaturatedPattern := {
+        right.closure with application := right.term
+      }
+      return some { left, right, unification := { lhs, rhs } }
+
+private partial def withBasisVariables
+    {α : Type}
+    (types : Array Expr) (index : Nat) (variables : Array Expr)
+    (continuation : Array Expr → MetaM α) : MetaM α := do
+  if _h : index < types.size then
+    withLocalDeclD (Name.mkSimple s!"u{index + 1}") types[index]!
+      fun basisVariable =>
+        withBasisVariables types (index + 1) (variables.push basisVariable)
+          continuation
+  else
+    continuation variables
+
+private def instantiatedPatterns (input : Input)
+    (alternative : Certificate.Alternative) (basis : Array Expr) :
+    MetaM (Expr × Expr) := do
+  let mut images := #[]
+  for image in alternative.images do
+    images := images.push (← whnf
+      (Certificate.instantiateImage image basis))
+  let leftCount := input.left.closure.arguments.size
+  let rightCount := input.right.closure.arguments.size
+  unless images.size == leftCount + rightCount do
+    throwError "a constrained-unification alternative has the wrong number of images"
+  let leftValue ← withTransparency .all <| whnf
+    (mkAppN input.left.value (images.extract 0 leftCount))
+  let rightValue ← withTransparency .all <| whnf
+    (mkAppN input.right.value (images.extract leftCount images.size))
+  return (leftValue, rightValue)
+
+/-- Materialize one structural unifier as a constrained overlap pattern. -/
+def overlap (input : Input) (alternative : Certificate.Alternative) :
+    MetaM Expr := do
+  withBasisVariables alternative.basisTypes 0 #[] fun basis => do
+    let (left, right) ← instantiatedPatterns input alternative basis
+    let term ← project ``framework.Patterns.APattBody.term left
+    let leftRequires ← project ``framework.Patterns.APattBody.requires left
+    let rightRequires ← project ``framework.Patterns.APattBody.requires right
+    let requires ← mkAppM ``And #[leftRequires, rightRequires]
+    let body ← mkAppM ``framework.Patterns.APattBody.mk #[term, requires]
+    mkLambdaFVars basis body
+
+private def empty (stateType : Expr) : MetaM Expr := do
+  let .sort (.succ level) ← whnf (← inferType stateType)
+    | throwError "the constrained-unification state is not a type"
+  return mkApp
+    (mkConst ``framework.Patterns.EmptyPattern.empty [level]) stateType
+
+private def disjoin (left right : Expr) : MetaM Expr :=
+  mkAppM ``framework.Patterns.Disjunction.mk #[left, right]
+
+/-- Materialize a complete structural solution set as a symbolic intersection. -/
+def overlaps (input : Input) (solutionSet : Certificate.SolutionSet) :
+    MetaM Result := do
+  let value ← if solutionSet.alternatives.isEmpty then
+      empty input.left.stateType
+    else
+      let some last := solutionSet.alternatives.back?
+        | throwError "nonempty unification result unexpectedly had no last alternative"
+      let mut value ← overlap input last
+      for alternative in solutionSet.alternatives.toList.dropLast.reverse do
+        value ← disjoin (← overlap input alternative) value
+      pure value
+  return { type := ← inferType value, value }
+
+end Constrained
+
+
 namespace Inspect
 
 private def formatAlternative (problem : Problem.Input)
@@ -870,6 +1002,14 @@ private def formatSolutionSet (problem : Problem.Input)
 
 /-- Display a free unification solution set without opening a proof. -/
 def unifiers (left right : Expr) : MetaM MessageData := do
+  if let some constrained ← Constrained.ofPatterns? left right then
+    let output ← Free.solve constrained.unification
+    let solutionSet : Certificate.SolutionSet := {
+      alternatives := output.candidates.map (·.alternative)
+    }
+    let mappings ← formatSolutionSet constrained.unification solutionSet
+    let overlap ← Constrained.overlaps constrained solutionSet
+    return m!"{mappings}\noverlap: {overlap.value}\ntype: {overlap.type}"
   let lhs ← Problem.saturatePattern left
   let rhs ← Problem.saturatePattern right
   let problem : Problem.Input := { lhs, rhs }
@@ -880,6 +1020,11 @@ def unifiers (left right : Expr) : MetaM MessageData := do
 
 /-- Display a structural unification solution set without opening a proof. -/
 def structuralUnifiers (left right theory : Expr) : MetaM MessageData := do
+  if let some constrained ← Constrained.ofPatterns? left right then
+    let solutionSet ← solveStructuralTheory theory constrained.unification
+    let mappings ← formatSolutionSet constrained.unification solutionSet
+    let overlap ← Constrained.overlaps constrained solutionSet
+    return m!"{mappings}\noverlap: {overlap.value}\ntype: {overlap.type}"
   let lhs ← Problem.saturatePattern left
   let rhs ← Problem.saturatePattern right
   let problem : Problem.Input := { theory? := some theory, lhs, rhs }

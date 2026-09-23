@@ -156,6 +156,45 @@ def idleWithUniqueTickets
   }
   requires := (tickets rest).Nodup
 
+def enterLeft (next serving : Nat) (rest : ProcSet) : APattBody Conf :=
+  (enter next serving rest).leftPat
+
+/- Named constrained-unification results for the two `enter` probes.  Each
+overlap chooses the rule LHS as its term representative and conjoins the
+instantiated source and rule constraints. -/
+def enterInitialOverlap (ticket : Nat) (rest : ProcSet) : APattBody Conf :=
+  let rule := enter ticket ticket rest
+  let source := initial ticket (union rest (singleton (wait ticket)))
+  {
+    term := rule.leftPat.term
+    requires := source.requires ∧ rule.leftPat.requires
+  }
+
+def enterWaitingOverlap
+    (next serving : Nat) (rest : ProcSet) : APattBody Conf :=
+  let rule := enter next serving rest
+  let source := waiting next serving
+    (union rest (singleton (wait serving)))
+  {
+    term := rule.leftPat.term
+    requires := source.requires ∧ rule.leftPat.requires
+  }
+
+/- Narrowing changes only the term representative from the unified LHS to the
+instantiated RHS; the residual constraint is exactly the overlap constraint. -/
+def enterInitialPost (ticket : Nat) (rest : ProcSet) : APattBody Conf :=
+  {
+    term := (enter ticket ticket rest).rhs
+    requires := (enterInitialOverlap ticket rest).requires
+  }
+
+def enterWaitingPost
+    (next serving : Nat) (rest : ProcSet) : APattBody Conf :=
+  {
+    term := (enter next serving rest).rhs
+    requires := (enterWaitingOverlap next serving rest).requires
+  }
+
 -- First experiment: structural ACU unification should compute the successor
 -- while carrying the source's `Nodup` constraint into the generated post.
 #narrow wake from idleWithUniqueTickets mod BakeryTheory
@@ -166,25 +205,28 @@ different constraints.  The initial branch should retain an infeasible
 #narrow enter from initial mod BakeryTheory
 #narrow enter from waiting mod BakeryTheory
 
+-- Constrained `#unify` now computes the overlap patterns underlying those
+-- narrowing steps, rather than exposing only structural substitutions.
+#unify enterLeft with initial mod BakeryTheory
+#unify enterLeft with waiting mod BakeryTheory
+
 /- The first generated residual constraint is infeasible: structural
 unification inserted a waiting process into a collection constrained to be
 entirely idle. -/
 lemma enter_initial_constraint_infeasible (ticket : Nat) (rest : ProcSet) :
-    ¬ ((allIdle rest ∧ allIdle (singleton (wait ticket))) ∧ True) := by
-  simp [allIdle]
+    ¬ (enterInitialPost ticket rest).requires := by
+  simp [enterInitialPost, enterInitialOverlap,
+    framework.Rules.RuleBody.leftPat, initial, enter, allIdle]
 
 /- The second residual constraint is not merely syntactically consistent.  A
 single process waiting with ticket zero gives it a concrete Lean witness. -/
 lemma enter_waiting_constraint_feasible :
     ∃ next serving rest,
-      (serving < next ∧
-        outsideCritical (union rest (singleton (wait serving))) ∧
-        ticketsInRange serving next
-          (union rest (singleton (wait serving))) ∧
-        (tickets (union rest (singleton (wait serving)))).Nodup) ∧
-      True := by
+      (enterWaitingPost next serving rest).requires := by
   refine ⟨1, 0, empty, ?_⟩
-  simp [outsideCritical, ticketsInRange, tickets]
+  simp [enterWaitingPost, enterWaitingOverlap,
+    framework.Rules.RuleBody.leftPat, waiting, enter, outsideCritical,
+    ticketsInRange, tickets]
 
 -- Full experiments to enable once constrained unification exposes residual
 -- constraints cleanly:

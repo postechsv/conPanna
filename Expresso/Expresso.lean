@@ -112,6 +112,11 @@ structure RuleBody (α : Type u) where
   rhs : α
   requires : Prop := True
 
+/-- View a rule's left-hand side and condition as a constrained pattern. -/
+def RuleBody.leftPat {α : Type u} (rule : RuleBody α) : APattBody α where
+  term := rule.lhs
+  requires := rule.requires
+
 -- Atomic rules and their Lean closures denote binary transition relations.
 class Rule (α : outParam (Type u)) [State α] (R : Type v) where
   semantics : R → α → α → Prop
@@ -262,4 +267,3 @@ export Rules (RuleBody Rule Rules postImage NarrowsTo mapsInto
   mapsInto_iff_subsumes_of_narrowsTo)
 
 end framework
-
