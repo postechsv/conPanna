@@ -854,9 +854,9 @@ constraints.
 
 /-- A constrained-pattern closure saturated together with all its binders. -/
 structure SaturatedPattern where
-  value : Expr
   closure : Problem.SaturatedPattern
   term : Expr
+  requires : Expr
   stateType : Expr
 
 /-- Two constrained patterns and their underlying structural equation. -/
@@ -883,11 +883,29 @@ private def saturate? (pattern : Expr) : MetaM (Option SaturatedPattern) := do
     return none
   let stateType := arguments[arguments.size - 1]!
   return some {
-    value := pattern
     closure
     term := ← project ``framework.Patterns.APattBody.term application
+    requires := ← project ``framework.Patterns.APattBody.requires application
     stateType
   }
+
+/-- Saturate one closure known to return a constrained pattern. -/
+def saturate (pattern : Expr) : MetaM SaturatedPattern := do
+  let some result ← saturate? pattern
+    | throwError "expected a closure returning `APattBody`"
+  return result
+
+/-- Form a constrained-unification input from already saturated patterns. -/
+def ofSaturated (left right : SaturatedPattern) : MetaM Input := do
+  unless ← isDefEq left.stateType right.stateType do
+    throwError "constrained unification requires patterns over the same state type"
+  let lhs : Problem.SaturatedPattern := {
+    left.closure with application := left.term
+  }
+  let rhs : Problem.SaturatedPattern := {
+    right.closure with application := right.term
+  }
+  return { left, right, unification := { lhs, rhs } }
 
 /-- Recognize two constrained-pattern inputs and form their term equation. -/
 def ofPatterns? (left right : Expr) : MetaM (Option Input) := do
@@ -898,15 +916,7 @@ def ofPatterns? (left right : Expr) : MetaM (Option Input) := do
   | some _, none | none, some _ =>
       throwError "constrained unification requires two constrained patterns"
   | some left, some right =>
-      unless ← isDefEq left.stateType right.stateType do
-        throwError "constrained unification requires patterns over the same state type"
-      let lhs : Problem.SaturatedPattern := {
-        left.closure with application := left.term
-      }
-      let rhs : Problem.SaturatedPattern := {
-        right.closure with application := right.term
-      }
-      return some { left, right, unification := { lhs, rhs } }
+      return some (← ofSaturated left right)
 
 private partial def withBasisVariables
     {α : Type}
@@ -920,9 +930,29 @@ private partial def withBasisVariables
   else
     continuation variables
 
-private def instantiatedPatterns (input : Input)
+def instantiateExpression (expression : Expr)
+    (originals replacements : Array Expr) : MetaM Expr := do
+  let instantiated := expression.replace fun subterm =>
+    match subterm with
+    | .mvar id =>
+        match originals.findIdx? fun original =>
+            original.isMVar && original.mvarId! == id with
+        | some index => replacements[index]?
+        | none => none
+    | _ => none
+  withTransparency .all <| whnf instantiated
+
+/-- One instantiated symbolic intersection before it is closed over its basis. -/
+structure InstantiatedOverlap where
+  leftArguments : Array Expr
+  rightArguments : Array Expr
+  term : Expr
+  requires : Expr
+
+/-- Apply one solver alternative to both complete constrained patterns. -/
+def instantiateOverlap (input : Input)
     (alternative : Certificate.Alternative) (basis : Array Expr) :
-    MetaM (Expr × Expr) := do
+    MetaM InstantiatedOverlap := do
   let mut images := #[]
   for image in alternative.images do
     images := images.push (← whnf
@@ -931,22 +961,28 @@ private def instantiatedPatterns (input : Input)
   let rightCount := input.right.closure.arguments.size
   unless images.size == leftCount + rightCount do
     throwError "a constrained-unification alternative has the wrong number of images"
-  let leftValue ← withTransparency .all <| whnf
-    (mkAppN input.left.value (images.extract 0 leftCount))
-  let rightValue ← withTransparency .all <| whnf
-    (mkAppN input.right.value (images.extract leftCount images.size))
-  return (leftValue, rightValue)
+  let leftArguments := images.extract 0 leftCount
+  let rightArguments := images.extract leftCount images.size
+  let leftTerm ← instantiateExpression input.left.term
+    input.left.closure.arguments leftArguments
+  let leftRequires ← instantiateExpression input.left.requires
+    input.left.closure.arguments leftArguments
+  let rightRequires ← instantiateExpression input.right.requires
+    input.right.closure.arguments rightArguments
+  return {
+    leftArguments
+    rightArguments
+    term := leftTerm
+    requires := ← mkAppM ``And #[leftRequires, rightRequires]
+  }
 
 /-- Materialize one structural unifier as a constrained overlap pattern. -/
 def overlap (input : Input) (alternative : Certificate.Alternative) :
     MetaM Expr := do
   withBasisVariables alternative.basisTypes 0 #[] fun basis => do
-    let (left, right) ← instantiatedPatterns input alternative basis
-    let term ← project ``framework.Patterns.APattBody.term left
-    let leftRequires ← project ``framework.Patterns.APattBody.requires left
-    let rightRequires ← project ``framework.Patterns.APattBody.requires right
-    let requires ← mkAppM ``And #[leftRequires, rightRequires]
-    let body ← mkAppM ``framework.Patterns.APattBody.mk #[term, requires]
+    let instantiated ← instantiateOverlap input alternative basis
+    let body ← mkAppM ``framework.Patterns.APattBody.mk
+      #[instantiated.term, instantiated.requires]
     mkLambdaFVars basis body
 
 private def empty (stateType : Expr) : MetaM Expr := do

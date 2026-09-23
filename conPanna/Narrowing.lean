@@ -29,18 +29,11 @@ structure SaturatedRule where
   rhs : Expr
   requires : Expr
 
-/-- A constrained pattern closure saturated exactly once. -/
-structure SaturatedConstrainedPattern where
-  value : Expr
-  closure : Unification.Problem.SaturatedPattern
-  term : Expr
-  requires : Expr
-
 /-- Everything needed for one atomic structural narrowing problem. -/
 structure Input where
   rule : SaturatedRule
-  source : SaturatedConstrainedPattern
-  unification : Unification.Problem.Input
+  source : Unification.Constrained.SaturatedPattern
+  overlap : Unification.Constrained.Input
 
 /-- Atomic problems obtained from finite rule and source-pattern choices. -/
 structure CompositeInput where
@@ -66,30 +59,21 @@ def saturateRule (rule : Expr) : MetaM SaturatedRule := do
   catch _ =>
     throwError "`narrow` expects a closure returning `RuleBody`"
 
-def saturateSource (source : Expr) : MetaM SaturatedConstrainedPattern := do
-  let closure ← Unification.Problem.saturatePattern source
-  let application ← withTransparency .all <| whnf closure.application
-  try
-    return {
-      value := source
-      closure
-      term := ← project ``framework.Patterns.APattBody.term application
-      requires := ← project ``framework.Patterns.APattBody.requires application
-    }
-  catch _ =>
-    throwError "`narrow` expects a closure returning `APattBody`"
-
 /-- Form the backend problem `rule.lhs = source.term`. -/
 def ofTerms (rule source : Expr) : MetaM Input := do
   let rule ← saturateRule rule
-  let source ← saturateSource source
-  let lhs : Unification.Problem.SaturatedPattern := {
-    rule.closure with application := rule.lhs
+  let source ← try
+      Unification.Constrained.saturate source
+    catch _ =>
+      throwError "`narrow` expects a closure returning `APattBody`"
+  let rulePattern : Unification.Constrained.SaturatedPattern := {
+    closure := rule.closure
+    term := rule.lhs
+    requires := rule.requires
+    stateType := ← inferType rule.lhs
   }
-  let rhs : Unification.Problem.SaturatedPattern := {
-    source.closure with application := source.term
-  }
-  return { rule, source, unification := { lhs, rhs } }
+  let overlap ← Unification.Constrained.ofSaturated rulePattern source
+  return { rule, source, overlap }
 
 /--
 Expose the atomic leaves of a finite pattern built from `Disjunction`,
@@ -139,7 +123,7 @@ def ofRulesAndPattern (rule source : Expr) : MetaM CompositeInput := do
   return { stateType, rules, sources, branches }
 
 def symbolicArguments (problem : Input) : Array Expr :=
-  Unification.Problem.symbolicArguments problem.unification
+  Unification.Problem.symbolicArguments problem.overlap.unification
 
 end Problem
 
@@ -197,10 +181,10 @@ def solve (problem : Problem.Input) (theory? : Option Expr := none) :
     MetaM Unification.Certificate.SolutionSet := do
   match theory? with
   | none =>
-      let output ← Unification.Free.solve problem.unification
+      let output ← Unification.Free.solve problem.overlap.unification
       return { alternatives := output.candidates.map (·.alternative) }
   | some theory =>
-      Unification.solveStructuralTheory theory problem.unification
+      Unification.solveStructuralTheory theory problem.overlap.unification
 
 /-- One unifier together with its atomic rule/source problem. -/
 structure BranchAlternative where
@@ -262,39 +246,16 @@ private partial def withBasisVariables
   else
     continuation variables
 
-private def projections (problem : Problem.Input)
-    (alternative : Unification.Certificate.Alternative)
-    (basis : Array Expr) : MetaM (Expr × Expr × Expr) := do
-  let mut images := #[]
-  for image in alternative.images do
-    images := images.push (← whnf
-      (Unification.Certificate.instantiateImage image basis))
-  let ruleCount := problem.rule.closure.arguments.size
-  let sourceCount := problem.source.closure.arguments.size
-  unless images.size == ruleCount + sourceCount do
-    throwError "a narrowing alternative has the wrong number of images"
-  let ruleArguments := images.extract 0 ruleCount
-  let sourceArguments := images.extract ruleCount images.size
-  let ruleValue ← withTransparency .all <|
-    whnf (mkAppN problem.rule.value ruleArguments)
-  let sourceValue ← withTransparency .all <|
-    whnf (mkAppN problem.source.value sourceArguments)
-  let rhs ← withTransparency .all <|
-    whnf (← mkAppM ``framework.Rules.RuleBody.rhs #[ruleValue])
-  let ruleRequires ← withTransparency .all <|
-    whnf (← mkAppM ``framework.Rules.RuleBody.requires #[ruleValue])
-  let sourceRequires ← withTransparency .all <|
-    whnf (← mkAppM ``framework.Patterns.APattBody.requires #[sourceValue])
-  return (rhs, sourceRequires, ruleRequires)
-
 /-- Turn one backend alternative into its constrained successor closure. -/
 def successor (problem : Problem.Input)
     (alternative : Unification.Certificate.Alternative) : MetaM Expr := do
   withBasisVariables alternative.basisTypes 0 #[] fun basis => do
-    let (rhs, sourceRequires, ruleRequires) ←
-      projections problem alternative basis
-    let requires ← mkAppM ``And #[sourceRequires, ruleRequires]
-    let body ← mkAppM ``framework.Patterns.APattBody.mk #[rhs, requires]
+    let overlap ← Unification.Constrained.instantiateOverlap
+      problem.overlap alternative basis
+    let rhs ← Unification.Constrained.instantiateExpression problem.rule.rhs
+      problem.rule.closure.arguments overlap.leftArguments
+    let body ← mkAppM ``framework.Patterns.APattBody.mk
+      #[rhs, overlap.requires]
     mkLambdaFVars basis body
 
 private def empty (stateType : Expr) : MetaM Expr := do
@@ -421,7 +382,7 @@ def completenessBundleType (theory : Expr)
   for branch in branches do
     propositions := propositions.push
       (← Unification.ModCertificate.completenessType theory
-        branch.problem.unification branch.solutionSet)
+        branch.problem.overlap.unification branch.solutionSet)
   return (propositions, ← conjunction propositions)
 
 private def splitConjunction (propositions : Array Expr) (proof : Expr) :
@@ -1011,6 +972,28 @@ def run : TacticM Unit := do
   setGoals []
 
 end Subsumption
+
+/-- Compute a free narrowing post as an ordinary Lean term. -/
+syntax:max "narrow " term " from " term : term
+
+/-- Compute a theory-indexed narrowing post as an ordinary Lean term. -/
+syntax:max "narrow " term " from " term " mod " term : term
+
+elab_rules : term
+  | `(narrow $rule:term from $source:term) => do
+      let rule ← Term.elabTerm rule none
+      let source ← Term.elabTerm source none
+      let problem ← Problem.ofRulesAndPattern rule source
+      let alternatives ← Backend.solvePattern problem
+      return (← Materialization.post problem.stateType alternatives).value
+  | `(narrow $rule:term from $source:term mod $theory:term) => do
+      let rule ← Term.elabTerm rule none
+      let source ← Term.elabTerm source none
+      let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+      let theory ← Term.elabTerm theory (some theoryType)
+      let problem ← Problem.ofRulesAndPattern rule source
+      let alternatives ← Backend.solvePattern problem (some theory)
+      return (← Materialization.post problem.stateType alternatives).value
 
 /-- Compute and display a narrowing post without opening a proof goal. -/
 elab "#narrow " rule:term " from " source:term : command => do
