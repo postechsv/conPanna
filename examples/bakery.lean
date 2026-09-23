@@ -1,5 +1,6 @@
 import Mathlib.Data.Multiset.Basic
 import Mathlib.Data.Multiset.AddSub
+import Mathlib.Data.Multiset.UnionInter
 import conPanna.conPanna
 
 set_option conPanna.unification.useMaude true
@@ -203,42 +204,21 @@ lemma enter_waiting_constraint_feasible :
 -- #narrow exit from bakeryInv mod BakeryTheory
 -- #narrow bakeryRules from bakeryInv mod BakeryTheory
 
+macro "bakery_subsume" : tactic =>
+  `(tactic|
+    simp only [framework.Patterns.SubsumesMod,
+      framework.Patterns.PatternMod.semantics,
+      framework.Patterns.APattMod.semantics,
+      bakeryInv, initial, waiting, critical] <;>
+    simp_all [allIdle, outsideCritical, ticketsInRange, tickets,
+      Multiset.nodup_add] <;>
+    grind)
+
 example : enter ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   apply mapsInto_via_narrowing_mod
   narrow enter from bakeryInv mod BakeryTheory := by
     sorry
   subsume_cases
-  · intro state hpost
-    rcases hpost with ⟨ticket, rest, _, hrequires⟩
-    simp [allIdle] at hrequires
-  · intro state hpost
-    rcases hpost with
-      ⟨next, serving, rest, hstate, _, hlt, houtside, hrange, hnodup⟩
-    simp [outsideCritical] at houtside
-    have hnodupCons : (serving ::ₘ tickets rest).Nodup := by
-      change (tickets rest + {serving}).Nodup at hnodup
-      rw [Multiset.add_comm, Multiset.singleton_add] at hnodup
-      exact hnodup
-    have hserving : serving ∉ tickets rest :=
-      (Multiset.nodup_cons.mp hnodupCons).1
-    have hnodupRest : (tickets rest).Nodup :=
-      (Multiset.nodup_cons.mp hnodupCons).2
-    refine Or.inr (Or.inr
-      ⟨next, serving, rest, hstate, hlt, houtside, ?_, hnodupRest⟩)
-    intro ticket hticket
-    have hinUnion :
-        ticket ∈ tickets (union rest (singleton (wait serving))) := by
-      simp [tickets, hticket]
-    have hbounds := hrange ticket hinUnion
-    have hne : serving ≠ ticket := by
-      intro heq
-      apply hserving
-      simpa [heq] using hticket
-    exact ⟨lt_of_le_of_ne hbounds.1 hne, hbounds.2⟩
-  · intro state hpost
-    rcases hpost with
-      ⟨next, serving, rest, _, _, _, _, hrange, _⟩
-    have hserving :
-        serving ∈ tickets (union rest (singleton (wait serving))) := by
-      simp [tickets]
-    exact (Nat.lt_irrefl serving (hrange serving hserving).1).elim
+  · bakery_subsume
+  · bakery_subsume
+  · bakery_subsume
