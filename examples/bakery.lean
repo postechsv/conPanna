@@ -9,6 +9,206 @@ open framework
 open Structural
 
 /-!
+Prototype symbolic-subsumption infrastructure.  This section is deliberately
+model-independent so it can move unchanged into the library after the
+interface has been validated here.
+-/
+namespace SymbolicSubsumptionPrototype
+
+open framework.Patterns
+
+universe u v w x
+
+theorem subsumes_mod_trans
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
+    [State α] [PatternMod theory α P] [PatternMod theory α Q]
+    [PatternMod theory α R]
+    {source : P} {middle : Q} {target : R}
+    (h₁ : source ⊑[theory] middle)
+    (h₂ : middle ⊑[theory] target) :
+    source ⊑[theory] target := by
+  intro state hsource
+  exact h₂ state (h₁ state hsource)
+
+theorem source_family_subsumes_mod
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {A : Type v} {P : Type w} {Q : Type x}
+    [State α] [APattMod theory α P] [PatternMod theory α Q]
+    {source : A → P} {target : Q}
+    (h : ∀ argument, source argument ⊑[theory] target) :
+    source ⊑[theory] target := by
+  intro state hsource
+  rcases hsource with ⟨argument, hsource⟩
+  exact h argument state hsource
+
+theorem target_family_subsumes_mod
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {A : Type v} {P : Type w} {Q : Type x}
+    [State α] [PatternMod theory α P] [APattMod theory α Q]
+    {source : P} {target : A → Q}
+    (argument : A)
+    (h : source ⊑[theory] target argument) :
+    source ⊑[theory] target := by
+  intro state hsource
+  exact ⟨argument, h state hsource⟩
+
+theorem target_left_subsumes_mod
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
+    [State α] [PatternMod theory α P] [PatternMod theory α Q]
+    [PatternMod theory α R]
+    {source : P} {left : Q} {right : R}
+    (h : source ⊑[theory] left) :
+    source ⊑[theory] (left ⊔ right) := by
+  intro state hsource
+  exact Or.inl (h state hsource)
+
+theorem target_right_subsumes_mod
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {P : Type v} {Q : Type w} {R : Type x}
+    [State α] [PatternMod theory α P] [PatternMod theory α Q]
+    [PatternMod theory α R]
+    {source : P} {left : Q} {right : R}
+    (h : source ⊑[theory] right) :
+    source ⊑[theory] (left ⊔ right) := by
+  intro state hsource
+  exact Or.inr (h state hsource)
+
+theorem subsumes_mod_refl
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {P : Type v}
+    [State α] [PatternMod theory α P]
+    {pattern : P} : pattern ⊑[theory] pattern := by
+  intro _ h
+  exact h
+
+theorem apattBody_subsumes_of_match
+    {theory : Structural.Theory.{u}}
+    {α : Type u} [State α]
+    {source target : APattBody α}
+    (hterm : Structural.EqMod theory target.term source.term)
+    (hcondition : source.requires → target.requires) :
+    source ⊑[theory] target := by
+  intro state hsource
+  exact ⟨Structural.EqMod.transAt theory hterm hsource.1,
+    hcondition hsource.2⟩
+
+theorem apattBody_subsumes_of_infeasible
+    {theory : Structural.Theory.{u}}
+    {α : Type u} {Q : Type v} [State α]
+    [PatternMod theory α Q]
+    {source : APattBody α} {target : Q}
+    (hfalse : source.requires → False) :
+    source ⊑[theory] target := by
+  intro _ hsource
+  exact False.elim (hfalse hsource.2)
+
+open Lean Meta Elab Tactic
+
+syntax (name := refineSubsumptionPrototype)
+  "refine_subsumption " "(" ident* ")" " using " term : tactic
+
+syntax (name := refutePostPrototype)
+  "refute_post " "(" ident* ")" : tactic
+
+syntax (name := subsumptionVariablesPrototype)
+  "subsumption_variables " "(" ident* ")" : tactic
+
+private def introduceSourceArguments (names : Array (TSyntax `ident)) :
+    TacticM Unit := do
+  for name in names do
+    let goal ← getMainGoal
+    let lemmaProof ← mkConstWithFreshMVarLevels ``source_family_subsumes_mod
+    let [subgoal] ← goal.apply lemmaProof
+      | throwError "could not expose the next source-pattern argument"
+    let (_, next) ← subgoal.introN 1 [name.getId]
+    replaceMainGoal [next]
+
+private partial def targetPath (target selectedHead : Expr) :
+    MetaM (Option (List Bool)) := do
+  let reduced ← withTransparency .all <| whnf target
+  let arguments := reduced.getAppArgs
+  if reduced.getAppFn.isConstOf ``framework.Patterns.Disjunction.mk &&
+      arguments.size >= 2 then
+    if let some path ← targetPath arguments[arguments.size - 2]! selectedHead then
+      return some (false :: path)
+    if let some path ← targetPath arguments[arguments.size - 1]! selectedHead then
+      return some (true :: path)
+    return none
+  if ← withoutModifyingState <| isDefEq target.getAppFn selectedHead then
+    return some []
+  return none
+
+private def includeSelectedAtom (goal : MVarId) : TacticM Unit :=
+    goal.withContext do
+  let input ← Narrowing.Goal.ofSubsumesType (← goal.getType)
+  let selectedHead := input.source.getAppFn
+  let some path ← targetPath input.target selectedHead
+    | throwError "the selected atom does not occur in the target pattern"
+  let mut goal := goal
+  for goRight in path do
+    let theoremName := if goRight then
+      ``target_right_subsumes_mod
+    else
+      ``target_left_subsumes_mod
+    let theoremProof ← mkConstWithFreshMVarLevels theoremName
+    let [next] ← goal.apply theoremProof
+      | throwError "could not select the requested target disjunct"
+    goal := next
+  for argument in input.source.getAppArgs do
+    setGoals [goal]
+    let argumentSyntax ← Term.exprToSyntax argument
+    evalTactic (← `(tactic|
+      apply target_family_subsumes_mod $argumentSyntax))
+    let [next] ← getGoals
+      | throwError m!"could not instantiate the selected target atom"
+    goal := next
+  let theoremProof ← mkConstWithFreshMVarLevels ``subsumes_mod_refl
+  let remaining ← goal.apply theoremProof
+  unless remaining.isEmpty do
+    throwError "the supplied target arguments do not instantiate the selected atom"
+
+private def refineSubsumption (target : Term) : TacticM Unit := do
+  evalTactic (← `(tactic|
+    apply subsumes_mod_trans (middle := $target)))
+  let [sourceToMiddle, middleToTarget] ← getGoals
+    | throwError "unexpected symbolic-subsumption subgoals"
+
+  setGoals [sourceToMiddle]
+  evalTactic (← `(tactic|
+    apply apattBody_subsumes_of_match))
+  let [structuralGoal, conditionGoal] ← getGoals
+    | throwError "unexpected atomic-subsumption subgoals"
+
+  setGoals [structuralGoal]
+  evalTactic (← `(tactic| simp_all only))
+  unless (← getGoals).isEmpty do
+    evalTactic (← `(tactic| structural_rfl))
+  unless (← getGoals).isEmpty do
+    throwError "could not discharge the instantiated structural equality"
+
+  setGoals [middleToTarget]
+  includeSelectedAtom middleToTarget
+
+  setGoals [conditionGoal]
+
+elab_rules : tactic
+  | `(tactic| refine_subsumption ($names:ident*) using $target:term) => do
+      introduceSourceArguments names
+      refineSubsumption target
+  | `(tactic| refute_post ($names:ident*)) => do
+      introduceSourceArguments names
+      evalTactic (← `(tactic|
+        apply apattBody_subsumes_of_infeasible))
+  | `(tactic| subsumption_variables ($names:ident*)) => do
+      introduceSourceArguments names
+
+end SymbolicSubsumptionPrototype
+
+open SymbolicSubsumptionPrototype
+
+/-!
 # Lamport's Bakery algorithm
 
 This is the constrained-narrowing experiment derived from the earlier Lean
@@ -233,61 +433,107 @@ lemma wake_critical_constraints (next serving : Nat) (rest : ProcSet)
       exact ⟨this.1, lt_trans this.2 (Nat.lt_succ_self next)⟩
   · exact ⟨by simp, hnodupRest, by simpa using hfresh⟩
 
+lemma enter_waiting_constraints (next serving : Nat) (rest : ProcSet)
+    (hlt : serving < next)
+    (hnoCrit : noCrit (union rest (singleton (wait serving))))
+    (hrange :
+      ticketsInRange serving next (union rest (singleton (wait serving))))
+    (hnodup :
+      (tickets (union rest (singleton (wait serving)))).Nodup) :
+    (critical next serving rest).requires := by
+  simp only [critical]
+  simp_all [noCrit, ticketsInRange, tickets, Multiset.nodup_add]
+  grind
+
+lemma allIdle_of_noCrit_of_tickets_eq_zero (procs : ProcSet)
+    (hnoCrit : noCrit procs) (hzero : tickets procs = 0) :
+    allIdle procs := by
+  induction procs with
+  | empty => simp [allIdle]
+  | singleton mode => cases mode <;> simp_all [noCrit, tickets, allIdle]
+  | union left right ihLeft ihRight =>
+      simp only [noCrit, tickets, allIdle] at hnoCrit hzero ⊢
+      have hcards := congrArg Multiset.card hzero
+      simp only [Multiset.card_add, Multiset.card_zero] at hcards
+      have hLeftZero : tickets left = 0 :=
+        Multiset.card_eq_zero.mp (by omega)
+      have hRightZero : tickets right = 0 :=
+        Multiset.card_eq_zero.mp (by omega)
+      exact ⟨ihLeft hnoCrit.1 hLeftZero, ihRight hnoCrit.2 hRightZero⟩
+
+lemma exit_critical_initial_constraints (next serving : Nat) (rest : ProcSet)
+    (hboundary : serving.succ = next)
+    (_hlt : serving < next)
+    (hnoCrit : noCrit rest)
+    (hrange : ∀ ticket ∈ tickets rest,
+      serving < ticket ∧ ticket < next)
+    (_hnodup : (tickets rest).Nodup) :
+    (initial next (union (singleton idle) rest)).requires := by
+  have hzero : tickets rest = 0 := by
+    apply Multiset.eq_zero_iff_forall_notMem.mpr
+    intro ticket hticket
+    have bounds := hrange ticket hticket
+    omega
+  have hRestIdle := allIdle_of_noCrit_of_tickets_eq_zero rest hnoCrit hzero
+  simpa [initial, allIdle] using hRestIdle
+
+lemma exit_critical_waiting_constraints (next serving : Nat) (rest : ProcSet)
+    (hboundary : serving.succ ≠ next)
+    (hlt : serving < next)
+    (hnoCrit : noCrit rest)
+    (hrange : ∀ ticket ∈ tickets rest,
+      serving < ticket ∧ ticket < next)
+    (hnodup : (tickets rest).Nodup) :
+    (waiting next serving.succ (union (singleton idle) rest)).requires := by
+  simp only [waiting]
+  refine ⟨by omega, ?_, ?_, ?_⟩
+  · simpa [noCrit] using hnoCrit
+  · intro ticket hticket
+    have hticketRest : ticket ∈ tickets rest := by
+      simpa [tickets] using hticket
+    have bounds := hrange ticket hticketRest
+    exact ⟨by omega, bounds.2⟩
+  · simpa [tickets] using hnodup
+
 
 
 
 /- main proof -/
 
-macro "bakery_subsume" : tactic =>
-  `(tactic|
-    simp only [framework.Patterns.SubsumesMod,
-      framework.Patterns.PatternMod.semantics,
-      framework.Patterns.APattMod.semantics,
-      bakeryInv, initial, waiting, critical] <;>
-    simp_all [allIdle, noCrit, ticketsInRange, tickets,
-      noCrit_of_allIdle, tickets_eq_zero_of_allIdle,
-      Multiset.nodup_add] <;>
-    grind)
-
 example : wake ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   apply mapsInto_via_narrowing_mod
   narrow wake from bakeryInv mod BakeryTheory := by
     sorry
-  subsume_cases <;>
-    simp only [framework.Patterns.SubsumesMod,
-      framework.Patterns.PatternMod.semantics,
-      framework.Patterns.APattMod.semantics,
-      bakeryInv, initial, waiting, critical]
-  · rintro state ⟨next, rest, hstate, _, hIdle⟩
-    right
-    left
-    refine ⟨next.succ, next, union (singleton (wait next)) rest,
-      hstate, wake_initial_constraints next rest hIdle⟩
-  · rintro state ⟨next, serving, rest, hstate, _, hlt, hnoCrit,
-      hrange, hnodup⟩
-    right
-    left
-    refine ⟨next.succ, serving, union (singleton (wait next)) rest,
-      hstate, wake_waiting_constraints next serving rest hlt hnoCrit
-        hrange hnodup⟩
-  · rintro state ⟨next, serving, rest, hstate, _, hlt, hnoCrit,
-      hrange, hnodup⟩
-    right
-    right
-    refine ⟨next.succ, serving, union (singleton (wait next)) rest,
-      ?_, ?_⟩
-    · exact Structural.EqMod.transAt BakeryTheory (by structural_rfl) hstate
-    · exact wake_critical_constraints next serving rest hlt hnoCrit
-        hrange hnodup
+  subsume_cases
+  · refine_subsumption (next rest) using
+      waiting next.succ next (union (singleton (wait next)) rest)
+    simpa only [true_and, and_imp] using wake_initial_constraints next rest
+  · refine_subsumption (next serving rest) using
+      waiting next.succ serving (union (singleton (wait next)) rest)
+    simpa only [true_and, and_imp] using
+      wake_waiting_constraints next serving rest
+  · refine_subsumption (next serving rest) using
+      critical next.succ serving (union (singleton (wait next)) rest)
+    simpa only [true_and, and_imp] using
+      wake_critical_constraints next serving rest
 
 example : enter ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   apply mapsInto_via_narrowing_mod
   narrow enter from bakeryInv mod BakeryTheory := by
     sorry
   subsume_cases
-  · bakery_subsume
-  · bakery_subsume
-  · bakery_subsume
+  · refute_post (next rest)
+    simp [allIdle]
+  · refine_subsumption (next serving rest) using
+      critical next serving rest
+    simpa only [true_and, and_imp] using
+      enter_waiting_constraints next serving rest
+  · refute_post (next serving rest)
+    simp only [tickets, true_and]
+    rintro ⟨_, _, hrange, _⟩
+    have hmem : serving ∈ tickets rest + {serving} := by simp
+    have := hrange serving hmem
+    omega
 
 
 
@@ -296,56 +542,19 @@ example : exit ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   narrow exit from bakeryInv mod BakeryTheory := by
     sorry
   subsume_cases
-  -- The three infeasible overlaps close automatically.
-  · bakery_subsume
-  · bakery_subsume
-  · bakery_subsume
-  -- The feasible overlap requires a successor/equality case split.
-  · /- ⟨N,M+1,idle;PS⟩ | N>M ∧ nocrit(PS) ∧ tickets(PS)⊆(M,N) ∧ tickets(PS).Nodup -/
-    simp only [framework.Patterns.SubsumesMod,
-      framework.Patterns.PatternMod.semantics,
-      framework.Patterns.APattMod.semantics,
-      bakeryInv, initial, waiting, critical]
-    rintro state ⟨next, serving, rest, hstate, _, hlt, hnoCrit,
-      hrange, hnodup⟩
-    have idle_if_no_tickets :
-        ∀ procs, noCrit procs → tickets procs = 0 → allIdle procs := by
-      intro procs
-      induction procs with
-      | empty =>
-          simp [allIdle]
-      | singleton mode =>
-          cases mode <;> simp [noCrit, tickets, allIdle]
-      | union left right ihLeft ihRight =>
-          simp only [noCrit, tickets, allIdle]
-          rintro ⟨hLeft, hRight⟩ hzero
-          have hcards := congrArg Multiset.card hzero
-          simp only [Multiset.card_add, Multiset.card_zero] at hcards
-          have hLeftZero : tickets left = 0 :=
-            Multiset.card_eq_zero.mp (by omega)
-          have hRightZero : tickets right = 0 :=
-            Multiset.card_eq_zero.mp (by omega)
-          exact ⟨ihLeft hLeft hLeftZero, ihRight hRight hRightZero⟩
+  · refute_post (next rest)
+    simp [allIdle]
+  · refute_post (next serving rest)
+    simp [noCrit]
+  · refute_post (next serving rest)
+    simp [noCrit]
+  · subsumption_variables (next serving rest)
     by_cases hboundary : serving.succ = next
-    · left
-      have hNoTickets : tickets rest = 0 := by
-        apply Multiset.eq_zero_iff_forall_notMem.mpr
-        intro ticket hticket
-        have bounds := hrange ticket hticket
-        omega
-      have hRestIdle := idle_if_no_tickets rest hnoCrit hNoTickets
-      refine ⟨next, union (singleton idle) rest, ?_, ?_⟩
-      · rw [hboundary] at hstate
-        exact hstate
-      · simpa [allIdle] using hRestIdle
-    · right
-      left
-      refine ⟨next, serving.succ, union (singleton idle) rest, hstate, ?_⟩
-      refine ⟨by omega, ?_, ?_, ?_⟩
-      · simpa [noCrit] using hnoCrit
-      · intro ticket hticket
-        have hticketRest : ticket ∈ tickets rest := by
-          simpa [tickets] using hticket
-        have bounds := hrange ticket hticketRest
-        exact ⟨by omega, bounds.2⟩
-      · simpa [tickets] using hnodup
+    · refine_subsumption () using
+        initial next (union (singleton idle) rest)
+      simpa only [true_and, and_imp] using
+        exit_critical_initial_constraints next serving rest hboundary
+    · refine_subsumption () using
+        waiting next serving.succ (union (singleton idle) rest)
+      simpa only [true_and, and_imp] using
+        exit_critical_waiting_constraints next serving rest hboundary
