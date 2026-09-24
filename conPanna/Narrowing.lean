@@ -326,12 +326,10 @@ def unfoldingDefinitions (expressions : Array Expr) : CoreM (Array Name) := do
 end Closure
 
 
-namespace Certification
+namespace ExactImageCertification
 
 /-!
-`Certification` proves that a materialized post is exactly the semantic
-one-step image. This obligation is separate from structural unifier
-certification because it also accounts for rule RHSs and constraints.
+Legacy exact-image certification for theory-free narrowing.
 -/
 
 /--
@@ -366,6 +364,17 @@ def prove (ref : Syntax) (unfoldingExpressions : Array Expr)
   catch exception =>
     throwErrorAt ref m!"failed to certify the generated narrowing post:\n{exception.toMessageData}"
   return narrowingIdent
+
+end ExactImageCertification
+
+
+namespace CompletenessLifting
+
+/-!
+Deterministic proof plumbing from user-supplied unification completeness to
+`mapsIntoMod`. It specializes the designated atomic completeness fact,
+substitutes its factorization equations, and rebuilds the generated post.
+-/
 
 private def conjunction (propositions : Array Expr) : MetaM Expr := do
   if propositions.isEmpty then
@@ -420,6 +429,24 @@ private partial def splitSemanticCases (goal : MVarId) :
       return leaves
   return #[goal]
 
+/-- Split only the finite rule/source disjunction, stopping at an atomic semantic. -/
+private partial def splitSemanticDisjunction (goal : MVarId)
+    (hypothesis : FVarId) : MetaM (Array MVarId) := goal.withContext do
+  let type ← withTransparency .all <| whnf (← hypothesis.getType)
+  unless type.getAppFn.isConstOf ``Or do
+    return #[goal]
+  let branches ← goal.cases hypothesis
+  let mut leaves := #[]
+  for branch in branches do
+    let some field := branch.fields[0]?
+      | throwError "semantic disjunction produced no branch hypothesis"
+    let field := branch.subst.apply field
+    unless field.isFVar do
+      throwError "semantic disjunction branch is not a local hypothesis"
+    leaves := leaves ++ (← splitSemanticDisjunction
+      branch.mvarId field.fvarId!)
+  return leaves
+
 private def eqModParts? (type : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
   let type ← withTransparency .reducible <| whnf (← instantiateMVars type)
   let arguments := type.getAppArgs
@@ -436,9 +463,11 @@ private structure EqModHypothesis where
   proof : FVarId
 
 /-- Record the overlap equation obtained from two memberships in one state. -/
-private def addOverlapEquations (goal : MVarId) : MetaM MVarId :=
+private def addOverlapEquations (goal : MVarId) :
+    MetaM (MVarId × Array FVarId) :=
     goal.withContext do
   let mut result := goal
+  let mut overlaps := #[]
   let mut equations : Array EqModHypothesis := #[]
   for declaration in ← getLCtx do
     let some (theory, left, right) ← eqModParts? declaration.type
@@ -458,8 +487,109 @@ private def addOverlapEquations (goal : MVarId) : MetaM MVarId :=
           let type ← inferType proof
           let name ← result.withContext do
             return (← getLCtx).getUnusedName `overlap
-          let (_, next) ← result.note name proof (some type)
+          let (overlap, next) ← result.note name proof (some type)
+          overlaps := overlaps.push overlap
           result := next
+  return (result, overlaps)
+
+/-- Apply the user-supplied completeness fact to this concrete overlap. -/
+private def specializeCompleteness (goal : MVarId)
+    (completeness : FVarId) (overlaps : Array FVarId) : MetaM MVarId :=
+    goal.withContext do
+  let declaration ← completeness.getDecl
+  for overlap in overlaps do
+    let saved ← saveState
+    try
+      let (arguments, _) ← forallMetaTelescopeReducing declaration.type
+      let mut foundEquation := false
+      for argument in arguments do
+        unless argument.isMVar do continue
+        let argumentType ← inferType argument
+        unless (← eqModParts? argumentType).isSome do continue
+        let equation ← overlap.getDecl
+        if ← isDefEq argumentType equation.type then
+          argument.mvarId!.assign (mkFVar overlap)
+          foundEquation := true
+          break
+      unless foundEquation do
+        throwError "completeness does not apply to this overlap orientation"
+      let proof := mkAppN (mkFVar completeness) arguments
+      let proposition ← inferType proof
+      let name ← goal.withContext do
+        return (← getLCtx).getUnusedName `factorization
+      let (_, next) ← goal.note name proof (some proposition)
+      return next
+    catch _ =>
+      restoreState saved
+  let state ← Meta.ppGoal goal
+  throwError m!"the designated user completeness fact does not match this semantic overlap:\n{state}"
+
+/-- Rebuild a proposition using only constructors and matching hypotheses. -/
+private partial def closeFromContext (goal : MVarId) : MetaM Unit :=
+    goal.withContext do
+  let target ← withTransparency .reducible <| whnf (← goal.getType)
+
+  for declaration in ← getLCtx do
+    let saved ← saveState
+    if ← isDefEq declaration.type target then
+      goal.assign (mkFVar declaration.fvarId)
+      return
+    restoreState saved
+
+  if target.isForall then
+    let (_, next) ← goal.intro1P
+    closeFromContext next
+    return
+
+  let head := target.getAppFn
+  if head.isConstOf ``True then
+    goal.assign (mkConst ``True.intro)
+    return
+  if head.isConstOf ``And then
+    for subgoal in ← goal.apply (mkConst ``And.intro) do
+      closeFromContext subgoal
+    return
+  if head.isConstOf ``Exists then
+    let arguments := target.getAppArgs
+    let witness ← mkFreshExprMVar (some arguments[0]!)
+    let body ← whnf (mkApp arguments[1]! witness)
+    let proof ← mkFreshExprMVar (some body)
+    goal.assign (← mkAppOptM ``Exists.intro
+      #[some arguments[0]!, some arguments[1]!, some witness, some proof])
+    closeFromContext proof.mvarId!
+    return
+  if head.isConstOf ``Or then
+    for constructor in [``Or.inl, ``Or.inr] do
+      let saved ← saveState
+      try
+        let [subgoal] ← goal.apply (mkConst constructor)
+          | throwError "unexpected disjunction subgoals"
+        closeFromContext subgoal
+        return
+      catch _ =>
+        restoreState saved
+    let state ← Meta.ppGoal goal
+    throwError m!"the factorization does not select a generated post branch:\n{state}"
+  throwError m!"cannot rebuild generated post proposition {target} from its semantic hypotheses"
+
+/-- Rewrite actual closure arguments to the unifier images, in certificate order. -/
+private def substFactorizationEquations (baseline : Array FVarId)
+    (goal : MVarId) : MetaM MVarId := goal.withContext do
+  let mut equations := #[]
+  for declaration in ← getLCtx do
+    if !baseline.contains declaration.fvarId &&
+        (← matchEq? declaration.type).isSome then
+      equations := equations.push declaration.fvarId
+  let mut result := goal
+  let mut substitution : FVarSubst := {}
+  for equation in equations do
+    let current := substitution.apply (mkFVar equation)
+    let .fvar currentId := current | continue
+    let some (step, next) ← substCore? result currentId
+      (symm := false) (tryToSkip := true)
+      | continue
+    substitution := substitution.append step
+    result := next
   return result
 
 /--
@@ -499,26 +629,58 @@ def proveMapsInto (ref : Syntax) (rule source : Expr)
   let liftingProof ← goal.withContext do
     mkFreshExprMVar (some liftingType)
   let mut liftingGoal := liftingProof.mvarId!
+  let mut completenessProofs := #[]
   for _ in propositions do
-    let (_, nextGoal) ← liftingGoal.withContext liftingGoal.intro1P
+    let (completeness, nextGoal) ←
+      liftingGoal.withContext liftingGoal.intro1P
+    completenessProofs := completenessProofs.push completeness
     liftingGoal := nextGoal
   setGoals [liftingGoal]
   try
-    evalTactic (← `(tactic|
-      simp only [framework.Rules.mapsIntoMod,
-        framework.Patterns.PatternMod.semantics,
-        framework.Patterns.APattMod.semantics,
-        framework.Rules.RulesMod.semantics,
-        framework.Rules.RuleMod.semantics,
-        $postIdent:ident, $unfoldSimps,*]))
-    let mut leaves := #[]
-    for pending in ← getGoals do
-      leaves := leaves ++ (← splitSemanticCases pending)
-    let mut preparedLeaves := #[]
-    for leaf in leaves do
-      preparedLeaves := preparedLeaves.push (← addOverlapEquations leaf)
-    setGoals preparedLeaves.toList
-    evalTactic (← `(tactic| all_goals grind))
+    evalTactic (← `(tactic| simp only [framework.Rules.mapsIntoMod]))
+    let semanticGoal ← getMainGoal
+    let (_, semanticGoal) ← semanticGoal.withContext semanticGoal.intro1P
+    let (_, semanticGoal) ← semanticGoal.withContext semanticGoal.intro1P
+    let (sourceMembership, semanticGoal) ←
+      semanticGoal.withContext semanticGoal.intro1P
+    let (ruleMembership, semanticGoal) ←
+      semanticGoal.withContext semanticGoal.intro1P
+
+    -- Split rules first and sources second, matching `ofRulesAndPattern` order.
+    let ruleCases ← splitSemanticDisjunction semanticGoal ruleMembership
+    let mut atomicCases := #[]
+    for ruleCase in ruleCases do
+      for sourceCase in ←
+          splitSemanticDisjunction ruleCase sourceMembership do
+        atomicCases := atomicCases.push sourceCase
+    unless atomicCases.size == completenessProofs.size do
+      throwError m!"found {atomicCases.size} semantic rule/source cases for {completenessProofs.size} atomic unification problems"
+
+    let mut factoredLeaves := #[]
+    for index in [:atomicCases.size] do
+      setGoals [atomicCases[index]!]
+      evalTactic (← `(tactic|
+        simp only [framework.Patterns.PatternMod.semantics,
+          framework.Patterns.APattMod.semantics,
+          framework.Rules.RulesMod.semantics,
+          framework.Rules.RuleMod.semantics,
+          $postIdent:ident, $unfoldSimps,*] at *))
+      for pending in ← getGoals do
+        for leaf in ← splitSemanticCases pending do
+          let (leaf, overlaps) ← addOverlapEquations leaf
+          let baseline ← leaf.withContext do
+            let mut result := #[]
+            for declaration in ← getLCtx do
+              result := result.push declaration.fvarId
+            return result
+          for factored in ← splitSemanticCases
+              (← specializeCompleteness leaf
+                completenessProofs[index]! overlaps) do
+            factoredLeaves := factoredLeaves.push
+              (← substFactorizationEquations baseline factored)
+    for leaf in factoredLeaves do
+      closeFromContext leaf
+    setGoals []
   catch exception =>
     let liftingState ← liftingGoal.withContext do
       Meta.ppGoal liftingGoal
@@ -534,7 +696,7 @@ def proveMapsInto (ref : Syntax) (rule source : Expr)
   setGoals [goal]
   return mapsIntoIdent
 
-end Certification
+end CompletenessLifting
 
 
 namespace Tactic
@@ -576,7 +738,7 @@ def run (ref : Syntax) (ruleSyntax sourceSyntax : TSyntax `term) : TacticM Unit 
     return (rule, source, problem.rules ++ problem.sources, generatedPost)
 
   let postIdent ← bindPost ref generatedPost
-  let narrowingIdent ← Certification.prove ref
+  let narrowingIdent ← ExactImageCertification.prove ref
     (#[rule, source] ++ atomicBranches)
     ruleSyntax sourceSyntax postIdent
 
@@ -604,7 +766,7 @@ def runModCertified (ref : Syntax)
     let generatedPost ←
       Materialization.post problem.stateType solution.alternatives
     let (propositions, bundleType) ←
-      Certification.completenessBundleType theory solution.branches
+      CompletenessLifting.completenessBundleType theory solution.branches
     return (rule, source, problem.rules ++ problem.sources, generatedPost,
       propositions, bundleType)
 
@@ -612,7 +774,7 @@ def runModCertified (ref : Syntax)
     Lean.Elab.Tactic.elabTermEnsuringType certificateSyntax.raw
       (some bundleType)
   let postIdent ← bindPost ref generatedPost
-  let mapsIntoIdent ← Certification.proveMapsInto ref rule source
+  let mapsIntoIdent ← CompletenessLifting.proveMapsInto ref rule source
     atomicBranches ruleSyntax sourceSyntax theorySyntax postIdent propositions
     bundleProof
 
