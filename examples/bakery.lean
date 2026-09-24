@@ -235,5 +235,50 @@ example : exit ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   · bakery_subsume
   -- The feasible overlap requires a successor/equality case split.
   · /- ⟨N,M+1,idle;PS⟩ | N>M ∧ nocrit(PS) ∧ tickets(PS)⊆(M,N) ∧ tickets(PS).Nodup -/
-    --fail_if_success bakery_subsume
-    sorry
+    simp only [framework.Patterns.SubsumesMod,
+      framework.Patterns.PatternMod.semantics,
+      framework.Patterns.APattMod.semantics,
+      bakeryInv, initial, waiting, critical]
+    rintro state ⟨next, serving, rest, hstate, _, hlt, hnoCrit,
+      hrange, hnodup⟩
+    have idle_if_no_tickets :
+        ∀ procs, noCrit procs → tickets procs = 0 → allIdle procs := by
+      intro procs
+      induction procs with
+      | empty =>
+          simp [allIdle]
+      | singleton mode =>
+          cases mode <;> simp [noCrit, tickets, allIdle]
+      | union left right ihLeft ihRight =>
+          simp only [noCrit, tickets, allIdle]
+          rintro ⟨hLeft, hRight⟩ hzero
+          have hcards := congrArg Multiset.card hzero
+          simp only [Multiset.card_add, Multiset.card_zero] at hcards
+          have hLeftZero : tickets left = 0 :=
+            Multiset.card_eq_zero.mp (by omega)
+          have hRightZero : tickets right = 0 :=
+            Multiset.card_eq_zero.mp (by omega)
+          exact ⟨ihLeft hLeft hLeftZero, ihRight hRight hRightZero⟩
+    by_cases hboundary : serving.succ = next
+    · left
+      have hNoTickets : tickets rest = 0 := by
+        apply Multiset.eq_zero_iff_forall_notMem.mpr
+        intro ticket hticket
+        have bounds := hrange ticket hticket
+        omega
+      have hRestIdle := idle_if_no_tickets rest hnoCrit hNoTickets
+      refine ⟨next, union (singleton idle) rest, ?_, ?_⟩
+      · rw [hboundary] at hstate
+        exact hstate
+      · simpa [allIdle] using hRestIdle
+    · right
+      left
+      refine ⟨next, serving.succ, union (singleton idle) rest, hstate, ?_⟩
+      refine ⟨by omega, ?_, ?_, ?_⟩
+      · simpa [noCrit] using hnoCrit
+      · intro ticket hticket
+        have hticketRest : ticket ∈ tickets rest := by
+          simpa [tickets] using hticket
+        have bounds := hrange ticket hticketRest
+        exact ⟨by omega, bounds.2⟩
+      · simpa [tickets] using hnodup
