@@ -398,6 +398,70 @@ private def splitConjunction (propositions : Array Expr) (proof : Expr) :
     remaining ← mkAppM ``And.right #[remaining]
   return result.push remaining
 
+private def decomposableHypothesis? (type : Expr) : MetaM Bool := do
+  let type ← withTransparency .reducible <| whnf type
+  let head := type.getAppFn
+  return head.isConstOf ``And || head.isConstOf ``Or ||
+    head.isConstOf ``Exists || head.isConstOf ``False
+
+/-- Introduce semantic arguments and split source/rule membership into atomic cases. -/
+private partial def splitSemanticCases (goal : MVarId) :
+    MetaM (Array MVarId) := goal.withContext do
+  let target ← withTransparency .reducible <| whnf (← goal.getType)
+  if target.isForall then
+    let (_, next) ← goal.intro1P
+    return ← splitSemanticCases next
+  for declaration in ← getLCtx do
+    if ← decomposableHypothesis? declaration.type then
+      let branches ← goal.cases declaration.fvarId
+      let mut leaves := #[]
+      for branch in branches do
+        leaves := leaves ++ (← splitSemanticCases branch.mvarId)
+      return leaves
+  return #[goal]
+
+private def eqModParts? (type : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
+  let type ← withTransparency .reducible <| whnf (← instantiateMVars type)
+  let arguments := type.getAppArgs
+  unless type.getAppFn.isConstOf ``_root_.Structural.EqMod &&
+      arguments.size >= 3 do
+    return none
+  return some (arguments[0]!, arguments[arguments.size - 2]!,
+    arguments[arguments.size - 1]!)
+
+private structure EqModHypothesis where
+  theory : Expr
+  left : Expr
+  right : Expr
+  proof : FVarId
+
+/-- Record the overlap equation obtained from two memberships in one state. -/
+private def addOverlapEquations (goal : MVarId) : MetaM MVarId :=
+    goal.withContext do
+  let mut result := goal
+  let mut equations : Array EqModHypothesis := #[]
+  for declaration in ← getLCtx do
+    let some (theory, left, right) ← eqModParts? declaration.type
+      | continue
+    equations := equations.push {
+      theory, left, right, proof := declaration.fvarId }
+  for first in equations do
+    for second in equations do
+      if first.proof != second.proof then
+        if ← withoutModifyingState <| isDefEq first.theory second.theory then
+          unless ← withoutModifyingState <| isDefEq first.right second.right do
+            continue
+          let reversed ← mkAppM ``_root_.Structural.EqMod.symmAt
+            #[first.theory, mkFVar second.proof]
+          let proof ← mkAppM ``_root_.Structural.EqMod.transAt
+            #[first.theory, mkFVar first.proof, reversed]
+          let type ← inferType proof
+          let name ← result.withContext do
+            return (← getLCtx).getUnusedName `overlap
+          let (_, next) ← result.note name proof (some type)
+          result := next
+  return result
+
 /--
 Lift atomic unification completeness into a `mapsIntoMod` proof. The lifting
 is generic; solver-specific reasoning is confined to the supplied proofs.
@@ -446,11 +510,20 @@ def proveMapsInto (ref : Syntax) (rule source : Expr)
         framework.Patterns.APattMod.semantics,
         framework.Rules.RulesMod.semantics,
         framework.Rules.RuleMod.semantics,
-        $postIdent:ident, $unfoldSimps,*] <;>
-        grind [Structural.EqMod.trans, Structural.EqMod.symm]))
+        $postIdent:ident, $unfoldSimps,*]))
+    let mut leaves := #[]
+    for pending in ← getGoals do
+      leaves := leaves ++ (← splitSemanticCases pending)
+    let mut preparedLeaves := #[]
+    for leaf in leaves do
+      preparedLeaves := preparedLeaves.push (← addOverlapEquations leaf)
+    setGoals preparedLeaves.toList
+    evalTactic (← `(tactic| all_goals grind))
   catch exception =>
+    let liftingState ← liftingGoal.withContext do
+      Meta.ppGoal liftingGoal
     setGoals [goal]
-    throwErrorAt ref m!"failed to lift unification completeness into maps-into:\n{exception.toMessageData}"
+    throwErrorAt ref m!"failed to lift unification completeness into maps-into:\n{exception.toMessageData}\nremaining goal:\n{liftingState}"
 
   setGoals [goal]
   let mapsIntoProof ← goal.withContext do
