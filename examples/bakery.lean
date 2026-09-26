@@ -107,8 +107,12 @@ theorem apattBody_subsumes_of_infeasible
 
 open Lean Meta Elab Tactic
 
-syntax (name := refineSubsumptionPrototype)
-  "refine_subsumption " "(" ident* ")" " using " term : tactic
+/-- Left `%i` indexes target binders; right `%i` indexes source binders.
+Commas keep the next assignment from parsing as a continuation of the RHS. -/
+syntax subsumeAssignment := "%" num " := " term
+
+syntax (name := subsumeWithPrototype)
+  "subsume_with" (ppLine colGt subsumeAssignment),+ : tactic
 
 syntax (name := refutePostPrototype)
   "refute_post " "(" ident* ")" : tactic
@@ -125,6 +129,29 @@ private def introduceSourceArguments (names : Array (TSyntax `ident)) :
       | throwError "could not expose the next source-pattern argument"
     let (_, next) ← subgoal.introN 1 [name.getId]
     replaceMainGoal [next]
+
+/-- Open every remaining source binder, preserving any binders already opened. -/
+private partial def openSourceArgumentsAux (arguments : Array Expr) :
+    TacticM (Array Expr) := do
+  let goal ← getMainGoal
+  let input ← goal.withContext <| Narrowing.Goal.ofSubsumesType (← goal.getType)
+  let sourceType ← goal.withContext <| inferType input.source
+  unless (← goal.withContext <| whnf sourceType).isForall do
+    return arguments
+  let lemmaProof ← mkConstWithFreshMVarLevels ``source_family_subsumes_mod
+  let [subgoal] ← goal.apply lemmaProof
+    | throwError "could not expose the next source-pattern argument"
+  let (fvarId, next) ← subgoal.intro1P
+  let name ← next.withContext do
+    return (← getLCtx).getUnusedName (Name.mkSimple s!"s{arguments.size}")
+  let next ← next.rename fvarId name
+  replaceMainGoal [next]
+  openSourceArgumentsAux (arguments.push (mkFVar fvarId))
+
+private def openSourceArguments : TacticM (Array Expr) := do
+  let goal ← getMainGoal
+  let input ← goal.withContext <| Narrowing.Goal.ofSubsumesType (← goal.getType)
+  openSourceArgumentsAux input.source.getAppArgs
 
 private partial def targetPath (target selectedHead : Expr) :
     MetaM (Option (List Bool)) := do
@@ -212,10 +239,43 @@ private def refineSubsumption (target : Term) : TacticM Unit := do
   setGoals [conditionGoal]
   unfoldSourceDefinition sourceDefinition
 
+private def subsumeWith (assignments : TSyntaxArray ``subsumeAssignment) :
+    TacticM Unit := do
+  let sourceArguments ← openSourceArguments
+  let goal ← getMainGoal
+  let input ← goal.withContext <| Narrowing.Goal.ofSubsumesType (← goal.getType)
+  let targetType ← goal.withContext <| inferType input.target
+  let mut targetType := targetType
+  let mut targetArguments : Array Expr := #[]
+  let mut rhsByIndex : Array (Option Term) := Array.replicate assignments.size none
+  for assignment in assignments do
+    let `(subsumeAssignment| %$index:num := $rhs:term) := assignment
+      | throwError "expected a target-pattern variable assignment"
+    let i := index.getNat
+    if i >= rhsByIndex.size then
+      throwError "target variable %{i} is out of range"
+    if rhsByIndex[i]!.isSome then
+      throwError "target variable %{i} is assigned twice"
+    rhsByIndex := rhsByIndex.set! i (some rhs)
+  for i in [:rhsByIndex.size] do
+    let some rhs := rhsByIndex[i]!
+      | throwError "missing assignment for target variable %{i}"
+    let .forallE _ domain body _ ← goal.withContext <| whnf targetType
+      | throwError "too many target-pattern assignments"
+    let rhs ← goal.withContext do
+      let rhs ← conPanna.PatternPretty.replacePatternVariables rhs.raw sourceArguments
+      Tactic.elabTermEnsuringType rhs (some domain)
+    targetArguments := targetArguments.push rhs
+    targetType := body.instantiate1 rhs
+  if (← goal.withContext <| whnf targetType).isForall then
+    throwError "missing target-pattern assignments"
+  let target ← goal.withContext <| Term.exprToSyntax
+    (mkAppN input.target targetArguments)
+  refineSubsumption target
+
 elab_rules : tactic
-  | `(tactic| refine_subsumption ($names:ident*) using $target:term) => do
-      introduceSourceArguments names
-      refineSubsumption target
+  | `(tactic| subsume_with $assignments:subsumeAssignment,*) => do
+      subsumeWith assignments.getElems
   | `(tactic| refute_post ($names:ident*)) => do
       introduceSourceArguments names
       let sourceDefinition ← sourceDefinition?
@@ -411,13 +471,16 @@ def initial (counter : Nat) (procs : ProcSet) : APattBody Conf where
   requires := allIdle procs
 
 /- ⟨N, M, PS⟩ | N > M ∧ noCrit(PS) ∧ tickets(PS) ⊆ [M, N) ∧ tickets(PS).Nodup -/
+/- Original definition, equivalent to the indexed closure below:
 def waiting (next serving : Nat) (procs : ProcSet) : APattBody Conf where
   term := { next, serving, procs }
-  requires :=
-    serving < next ∧
-    noCrit procs ∧
-    ticketsInRange serving next procs ∧
-    (tickets procs).Nodup
+  requires := serving < next ∧ noCrit procs ∧
+    ticketsInRange serving next procs ∧ (tickets procs).Nodup
+-/
+def waiting : Nat → Nat → ProcSet → APattBody Conf :=
+  ⟦⟨%0, %1, %2⟩ ∣
+    %1 < %0 ∧ noCrit (%2) ∧
+    ticketsInRange (%1) (%0) (%2) ∧ (tickets (%2)).Nodup⟧
 
 /- ⟨N, M, crit(M); PS⟩ | N > M ∧ noCrit(PS) ∧ tickets(PS) ⊆ (M, N) ∧ tickets(PS).Nodup -/
 def critical (next serving : Nat) (rest : ProcSet) : APattBody Conf where
@@ -598,21 +661,28 @@ example : wake ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
       apply target_left_subsumes_mod
       unfold post_initial
       unfold waiting
-      refine_subsumption (next rest) using
-        waiting next.succ next (union (singleton (wait next)) rest)
-      simpa only [true_and, and_imp] using wake_initial_constraints next rest
+      subsume_with
+        %0 := Nat.succ (%0),
+        %1 := %0,
+        %2 := union (singleton (wait (%0))) (%1)
+      -- bug!
+      simpa only [true_and, and_imp] using wake_initial_constraints s0 s1
     · apply target_right_subsumes_mod
       apply target_left_subsumes_mod
-      refine_subsumption (next serving rest) using
-        waiting next.succ serving (union (singleton (wait next)) rest)
+      subsume_with
+        %0 := Nat.succ (%0),
+        %1 := %1,
+        %2 := union (singleton (wait (%0))) (%2)
       simpa only [true_and, and_imp] using
-        wake_waiting_constraints next serving rest
+        wake_waiting_constraints s0 s1 s2
     · apply target_right_subsumes_mod
       apply target_right_subsumes_mod
-      refine_subsumption (next serving rest) using
-        critical next.succ serving (union (singleton (wait next)) rest)
+      subsume_with
+        %0 := Nat.succ (%0),
+        %1 := %1,
+        %2 := union (singleton (wait (%0))) (%2)
       simpa only [true_and, and_imp] using
-        wake_critical_constraints next serving rest
+        wake_critical_constraints s0 s1 s2
   have hcomplete : wake ⊢ bakeryInv ↪[BakeryTheory] post := by
     sorry
   exact mapsInto_of_mapsInto_of_subsumes_mod hcomplete hsub
@@ -624,10 +694,14 @@ example : enter ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
     subsume_cases
     · refute_post (next rest)
       simp [allIdle]
-    · refine_subsumption (next serving rest) using
-        critical next serving rest
+    · apply target_right_subsumes_mod
+      apply target_right_subsumes_mod
+      subsume_with
+        %0 := %0,
+        %1 := %1,
+        %2 := %2
       simpa only [true_and, and_imp] using
-        enter_waiting_constraints next serving rest
+        enter_waiting_constraints s0 s1 s2
     · refute_post (next serving rest)
       simp only [tickets, true_and]
       rintro ⟨_, _, hrange, _⟩
@@ -653,12 +727,18 @@ example : exit ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
       simp [noCrit]
     · subsumption_variables (next serving rest)
       by_cases hboundary : serving.succ = next
-      · refine_subsumption () using
-          initial next (union (singleton idle) rest)
+      · apply target_left_subsumes_mod
+        subsume_with
+          %0 := %0,
+          %1 := union (singleton idle) (%2)
         simpa only [true_and, and_imp] using
           exit_critical_initial_constraints next serving rest hboundary
-      · refine_subsumption () using
-          waiting next serving.succ (union (singleton idle) rest)
+      · apply target_right_subsumes_mod
+        apply target_left_subsumes_mod
+        subsume_with
+          %0 := %0,
+          %1 := Nat.succ (%1),
+          %2 := union (singleton idle) (%2)
         simpa only [true_and, and_imp] using
           exit_critical_waiting_constraints next serving rest hboundary
   have hcomplete : exit ⊢ bakeryInv ↪[BakeryTheory] post := by
