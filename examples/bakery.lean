@@ -8,6 +8,13 @@ set_option conPanna.unification.useMaude true
 open framework
 open Structural
 
+namespace NamedPostPrototype
+
+/-- Identity wrapper used only to select the compact InfoView rendering. -/
+def shownAtom {α : Sort _} (atom : α) : α := atom
+
+end NamedPostPrototype
+
 /-!
 Prototype symbolic-subsumption infrastructure.  This section is deliberately
 model-independent so it can move unchanged into the library after the
@@ -169,7 +176,24 @@ private def includeSelectedAtom (goal : MVarId) : TacticM Unit :=
   unless remaining.isEmpty do
     throwError "the supplied target arguments do not instantiate the selected atom"
 
+private def sourceDefinition? : TacticM (Option Ident) := do
+  let goal ← getMainGoal
+  let input ← goal.withContext do
+    Narrowing.Goal.ofSubsumesType (← goal.getType)
+  match input.source.getAppFn with
+  | .fvar fvarId =>
+      let declaration ← goal.withContext fvarId.getDecl
+      return if declaration.isLet then some (mkIdent declaration.userName)
+        else none
+  | _ => return none
+
+private def unfoldSourceDefinition (definition? : Option Ident) : TacticM Unit := do
+  if let some definition := definition? then
+    evalTactic (← `(tactic| dsimp only [$definition:ident,
+      $(mkIdent ``NamedPostPrototype.shownAtom):ident]))
+
 private def refineSubsumption (target : Term) : TacticM Unit := do
+  let sourceDefinition ← sourceDefinition?
   evalTactic (← `(tactic|
     apply subsumes_mod_trans (middle := $target)))
   let [sourceToMiddle, middleToTarget] ← getGoals
@@ -182,7 +206,8 @@ private def refineSubsumption (target : Term) : TacticM Unit := do
     | throwError "unexpected atomic-subsumption subgoals"
 
   setGoals [structuralGoal]
-  evalTactic (← `(tactic| simp_all only))
+  unfoldSourceDefinition sourceDefinition
+  evalTactic (← `(tactic| try simp_all only))
   unless (← getGoals).isEmpty do
     evalTactic (← `(tactic| structural_rfl))
   unless (← getGoals).isEmpty do
@@ -192,6 +217,7 @@ private def refineSubsumption (target : Term) : TacticM Unit := do
   includeSelectedAtom middleToTarget
 
   setGoals [conditionGoal]
+  unfoldSourceDefinition sourceDefinition
 
 elab_rules : tactic
   | `(tactic| refine_subsumption ($names:ident*) using $target:term) => do
@@ -199,14 +225,98 @@ elab_rules : tactic
       refineSubsumption target
   | `(tactic| refute_post ($names:ident*)) => do
       introduceSourceArguments names
+      let sourceDefinition ← sourceDefinition?
       evalTactic (← `(tactic|
         apply apattBody_subsumes_of_infeasible))
+      unfoldSourceDefinition sourceDefinition
   | `(tactic| subsumption_variables ($names:ident*)) => do
       introduceSourceArguments names
 
 end SymbolicSubsumptionPrototype
 
 open SymbolicSubsumptionPrototype
+
+/-!
+Computational narrowing prototype. Each successor is introduced as a named
+local definition, and `post` is their disjunction. Certification is separate.
+-/
+namespace NamedPostPrototype
+
+open Lean Meta Elab Tactic
+open framework.Patterns
+
+/-- Display-only marker for a variable bound by the enclosing atomic pattern. -/
+syntax:max "%" ident : term
+
+/-- Compact display of an atomic pattern's term and constraint. -/
+syntax:max "⟦" term " ∣ " term "⟧" : term
+
+macro_rules
+  | `(⟦$term ∣ $condition⟧) =>
+      `({ term := $term, requires := $condition })
+
+@[app_unexpander shownAtom]
+def unexpandShownAtom : Lean.PrettyPrinter.Unexpander
+  | `($_ fun $binders* ↦ $body:term) => do
+      let names := binders.filterMap fun binder =>
+        if binder.raw.isIdent then some binder.raw.getId else none
+      if names.size != binders.size then throw ()
+      let rewritten ← body.raw.replaceM fun stx => do
+        if stx.isIdent && names.contains stx.getId then
+          return some (← `(term| %$(mkIdent stx.getId)))
+        return none
+      return rewritten
+  | _ => throw ()
+
+syntax "narrow " term " from " term " mod " term " as " ident : tactic
+
+elab_rules : tactic
+  | `(tactic| narrow $rule:term from $source:term mod $theory:term as $post:ident) => do
+      let goal ← getMainGoal
+      let (input, alternatives) ← goal.withContext do
+        let rule ← Tactic.elabTerm rule.raw none
+        let source ← Tactic.elabTerm source.raw none
+        let theoryType ← mkConstWithFreshMVarLevels ``Structural.Theory
+        let theory ← Tactic.elabTerm theory.raw (some theoryType)
+        let input ← Narrowing.Problem.ofRulesAndPattern rule source
+        let alternatives ← Narrowing.Backend.solvePattern input (some theory)
+        return (input, alternatives)
+      let mut goal := goal
+      let mut atoms : Array Expr := #[]
+      for index in [:alternatives.size] do
+        let some alternative := alternatives[index]?
+          | throwError "missing narrowing alternative"
+        let atom ← goal.withContext do
+          Narrowing.Materialization.successor
+            alternative.problem alternative.alternative
+        let atom ← goal.withContext do
+          mkAppM ``shownAtom #[atom]
+        let atomType ← goal.withContext <| inferType atom
+        let sourceName := match alternative.problem.source.closure.application.getAppFn with
+          | .const name _ => name.getString!
+          | _ => "source"
+        let name ← goal.withContext do
+          return (← getLCtx).getUnusedName
+            (Name.mkSimple s!"post_{sourceName}")
+        let next ← goal.define name atomType atom
+        let (atomFVar, next) ← next.intro1P
+        atoms := atoms.push (mkFVar atomFVar)
+        goal := next
+      let postValue ← goal.withContext do
+        if atoms.isEmpty then
+          return (← Narrowing.Materialization.post input.stateType #[]).value
+        let mut value := atoms[atoms.size - 1]!
+        for atom in atoms.toList.dropLast.reverse do
+          value ← mkAppM ``framework.Patterns.Disjunction.mk #[atom, value]
+        return value
+      let postType ← goal.withContext <| inferType postValue
+      let next ← goal.define post.getId postType postValue
+      let (_, next) ← next.intro1P
+      replaceMainGoal [next]
+
+end NamedPostPrototype
+
+open NamedPostPrototype
 
 /-!
 # Lamport's Bakery algorithm
@@ -236,6 +346,21 @@ structure Conf where
   serving : Nat
   procs : ProcSet
   deriving Repr
+
+open Lean PrettyPrinter.Delaborator PrettyPrinter.Delaborator.SubExpr in
+@[app_delab Conf.mk]
+def delabConf : Delab := do
+  let next ← withNaryArg 0 delab
+  let serving ← withNaryArg 1 delab
+  let procs ← withNaryArg 2 delab
+  `(⟨$next, $serving, $procs⟩)
+
+open Lean PrettyPrinter.Delaborator PrettyPrinter.Delaborator.SubExpr in
+@[app_delab framework.Patterns.APattBody.mk]
+def delabAPattBody : Delab := do
+  let term ← withNaryArg 1 delab
+  let condition ← withNaryArg 2 delab
+  `(⟦$term ∣ $condition⟧)
 
 instance : State Conf := ⟨⟩
 
@@ -501,60 +626,69 @@ lemma exit_critical_waiting_constraints (next serving : Nat) (rest : ProcSet)
 /- main proof -/
 
 example : wake ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
-  apply mapsInto_via_narrowing_mod
-  narrow wake from bakeryInv mod BakeryTheory := by
+  narrow wake from bakeryInv mod BakeryTheory as post
+  have hsub : post ⊑[BakeryTheory] bakeryInv := by
+    unfold bakeryInv
+    subsume_cases
+    · refine_subsumption (next rest) using
+        waiting next.succ next (union (singleton (wait next)) rest)
+      simpa only [true_and, and_imp] using wake_initial_constraints next rest
+    · refine_subsumption (next serving rest) using
+        waiting next.succ serving (union (singleton (wait next)) rest)
+      simpa only [true_and, and_imp] using
+        wake_waiting_constraints next serving rest
+    · refine_subsumption (next serving rest) using
+        critical next.succ serving (union (singleton (wait next)) rest)
+      simpa only [true_and, and_imp] using
+        wake_critical_constraints next serving rest
+  have hcomplete : wake ⊢ bakeryInv ↪[BakeryTheory] post := by
     sorry
-  subsume_cases
-  · refine_subsumption (next rest) using
-      waiting next.succ next (union (singleton (wait next)) rest)
-    simpa only [true_and, and_imp] using wake_initial_constraints next rest
-  · refine_subsumption (next serving rest) using
-      waiting next.succ serving (union (singleton (wait next)) rest)
-    simpa only [true_and, and_imp] using
-      wake_waiting_constraints next serving rest
-  · refine_subsumption (next serving rest) using
-      critical next.succ serving (union (singleton (wait next)) rest)
-    simpa only [true_and, and_imp] using
-      wake_critical_constraints next serving rest
+  exact mapsInto_of_mapsInto_of_subsumes_mod hcomplete hsub
 
 example : enter ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
-  apply mapsInto_via_narrowing_mod
-  narrow enter from bakeryInv mod BakeryTheory := by
+  narrow enter from bakeryInv mod BakeryTheory as post
+  have hsub : post ⊑[BakeryTheory] bakeryInv := by
+    unfold bakeryInv
+    subsume_cases
+    · refute_post (next rest)
+      simp [allIdle]
+    · refine_subsumption (next serving rest) using
+        critical next serving rest
+      simpa only [true_and, and_imp] using
+        enter_waiting_constraints next serving rest
+    · refute_post (next serving rest)
+      simp only [tickets, true_and]
+      rintro ⟨_, _, hrange, _⟩
+      have hmem : serving ∈ tickets rest + {serving} := by simp
+      have := hrange serving hmem
+      omega
+  have hcomplete : enter ⊢ bakeryInv ↪[BakeryTheory] post := by
     sorry
-  subsume_cases
-  · refute_post (next rest)
-    simp [allIdle]
-  · refine_subsumption (next serving rest) using
-      critical next serving rest
-    simpa only [true_and, and_imp] using
-      enter_waiting_constraints next serving rest
-  · refute_post (next serving rest)
-    simp only [tickets, true_and]
-    rintro ⟨_, _, hrange, _⟩
-    have hmem : serving ∈ tickets rest + {serving} := by simp
-    have := hrange serving hmem
-    omega
+  exact mapsInto_of_mapsInto_of_subsumes_mod hcomplete hsub
 
 
 
 example : exit ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
-  apply mapsInto_via_narrowing_mod
-  narrow exit from bakeryInv mod BakeryTheory := by
+  narrow exit from bakeryInv mod BakeryTheory as post
+  have hsub : post ⊑[BakeryTheory] bakeryInv := by
+    unfold bakeryInv
+    subsume_cases
+    · refute_post (next rest)
+      simp [allIdle]
+    · refute_post (next serving rest)
+      simp [noCrit]
+    · refute_post (next serving rest)
+      simp [noCrit]
+    · subsumption_variables (next serving rest)
+      by_cases hboundary : serving.succ = next
+      · refine_subsumption () using
+          initial next (union (singleton idle) rest)
+        simpa only [true_and, and_imp] using
+          exit_critical_initial_constraints next serving rest hboundary
+      · refine_subsumption () using
+          waiting next serving.succ (union (singleton idle) rest)
+        simpa only [true_and, and_imp] using
+          exit_critical_waiting_constraints next serving rest hboundary
+  have hcomplete : exit ⊢ bakeryInv ↪[BakeryTheory] post := by
     sorry
-  subsume_cases
-  · refute_post (next rest)
-    simp [allIdle]
-  · refute_post (next serving rest)
-    simp [noCrit]
-  · refute_post (next serving rest)
-    simp [noCrit]
-  · subsumption_variables (next serving rest)
-    by_cases hboundary : serving.succ = next
-    · refine_subsumption () using
-        initial next (union (singleton idle) rest)
-      simpa only [true_and, and_imp] using
-        exit_critical_initial_constraints next serving rest hboundary
-    · refine_subsumption () using
-        waiting next serving.succ (union (singleton idle) rest)
-      simpa only [true_and, and_imp] using
-        exit_critical_waiting_constraints next serving rest hboundary
+  exact mapsInto_of_mapsInto_of_subsumes_mod hcomplete hsub
