@@ -21,4 +21,4 @@ roots = ["Expresso.Expresso"]
 
 [[lean_lib]]
 name = "conPanna"
-roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Structural", "conPanna.StructuralSemantics", "conPanna.Narrowing", "conPanna.Maude"]
+roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Structural", "conPanna.StructuralSemantics", "conPanna.Narrowing", "conPanna.Maude", "conPanna.PatternPretty"]

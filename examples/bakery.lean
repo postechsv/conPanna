@@ -2,18 +2,12 @@ import Mathlib.Data.Multiset.Basic
 import Mathlib.Data.Multiset.AddSub
 import Mathlib.Data.Multiset.UnionInter
 import conPanna.conPanna
+import conPanna.PatternPretty
 
 set_option conPanna.unification.useMaude true
 
 open framework
 open Structural
-
-namespace NamedPostPrototype
-
-/-- Identity wrapper used only to select the compact InfoView rendering. -/
-def shownAtom {α : Sort _} (atom : α) : α := atom
-
-end NamedPostPrototype
 
 /-!
 Prototype symbolic-subsumption infrastructure.  This section is deliberately
@@ -189,8 +183,7 @@ private def sourceDefinition? : TacticM (Option Ident) := do
 
 private def unfoldSourceDefinition (definition? : Option Ident) : TacticM Unit := do
   if let some definition := definition? then
-    evalTactic (← `(tactic| dsimp only [$definition:ident,
-      $(mkIdent ``NamedPostPrototype.shownAtom):ident]))
+    evalTactic (← `(tactic| dsimp only [$definition:ident]))
 
 private def refineSubsumption (target : Term) : TacticM Unit := do
   let sourceDefinition ← sourceDefinition?
@@ -245,29 +238,6 @@ namespace NamedPostPrototype
 open Lean Meta Elab Tactic
 open framework.Patterns
 
-/-- Display-only marker for a variable bound by the enclosing atomic pattern. -/
-syntax:max "%" ident : term
-
-/-- Compact display of an atomic pattern's term and constraint. -/
-syntax:max "⟦" term " ∣ " term "⟧" : term
-
-macro_rules
-  | `(⟦$term ∣ $condition⟧) =>
-      `({ term := $term, requires := $condition })
-
-@[app_unexpander shownAtom]
-def unexpandShownAtom : Lean.PrettyPrinter.Unexpander
-  | `($_ fun $binders* ↦ $body:term) => do
-      let names := binders.filterMap fun binder =>
-        if binder.raw.isIdent then some binder.raw.getId else none
-      if names.size != binders.size then throw ()
-      let rewritten ← body.raw.replaceM fun stx => do
-        if stx.isIdent && names.contains stx.getId then
-          return some (← `(term| %$(mkIdent stx.getId)))
-        return none
-      return rewritten
-  | _ => throw ()
-
 syntax "narrow " term " from " term " mod " term " as " ident : tactic
 
 elab_rules : tactic
@@ -289,8 +259,6 @@ elab_rules : tactic
         let atom ← goal.withContext do
           Narrowing.Materialization.successor
             alternative.problem alternative.alternative
-        let atom ← goal.withContext do
-          mkAppM ``shownAtom #[atom]
         let atomType ← goal.withContext <| inferType atom
         let sourceName := match alternative.problem.source.closure.application.getAppFn with
           | .const name _ => name.getString!
@@ -350,17 +318,12 @@ structure Conf where
 open Lean PrettyPrinter.Delaborator PrettyPrinter.Delaborator.SubExpr in
 @[app_delab Conf.mk]
 def delabConf : Delab := do
+  unless (← getOptions).getBool `conPanna.pp.compactPatterns true do
+    failure
   let next ← withNaryArg 0 delab
   let serving ← withNaryArg 1 delab
   let procs ← withNaryArg 2 delab
   `(⟨$next, $serving, $procs⟩)
-
-open Lean PrettyPrinter.Delaborator PrettyPrinter.Delaborator.SubExpr in
-@[app_delab framework.Patterns.APattBody.mk]
-def delabAPattBody : Delab := do
-  let term ← withNaryArg 1 delab
-  let condition ← withNaryArg 2 delab
-  `(⟦$term ∣ $condition⟧)
 
 instance : State Conf := ⟨⟩
 
@@ -633,6 +596,8 @@ example : wake ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
     subsume_cases
     · apply target_right_subsumes_mod
       apply target_left_subsumes_mod
+      unfold post_initial
+      unfold waiting
       refine_subsumption (next rest) using
         waiting next.succ next (union (singleton (wait next)) rest)
       simpa only [true_and, and_imp] using wake_initial_constraints next rest
