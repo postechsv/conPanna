@@ -654,18 +654,18 @@ lemma exit_critical_waiting_constraints (next serving : Nat) (rest : ProcSet)
 example : wake ⊢ bakeryInv ↪[BakeryTheory] bakeryInv := by
   narrow wake from bakeryInv mod BakeryTheory as post
   have hsub : post ⊑[BakeryTheory] bakeryInv := by
-    unfold bakeryInv
-    unfold post
+    --unfold bakeryInv
+    --unfold post
     subsume_cases
     · apply target_right_subsumes_mod
       apply target_left_subsumes_mod
-      unfold post_initial
-      unfold waiting
+      --unfold post_initial
+      --unfold waiting
       subsume_with
         %0 := Nat.succ (%0),
         %1 := %0,
         %2 := union (singleton (wait (%0))) (%1)
-      -- bug!
+      --dsimp only [waiting]
       simpa only [true_and, and_imp] using wake_initial_constraints s0 s1
     · apply target_right_subsumes_mod
       apply target_left_subsumes_mod
