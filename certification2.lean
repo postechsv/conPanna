@@ -30,6 +30,22 @@ Integration boundary: `ACU` below is explicitly sort-indexed. It is the local
 free-ACU semantics, not an alias for the library's `Structural.EqMod`. Connecting
 native registered datatypes to this semantics still requires a faithful bridge.
 This file does not assume that bridge, or change the library relation.
+
+Next integration experiment (before automatic model export): use ONE native,
+registered datatype with a free ACU constructor and nullary atom constructors.
+Use a signature-restricted atom alphabet (or well-formedness predicate), not
+arbitrary Nat codes for symbols absent from that native signature. Prove
+encode/decode round trips modulo the respective relations on that fragment, and
+
+  Structural.EqMod B a b  <->  ACU (encode a) (encode b).
+
+Decoding an ACU derivation only requires the registered laws (soundness).
+The reverse direction must account for EVERY generator of native EqMod,
+including constructor congruence and registrations at other Lean types. Sort
+tags in THIS syntax alone do not discharge that reflection obligation for the
+existing library relation. Do not mark the native bridge complete after proving
+only preservation. Mixed-sort constructors such as Bakery's follow this test;
+numbered constants alone do not yet model their arguments or nested theories.
 -/
 
 namespace Certification2
@@ -280,12 +296,224 @@ def Formula.Holds : Formula s → Assignment s → Prop
 
 def Equivalent (p q : Formula s) : Prop := ∀ ρ, p.Holds ρ ↔ q.Holds ρ
 
+/-! ### Capture-avoiding replacement and existential elimination
+
+Var-Rep / EQE, specialized to our explicit binder syntax:
+
+    ∃ x. (x ≈ t ∧ P)    <=>    P[t/x]       (x not free in t)
+
+This is replacement MODULO ACU, not replacement by literal Lean equality.
+`Holds_congr` is essential: every formula in this calculus respects ACU in
+its variable assignments. This does not assert that arbitrary user constraints
+have that property. Substitution under a binder lifts the replacement terms.
+-/
+
+def Term.subst (σ : Nat → Term s) : Term s → Term s
+  | .var n => σ n
+  | .atom k => .atom k
+  | .zero => .zero
+  | .add a b => .add (a.subst σ) (b.subst σ)
+
+theorem Term.eval_subst (a : Term s) (σ : Nat → Term s) (ρ : Assignment s) :
+    (a.subst σ).eval ρ = a.eval (fun n => (σ n).eval ρ) := by
+  induction a <;> simp_all [subst, eval]
+
+def upSubst (σ : Nat → Term s) : Nat → Term s
+  | 0 => .var 0
+  | n + 1 => (σ n).lift
+
+def Formula.subst (σ : Nat → Term s) : Formula s → Formula s
+  | .truth => .truth
+  | .falsity => .falsity
+  | .eqn a b => .eqn (a.subst σ) (b.subst σ)
+  | .conj p q => .conj (p.subst σ) (q.subst σ)
+  | .disj p q => .disj (p.subst σ) (q.subst σ)
+  | .ex p => .ex (p.subst (upSubst σ))
+
+theorem Formula.holds_subst (p : Formula s) (σ : Nat → Term s) (ρ : Assignment s) :
+    (p.subst σ).Holds ρ ↔ p.Holds (fun n => (σ n).eval ρ) := by
+  induction p generalizing σ ρ with
+  | truth => rfl
+  | falsity => rfl
+  | eqn => simp only [subst, Holds, Term.eval_subst]
+  | conj p q hp hq => exact and_congr (hp σ ρ) (hq σ ρ)
+  | disj p q hp hq => exact or_congr (hp σ ρ) (hq σ ρ)
+  | ex p hp =>
+      apply exists_congr
+      intro v
+      have he : (fun n => (upSubst σ n).eval (push v ρ)) =
+          push v (fun n => (σ n).eval ρ) := by
+        funext n
+        cases n <;> simp [upSubst, push, Term.eval]
+      exact (hp _ _).trans (he ▸ Iff.rfl)
+
+theorem Term.eval_congr (a : Term s) {ρ τ : Assignment s}
+    (h : ∀ n, ACU (ρ n) (τ n)) : ACU (a.eval ρ) (a.eval τ) := by
+  induction a with
+  | var n => exact h n
+  | atom => exact .refl _
+  | zero => exact .refl _
+  | add a b ha hb => exact .congr ha hb
+
+theorem Formula.holds_congr (p : Formula s) {ρ τ : Assignment s}
+    (h : ∀ n, ACU (ρ n) (τ n)) : p.Holds ρ ↔ p.Holds τ := by
+  induction p generalizing ρ τ with
+  | truth => rfl
+  | falsity => rfl
+  | eqn a b => exact
+      ⟨fun e => (a.eval_congr h).symm.trans (e.trans (b.eval_congr h)),
+       fun e => (a.eval_congr h).trans (e.trans (b.eval_congr h).symm)⟩
+  | conj p q hp hq => exact and_congr (hp h) (hq h)
+  | disj p q hp hq => exact or_congr (hp h) (hq h)
+  | ex p hp =>
+      apply exists_congr
+      intro v
+      apply hp
+      intro n
+      cases n with
+      | zero => exact .refl _
+      | succ n => exact h n
+
+/-- Inverse of lift, undefined if the term mentions the variable being removed. -/
+def Term.lower : Term s → Option (Term s)
+  | .var 0 => none
+  | .var (n + 1) => some (.var n)
+  | .atom k => some (.atom k)
+  | .zero => some .zero
+  | .add a b => return .add (← a.lower) (← b.lower)
+
+theorem Term.lower_lift {a t : Term s} (h : a.lower = some t) : a = t.lift := by
+  induction a generalizing t with
+  | var n =>
+      cases n with
+      | zero => simp [lower] at h
+      | succ n => cases Option.some.inj h; rfl
+  | atom => cases Option.some.inj h; rfl
+  | zero => cases Option.some.inj h; rfl
+  | add a b ha hb =>
+      cases he₁ : a.lower <;> cases he₂ : b.lower <;> simp [lower, he₁, he₂] at h
+      cases h
+      simp only [lift, ha he₁, hb he₂]
+
+def replaceZero (t : Term s) : Nat → Term s
+  | 0 => t
+  | n + 1 => .var n
+
+theorem eliminate_correct (t : Term s) (p : Formula s) :
+    Equivalent (.ex (.conj (.eqn (.var 0) t.lift) p))
+      (p.subst (replaceZero t)) := by
+  intro ρ
+  rw [Formula.holds_subst]
+  have he : (fun n => (replaceZero t n).eval ρ) = push (t.eval ρ) ρ := by
+    funext n
+    cases n <;> rfl
+  rw [he]
+  change (∃ v, ACU v (t.lift.eval (push v ρ)) ∧ p.Holds (push v ρ)) ↔ _
+  simp only [Term.eval_lift]
+  constructor
+  · rintro ⟨v, hv, hp⟩
+    apply (p.holds_congr (ρ := push v ρ) (τ := push (t.eval ρ) ρ) ?_).mp hp
+    intro n
+    cases n with
+    | zero => exact hv
+    | succ => exact .refl _
+  · intro hp
+    exact ⟨t.eval ρ, .refl _, hp⟩
+
+/-- Move a binding to the front of a conjunction tree, retaining every sibling.
+No disjunction is crossed. The returned term is already lowered/freshness-checked. -/
+def binding (p : Formula s) :
+    Option { pair : Term s × Formula s //
+      Equivalent p (.conj (.eqn (.var 0) pair.1.lift) pair.2) } :=
+  match p with
+  | .eqn (.var 0) t => do
+      let u ← t.lower.attach
+      return ⟨(u.val, .truth), by
+        have ht := Term.lower_lift u.property
+        intro ρ
+        change ACU (ρ 0) (t.eval ρ) ↔ ACU (ρ 0) (u.val.lift.eval ρ) ∧ True
+        simp only [ht, and_true]⟩
+  | .conj p q =>
+      match binding p with
+      | some ⟨(t, p'), h⟩ => some ⟨(t, .conj p' q), fun ρ => by
+          change p.Holds ρ ∧ q.Holds ρ ↔ _
+          rw [h ρ]
+          exact and_assoc⟩
+      | none => do
+          let ⟨(t, q'), h⟩ ← binding q
+          return ⟨(t, .conj p q'), fun ρ => by
+            change p.Holds ρ ∧ q.Holds ρ ↔ _
+            rw [h ρ]
+            exact and_left_comm⟩
+  | _ => none
+
+def swapZeroOne : Nat → Term s
+  | 0 => .var 1
+  | 1 => .var 0
+  | n + 2 => .var (n + 2)
+
+theorem exchange_exists_correct (p : Formula s) :
+    Equivalent (.ex (.ex p)) (.ex (.ex (p.subst swapZeroOne))) := by
+  intro ρ
+  have he (v w : Value s) :
+      (fun n => (swapZeroOne n).eval (push w (push v ρ))) = push v (push w ρ) := by
+    funext n
+    cases n with
+    | zero => rfl
+    | succ n => cases n <;> rfl
+  change (∃ v w, p.Holds (push w (push v ρ))) ↔ _
+  simp only [Formula.Holds, Formula.holds_subst, he]
+  exact exists_comm
+
+/-- Only unit simplification, not ACU unification or matching. -/
+def Term.units : (a : Term s) → { b : Term s // ∀ ρ, ACU (a.eval ρ) (b.eval ρ) }
+  | .add a b =>
+      let ⟨a', ha⟩ := a.units
+      let ⟨b', hb⟩ := b.units
+      match a', b' with
+      | .zero, b' => ⟨b', fun ρ => (ACU.congr (ha ρ) (hb ρ)).trans (ACU.unit _)⟩
+      | a', .zero => ⟨a', fun ρ => (ACU.congr (ha ρ) (hb ρ)).trans (ACU.unitRight _)⟩
+      | a', b' => ⟨.add a' b', fun ρ => ACU.congr (ha ρ) (hb ρ)⟩
+  | .zero => ⟨.zero, fun _ => .refl _⟩
+  | .var n => ⟨.var n, fun _ => .refl _⟩
+  | .atom k => ⟨.atom k, fun _ => .refl _⟩
+
+/-- Deterministic cleanup: remove units in terms and True conjuncts in formulas.
+It neither deletes alternatives nor decides satisfiability. -/
+def Formula.cleanup : (p : Formula s) → { q : Formula s // Equivalent p q }
+  | .eqn a b =>
+      let ⟨a', ha⟩ := a.units
+      let ⟨b', hb⟩ := b.units
+      ⟨.eqn a' b', fun ρ =>
+        ⟨fun h => (ha ρ).symm.trans (h.trans (hb ρ)),
+         fun h => (ha ρ).trans (h.trans (hb ρ).symm)⟩⟩
+  | .conj p q =>
+      let ⟨p', hp⟩ := p.cleanup
+      let ⟨q', hq⟩ := q.cleanup
+      match p', q' with
+      | .truth, q' => ⟨q', fun ρ => (and_congr (hp ρ) (hq ρ)).trans (by
+          simp only [Holds, true_and])⟩
+      | p', .truth => ⟨p', fun ρ => (and_congr (hp ρ) (hq ρ)).trans (by
+          simp only [Holds, and_true])⟩
+      | p', q' => ⟨.conj p' q', fun ρ => and_congr (hp ρ) (hq ρ)⟩
+  | .disj p q =>
+      let ⟨p', hp⟩ := p.cleanup
+      let ⟨q', hq⟩ := q.cleanup
+      ⟨.disj p' q', fun ρ => or_congr (hp ρ) (hq ρ)⟩
+  | .ex p =>
+      let ⟨p', hp⟩ := p.cleanup
+      ⟨.ex p', fun ρ => exists_congr (fun v => hp (push v ρ))⟩
+  | .truth => ⟨.truth, fun _ => Iff.rfl⟩
+  | .falsity => ⟨.falsity, fun _ => Iff.rfl⟩
+
 /-- Every rule has a finite, explicit output, including ALL alternatives. -/
 inductive Rule where
   | mutate | splitAtom | splitZero | cancel | peelAtom
   | symmetry | commLeft | assocLeft | padRight
   | reflexive | clash
   | distributeLeft | distributeRight
+  | eliminate | exchangeExists | distributeExists
+  | cleanup | swapBranches
   deriving Repr, DecidableEq
 
 /--
@@ -343,6 +571,16 @@ is constructor inspection and syntactic equality, never unification search.
 def applyRule (rule : Rule) (input : Formula s) :
     Option { output : Formula s // Equivalent input output } :=
   match rule, input with
+  | .cleanup, p => some p.cleanup
+  | .swapBranches, .disj p q => some ⟨.disj q p, fun _ => or_comm⟩
+  | .eliminate, .ex p => do
+      let ⟨(t, rest), h⟩ ← binding p
+      return ⟨rest.subst (replaceZero t), fun ρ =>
+        (exists_congr (fun v => h (push v ρ))).trans (eliminate_correct t rest ρ)⟩
+  | .exchangeExists, .ex (.ex p) =>
+      some ⟨.ex (.ex (p.subst swapZeroOne)), exchange_exists_correct p⟩
+  | .distributeExists, .ex (.disj p q) =>
+      some ⟨.disj (.ex p) (.ex q), fun _ => exists_or⟩
   | .mutate, .eqn (.add a b) (.add c d) =>
       some ⟨mutation a b c d, mutation_correct a b c d⟩
   | .peelAtom, .eqn (.add a b) (.add (.atom k) c) =>
@@ -543,6 +781,54 @@ def overlapInput : F := .eqn (.add x y) (.add (.atom 7) z)
 
 def overlapOutput : F := peel x y z 7
 
+/-- Abbreviations for certificate DATA; no new proof rules. Every sequence ends
+with deterministic cleanup. `beneath n` specifies an explicit binder depth. -/
+def steps : List Certificate → Certificate
+  | [] => .rule .cleanup
+  | c :: cs => .seq c (steps cs)
+
+def beneath : Nat → Certificate → Certificate
+  | 0, c => c
+  | n + 1, c => .under (beneath n c)
+
+/-- Move an explicit disjunction out of n+1 nested existential binders. -/
+def extrude : Nat → Certificate
+  | 0 => .rule .distributeExists
+  | n + 1 => .seq (.under (extrude n)) (.rule .distributeExists)
+
+/-- The same binder permutation and elimination works in BOTH allocation cases.
+Binder order: p q r t -> q p r t -> q r p t -> q r t p -> q t r p.
+Then eliminate p and r, leaving q and t as the unifier's free parameters. -/
+def eliminatePieces : Certificate := steps [
+  .rule .exchangeExists,
+  beneath 1 (.rule .exchangeExists),
+  beneath 2 (.rule .exchangeExists),
+  beneath 1 (.rule .exchangeExists),
+  beneath 3 (.rule .eliminate),
+  beneath 2 (.rule .eliminate)]
+
+/--
+One input equation; auxiliary equations only arise from Mutate.
+
+X+Y ≈ atom(7)+Z
+  -> ∃ p q r t. X≈p+q ∧ Y≈r+t ∧ atom(7)≈p+r ∧ Z≈q+t
+  -> allocation p≈0,r≈atom(7) OR p≈atom(7),r≈0 (both retained)
+  -> distribute, replace/eliminate p,r, simplify units
+  -> the two solved substitution families in overlapOutput.
+
+No call to peelAtom, ACU.peel_atom, or a problem-specific proof occurs here.
+-/
+def overlapPrimitiveTrace : Certificate := steps [
+  .rule .mutate,
+  beneath 4 (.right (.right (.left (.seq (.rule .symmetry) (.rule .splitAtom))))),
+  beneath 4 (.right (.right (.rule .distributeLeft))),
+  beneath 4 (.right (.rule .distributeRight)),
+  beneath 4 (.rule .distributeRight),
+  extrude 3,
+  .left eliminatePieces,
+  .right eliminatePieces,
+  .rule .swapBranches]
+
 /--
 σ₁ = { X ↦ atom(7)+p, Y ↦ q,         Z ↦ p+q }
 σ₂ = { X ↦ p,         Y ↦ atom(7)+q, Z ↦ p+q }
@@ -554,7 +840,7 @@ theorem overlapping_unifiers (X Y Z : V) :
     X +ᵤ Y ≈ᵤ Value.atom 7 +ᵤ Z ↔
       (∃ p q : V, X ≈ᵤ Value.atom 7 +ᵤ p ∧ Y ≈ᵤ q ∧ Z ≈ᵤ p +ᵤ q) ∨
       (∃ p q : V, X ≈ᵤ p ∧ Y ≈ᵤ Value.atom 7 +ᵤ q ∧ Z ≈ᵤ p +ᵤ q) := by
-  have certificate := check_exact overlapInput overlapOutput (.rule .peelAtom) (by decide)
+  have certificate := check_exact overlapInput overlapOutput overlapPrimitiveTrace (by decide)
   exact certificate (fun n => match n with | 0 => X | 1 => Y | _ => Z)
 
 /-- A variable occurring on both sides is not automatically an occurs failure. -/
@@ -602,6 +888,35 @@ theorem four_unifiers (X Y Z W : V) :
   exact certificate (fun n => match n with | 0 => X | 1 => Y | 2 => Z | _ => W)
 
 /-! Negative checks: a well-typed certificate is not automatically accepted. -/
+
+-- The full primitive trace cannot certify just one of the two returned families.
+example : check overlapInput
+    (.ex (.ex (.conj (.eqn x.lift.lift (.add (.atom 7) (.var 1)))
+      (.conj (.eqn y.lift.lift (.var 0)) (.eqn z.lift.lift (.add (.var 1) (.var 0)))))))
+    overlapPrimitiveTrace = false := by decide
+
+-- Freshness: x = x+atom(7) cannot be eliminated by a capture-prone substitution.
+-- Failure of THIS rule is not an occurs-check theorem about ACU solvability.
+example : check (s := Kind.processes)
+    (.ex (.conj (.eqn (.var 0) (.add (.var 0) (.atom 7))) .truth))
+    .truth (.rule .eliminate) = false := by decide
+
+-- ∃x. x≈y ∧ (∃z. x≈z)  ->  ∃z. y≈z.
+-- The outer y becomes index 1 under z, NEVER index 0 (which would capture it).
+example : check (s := Kind.processes)
+    (.ex (.conj (.eqn (.var 0) (.var 1)) (.ex (.eqn (.var 1) (.var 0)))))
+    (.ex (.eqn (.var 1) (.var 0)))
+    (steps [.rule .eliminate]) = true := by decide
+example : check (s := Kind.processes)
+    (.ex (.conj (.eqn (.var 0) (.var 1)) (.ex (.eqn (.var 1) (.var 0)))))
+    (.ex (.eqn (.var 0) (.var 0)))
+    (steps [.rule .eliminate]) = false := by decide
+
+-- Swapping existential binders also lifts through further nested binders.
+example : check (s := Kind.processes)
+    (.ex (.ex (.ex (.eqn (.var 2) (.var 0)))))
+    (.ex (.ex (.ex (.eqn (.var 1) (.var 0)))))
+    (.rule .exchangeExists) = true := by decide
 
 -- Removing a returned unifier must fail, even though the surviving one is sound.
 example : check twoInput (.conj (.eqn x .zero) (.eqn y (.atom 7))) twoTrace = false := by
