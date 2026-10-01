@@ -1,4 +1,5 @@
 import conPanna.Structural
+import examples.bakery
 
 /-!
 # ACU certification experiment — start here
@@ -78,13 +79,13 @@ def flatten : Value s → List Nat
 
 def ofList : List Nat → Value s
   | [] => .zero
-  | a :: as => .add (.atom a) (ofList as)
+  | a :: rest => .add (.atom a) (ofList rest)
 
 @[simp] theorem flatten_ofList (xs : List Nat) :
     (ofList (s := s) xs).flatten = xs := by
   induction xs with
   | nil => rfl
-  | cons a as ih => simp [ofList, flatten, ih]
+  | cons a rest ih => simp [ofList, flatten, ih]
 
 end Value
 
@@ -113,7 +114,7 @@ theorem ofList_append (xs ys : List Nat) :
       (.add (Value.ofList xs) (Value.ofList ys)) := by
   induction xs with
   | nil => exact (unit _).symm
-  | cons a as ih =>
+  | cons a rest ih =>
       exact (congr (refl _) ih).trans (assoc _ _ _).symm
 
 theorem normalize (a : Value s) : ACU a (Value.ofList a.flatten) := by
@@ -1181,3 +1182,78 @@ example : check (.eqn (.add (.var 0) (.var 1)) (.var 0) : F)
     (.seq (.rule .commLeft) (.seq (.rule .padRight) (.rule .cancel))) = true := by decide
 
 end Certification2.Regression
+
+/-! ## Small certificates against the actual Bakery model
+
+These use the existing BakeryTheory/EqMod, not a renamed copy of the model or
+the restricted `.certified` wrapper demo. They exercise the normalization and
+variable-solving fragment only: no cancellation, constructor inversion, ACU
+splitting, narrowing, or Maude search is claimed here.
+
+The general rules below preserve the ENTIRE solution set (an iff). They require
+only equivalence of structural equality, so they need no native reflection
+registration. Stronger decomposition/splitting rules still require that bridge.
+-/
+
+namespace Certification2.NativeRules
+
+open Structural
+
+universe u
+variable {B : Structural.Theory.{u}} {α : Type u}
+
+/-- Normalize: l =B l', r =B r' ⇒ (l =B r ↔ l' =B r').
+Both implications are proved, not merely soundness of a proposed answer. -/
+theorem normalize {l l' r r' : α} (hl : EqMod B l l') (hr : EqMod B r r') :
+    EqMod B l r ↔ EqMod B l' r' :=
+  ⟨fun h => .trans (.symm hl) (.trans h hr),
+   fun h => .trans hl (.trans h (.symm hr))⟩
+
+/-- Solve X =B Y with the substitution family {X ↦ U, Y ↦ U}.
+Assignments factor modulo B, not by literal equality of raw syntax. -/
+theorem shared {x y : α} :
+    EqMod B x y ↔ ∃ v : α, EqMod B x v ∧ EqMod B y v :=
+  ⟨fun h => ⟨y, h, .ofEq rfl⟩, fun ⟨_, hx, hy⟩ => .trans hx (.symm hy)⟩
+
+end Certification2.NativeRules
+
+namespace Certification2.BakeryExamples
+
+open Structural ProcSet Mode
+
+-- Input: X + empty =B {idle}.
+-- Complete answer: one substitution X ↦ {idle}, modulo B.
+-- Certification: normalize the unit; the remaining equation IS the answer.
+theorem idle_unifier (X : ProcSet) :
+    union X empty =[BakeryTheory] singleton idle ↔
+      X =[BakeryTheory] singleton idle := by
+  exact NativeRules.normalize (.identityRight union empty X) (.ofEq rfl)
+
+-- Input: empty + (X + empty) =B Y + empty.
+-- Complete answer: one family {X ↦ U, Y ↦ U}; U is an arbitrary process set.
+-- Certification: normalize both sides, then apply the generic variable rule.
+theorem shared_process_unifier (X Y : ProcSet) :
+    union empty (union X empty) =[BakeryTheory] union Y empty ↔
+      ∃ U : ProcSet, X =[BakeryTheory] U ∧ Y =[BakeryTheory] U := by
+  refine (NativeRules.normalize
+    (.trans (.identityLeft union empty _) (.identityRight union empty X))
+    (.identityRight union empty Y)).trans ?_
+  exact NativeRules.shared
+
+-- Input is a configuration equation, with one unknown complete state C.
+-- Parameters n,s,P stay fixed. The answer assigns C the normalized state.
+-- Congruence carries the registered unit law through the real Conf constructor;
+-- no assumption of injectivity modulo B or special Bakery proof rule is used.
+theorem configuration_unifier (n s : Nat) (P : ProcSet) (C : Conf) :
+    C =[BakeryTheory] Conf.mk n s (union P empty) ↔
+      C =[BakeryTheory] Conf.mk n s P := by
+  apply NativeRules.normalize (.ofEq rfl)
+  exact .constructor
+    (.app (.app (.app (.head Conf.mk) (.ofEq rfl)) (.ofEq rfl))
+      (.identityRight union empty P))
+
+#print axioms idle_unifier
+#print axioms shared_process_unifier
+#print axioms configuration_unifier
+
+end Certification2.BakeryExamples
