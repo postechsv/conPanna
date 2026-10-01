@@ -1,51 +1,45 @@
-import Std
+import conPanna.Structural
 
 /-!
-# Portable, rule-based ACU certificates (standalone experiment)
+# ACU certification experiment — start here
 
-References:
-* A. Boudet and E. Contejean, "Syntactic" AC-Unification, CCL 1994,
-  pp. 136--151, https://doi.org/10.1007/BFb0016849
-  Author copy: https://www.lri.fr/~contejea/publis/1994ccl/main.pdf
-  Definition 4: a complete set of solved forms is an EXACT disjunction.
-  Section 2.2 / Figure 1: Mutate replaces an equation using the complete
-  solutions of a generic head equation; contextual replacement composes steps.
-  The paper proves an AC algorithm. Our ACU specialization below is proved here;
-  its termination/pruning results are NOT imported as results about ACU.
-* J.-P. Jouannaud and C. Kirchner, Solving equations in abstract algebras:
-  A rule-based survey of unification, Computational Logic, MIT Press, 1991.
+This is the ONE active Lean prototype. The companion certification2.maude
+manually runs the same primitive derivation; no generated model/trace importer
+is implemented yet. Run: lake env lean certification2.lean
 
-Scope: one free ACU component at a time, with distinct sort tags and numbered
-atomic constants. A component can be placed at ANY sort; this is not a Bakery
-signature. Mixed-sort free-constructor applications and a complete search
-strategy for nonlinear problems are future work.
+Reading order:
+1. For the user-facing result, jump to IndexedExample.wrapped_two_unifiers
+   near the bottom: one native equation, two unifiers, one certification proof.
+2. The model and GENERATED-registration stand-in immediately precede that proof.
+   Registration contains syntactic data/round trips and existing law witnesses,
+   not user-provided freeness, reflection, or unification proofs.
+3. Everything before the model is LIBRARY PROTOTYPE code: ACU proof rules,
+   generic transport, indexed constructor semantics, and wrapper metatheorems.
 
-The certificate is ordinary first-order DATA. Maude can emit its rule tags and
-tree structure. Lean reconstructs proofs of individual steps. There is no
-Diophantine solver, arbitrary Lean proof field, or per-problem lemma in a trace.
-Lists occur only in the GENERAL semantic proof that the free ACU relation has
-the required decomposition properties. The checker never searches lists/bags.
+Scope/status:
+* Primitive certificate replay, wrapper inversion and the native example are
+  proved without admissions. Constructor congruence has arbitrary typed arity.
+* Semantic decomposition is tested for ONE ACU sort plus a free unary wrapper.
+  This is not a complete ACU search algorithm or a Bakery certificate yet.
+* Native proofs use the experimental sort-indexed relation. Its map to existing
+  Structural.EqMod is proved; the reverse is NOT. No core semantics are changed.
+  Keeping sort/argument indices avoids recovering domains from equality of
+  arbitrary Lean function types, the obstacle in the discarded diagnostic.
+* Metadata generation and broader signatures are next, not additional user
+  semantic proof obligations. Existing inductive/structural syntax is retained.
 
-Integration boundary: `ACU` below is explicitly sort-indexed. It is the local
-free-ACU semantics, not an alias for the library's `Structural.EqMod`. Connecting
-native registered datatypes to this semantics still requires a faithful bridge.
-This file does not assume that bridge, or change the library relation.
+References for the rule-based design:
+* Boudet–Contejean, "Syntactic" AC-Unification, CCL 1994, Definition 4 and
+  Section 2.2 / Figure 1: exact disjunctions and contextual Mutate/Var-Rep.
+  https://doi.org/10.1007/BFb0016849
+  https://www.lri.fr/~contejea/publis/1994ccl/main.pdf
+  Their algorithm is AC; the ACU rules used here are proved below, not assumed.
+* Jouannaud–Kirchner, Solving equations in abstract algebras: A rule-based
+  survey of unification, Computational Logic, MIT Press, 1991.
 
-Next integration experiment (before automatic model export): use ONE native,
-registered datatype with a free ACU constructor and nullary atom constructors.
-Use a signature-restricted atom alphabet (or well-formedness predicate), not
-arbitrary Nat codes for symbols absent from that native signature. Prove
-encode/decode round trips modulo the respective relations on that fragment, and
-
-  Structural.EqMod B a b  <->  ACU (encode a) (encode b).
-
-Decoding an ACU derivation only requires the registered laws (soundness).
-The reverse direction must account for EVERY generator of native EqMod,
-including constructor congruence and registrations at other Lean types. Sort
-tags in THIS syntax alone do not discharge that reflection obligation for the
-existing library relation. Do not mark the native bridge complete after proving
-only preservation. Mixed-sort constructors such as Bakery's follow this test;
-numbered constants alone do not yet model their arguments or nested theories.
+The external certificate is first-order DATA, without Lean proofs/functions.
+Lists appear in generic metatheorems, not as a Diophantine/unification search
+hidden inside the checker. Polynomial checking is a target, not proved here.
 -/
 
 namespace Certification2
@@ -209,31 +203,6 @@ theorem ACU.mutate (a b c d : Value s) :
       (ACU.assoc _ _ _).trans
         ((ACU.congr (ACU.refl _) (ACU.exchange _ _ _)).trans (ACU.assoc _ _ _).symm)
     exact (ACU.congr ha hb).trans (middle.trans (ACU.congr hc hd).symm)
-
-/--
-Derived ACU rule: compose Mutate with atom splitting and unit elimination.
-This is a reusable rule schema, not a new completeness assumption or a rule
-claimed to occur verbatim in BC94. Its proof expands to the general rules above.
-The two alternatives account for which summand contains the distinguished atom;
-the remaining pieces are arbitrary, and can overlap or be empty.
--/
-theorem ACU.peel_atom (a b c : Value s) (k : Nat) :
-    ACU (.add a b) (.add (.atom k) c) ↔
-      (∃ p q, ACU a (.add (.atom k) p) ∧ ACU b q ∧ ACU c (.add p q)) ∨
-      (∃ p q, ACU a p ∧ ACU b (.add (.atom k) q) ∧ ACU c (.add p q)) := by
-  constructor
-  · intro h
-    obtain ⟨p, q, r, t, ha, hb, hk, hc⟩ := (ACU.mutate _ _ _ _).mp h
-    rcases (ACU.split_atom p r k).mp hk.symm with ⟨hp, hr⟩ | ⟨hp, hr⟩
-    · exact Or.inr ⟨q, t, ha.trans ((ACU.congr hp (.refl q)).trans (ACU.unit q)),
-        hb.trans (ACU.congr hr (.refl t)), hc⟩
-    · exact Or.inl ⟨q, t, ha.trans (ACU.congr hp (.refl q)),
-        hb.trans ((ACU.congr hr (.refl t)).trans (ACU.unit t)), hc⟩
-  · rintro (⟨p, q, ha, hb, hc⟩ | ⟨p, q, ha, hb, hc⟩)
-    · exact (ACU.congr ha hb).trans
-        ((ACU.assoc _ _ _).trans (ACU.congr (.refl _) hc.symm))
-    · exact (ACU.congr ha hb).trans
-        ((ACU.exchange _ _ _).trans (ACU.congr (.refl _) hc.symm))
 
 /-! ## Portable syntax and certificate format -/
 
@@ -508,7 +477,7 @@ def Formula.cleanup : (p : Formula s) → { q : Formula s // Equivalent p q }
 
 /-- Every rule has a finite, explicit output, including ALL alternatives. -/
 inductive Rule where
-  | mutate | splitAtom | splitZero | cancel | peelAtom
+  | mutate | splitAtom | splitZero | cancel
   | symmetry | commLeft | assocLeft | padRight
   | reflexive | clash
   | distributeLeft | distributeRight
@@ -544,20 +513,15 @@ theorem mutation_correct (a b c d : Term s) :
   simp only [mutation, Formula.Holds, Term.eval_lift, Term.eval, push]
   exact ACU.mutate _ _ _ _
 
-/-- Output of the derived rule, with two independently scoped parameter pairs. -/
-def peel (a b c : Term s) (k : Nat) : Formula s :=
+/-- Claimed solved output, with two independently scoped parameter pairs. It is
+just formula data; the primitive trace below must certify it. -/
+def overlapSolutions (a b c : Term s) (k : Nat) : Formula s :=
   .disj
     (.ex (.ex (.conj (.eqn a.lift.lift (.add (.atom k) (.var 1)))
       (.conj (.eqn b.lift.lift (.var 0)) (.eqn c.lift.lift (.add (.var 1) (.var 0)))))))
     (.ex (.ex (.conj (.eqn a.lift.lift (.var 1))
       (.conj (.eqn b.lift.lift (.add (.atom k) (.var 0)))
         (.eqn c.lift.lift (.add (.var 1) (.var 0)))))))
-
-theorem peel_correct (a b c : Term s) (k : Nat) :
-    Equivalent (.eqn (.add a b) (.add (.atom k) c)) (peel a b c k) := by
-  intro ρ
-  simp only [peel, Formula.Holds, Term.eval_lift, Term.eval, push]
-  exact ACU.peel_atom _ _ _ _
 
 /-! ## Generic proof reconstruction: all reasoning stays in this section -/
 
@@ -583,8 +547,6 @@ def applyRule (rule : Rule) (input : Formula s) :
       some ⟨.disj (.ex p) (.ex q), fun _ => exists_or⟩
   | .mutate, .eqn (.add a b) (.add c d) =>
       some ⟨mutation a b c d, mutation_correct a b c d⟩
-  | .peelAtom, .eqn (.add a b) (.add (.atom k) c) =>
-      some ⟨peel a b c k, peel_correct a b c k⟩
   | .splitAtom, .eqn (.add a b) (.atom k) =>
       some ⟨.disj (.conj (.eqn a .zero) (.eqn b (.atom k)))
                   (.conj (.eqn a (.atom k)) (.eqn b .zero)),
@@ -704,82 +666,497 @@ theorem check_sound (input output : Formula s) (cert : Certificate)
     (accepted : check input output cert = true) (ρ : Assignment s) :
     output.Holds ρ → input.Holds ρ := (check_exact input output cert accepted ρ).mpr
 
-/-! ## Certification examples: data plus one top-level proof each
 
-The inputs are single equations. Lists of equations/disjunctions occur only as
-intermediate formulas. Each theorem below obtains its semantic iff by checking
-the supplied trace; there are no example-specific proof lemmas or proof tactics.
+end Certification2
 
-`check_exact` is intentionally about a supplied final formula. If that formula
-is a disjunction of solved bindings (as below), it certifies the unifier set.
-It also supports checking intermediate transformations. It does not claim that
-every accepted output is in solved form: `truth`, for example, expresses an
-unconstrained identity substitution, and arbitrary intermediate equations remain
-possible. The semantic theorem states exactly the output that was checked.
+namespace Certification2
+
+variable {Sorts : Type} {s : Sorts}
+
+/-! ## Generic certificate transport (independent of the example)
+
+Formulas are positive/existential, so a homomorphism preserving the relation
+transports satisfaction forwards. Use encode and decode in opposite directions
+to lift a checked iff. `allowed` restricts literal symbols in the PROBLEM and
+ANSWER; existential witnesses need not already be encoded native values.
+Decoding them supplies native witnesses. No feasibility decision is involved.
 -/
 
-namespace Examples
+structure Semantics (α : Type) where
+  zero : α
+  atom : Nat → α
+  add : α → α → α
+  rel : α → α → Prop
 
-inductive Kind where
-  | tickets | processes
-  deriving Repr, DecidableEq
+def portable (s : Sorts) : Semantics (Value s) :=
+  ⟨.zero, .atom, .add, ACU⟩
 
-example : Kind.tickets ≠ Kind.processes := by decide
+def Term.denote {α : Type} (m : Semantics α) (ρ : Nat → α) : Term s → α
+  | .var n => ρ n
+  | .atom n => m.atom n
+  | .zero => m.zero
+  | .add a b => m.add (a.denote m ρ) (b.denote m ρ)
 
-abbrev V := Value Kind.processes
-abbrev T := Term Kind.processes
-abbrev F := Formula Kind.processes
+def Formula.sat {α : Type} (m : Semantics α) (ρ : Nat → α) : Formula s → Prop
+  | .truth => True
+  | .falsity => False
+  | .eqn a b => m.rel (a.denote m ρ) (b.denote m ρ)
+  | .conj p q => p.sat m ρ ∧ q.sat m ρ
+  | .disj p q => p.sat m ρ ∨ q.sat m ρ
+  | .ex p => ∃ v, p.sat m (fun n => match n with | 0 => v | n+1 => ρ n)
 
-def x : T := .var 0
-def y : T := .var 1
-def z : T := .var 2
-def w : T := .var 3
+def Term.uses (allowed : Nat → Prop) : Term s → Prop
+  | .var _ | .zero => True
+  | .atom n => allowed n
+  | .add a b => a.uses allowed ∧ b.uses allowed
 
-local infix:50 " ≈ᵤ " => ACU
-local infixl:65 " +ᵤ " => Value.add
+def Formula.uses (allowed : Nat → Prop) : Formula s → Prop
+  | .truth | .falsity => True
+  | .eqn a b => a.uses allowed ∧ b.uses allowed
+  | .conj p q | .disj p q => p.uses allowed ∧ q.uses allowed
+  | .ex p => p.uses allowed
 
-/-- Atom 7 is just a symbol identifier; its value is irrelevant to every rule. -/
-def twoInput : F := .eqn (.add (.add x y) z) (.add (.atom 7) z)
+structure Hom {α β : Type} (m : Semantics α) (n : Semantics β)
+    (f : α → β) (allowed : Nat → Prop) : Prop where
+  zero : f m.zero = n.zero
+  atom : ∀ k, allowed k → f (m.atom k) = n.atom k
+  add : ∀ a b, f (m.add a b) = n.add (f a) (f b)
+  rel : ∀ {a b}, m.rel a b → n.rel (f a) (f b)
 
-def twoOutput : F :=
-  .disj (.conj (.eqn x .zero) (.eqn y (.atom 7)))
-        (.conj (.eqn x (.atom 7)) (.eqn y .zero))
+theorem Term.map_denote {α β : Type} {m : Semantics α} {n : Semantics β}
+    {f : α → β} {allowed : Nat → Prop} (hom : Hom m n f allowed)
+    (t : Term s) (ht : t.uses allowed) (ρ : Nat → α) :
+    f (t.denote m ρ) = t.denote n (fun i => f (ρ i)) := by
+  induction t with
+  | var => rfl
+  | zero => exact hom.zero
+  | atom k => exact hom.atom k ht
+  | add a b ha hb =>
+      change f (m.add _ _) = n.add _ _
+      rw [hom.add, ha ht.1, hb ht.2]
 
-/-- Cancel the common arbitrary bag, then keep BOTH atom-allocation cases. -/
-def twoTrace : Certificate := .seq (.rule .cancel) (.rule .splitAtom)
+theorem Formula.map_sat {α β : Type} {m : Semantics α} {n : Semantics β}
+    {f : α → β} {allowed : Nat → Prop} (hom : Hom m n f allowed)
+    (p : Formula s) (hp : p.uses allowed) (ρ : Nat → α) :
+    p.sat m ρ → p.sat n (fun i => f (ρ i)) := by
+  induction p generalizing ρ with
+  | truth => exact fun _ => trivial
+  | falsity => exact False.elim
+  | eqn a b =>
+      intro h
+      have h' := hom.rel h
+      rwa [a.map_denote hom hp.1 ρ, b.map_denote hom hp.2 ρ] at h'
+  | conj p q ihp ihq => exact fun ⟨h₁, h₂⟩ => ⟨ihp hp.1 ρ h₁, ihq hp.2 ρ h₂⟩
+  | disj p q ihp ihq =>
+      intro h
+      exact h.elim (fun h => Or.inl (ihp hp.1 ρ h)) (fun h => Or.inr (ihq hp.2 ρ h))
+  | ex p ih =>
+      rintro ⟨v, hv⟩
+      refine ⟨f v, ?_⟩
+      have mapped := ih hp _ hv
+      have he : (fun i => f (match i with | 0 => v | n+1 => ρ n)) =
+          (fun i => match i with | 0 => f v | n+1 => f (ρ n)) := by
+        funext i
+        cases i <;> rfl
+      rw [he] at mapped
+      exact mapped
 
-/--
-Completeness is the forward implication; soundness is the reverse implication.
-Z is unconstrained, so each unifier maps it to an arbitrary parameter.
-The proof contains only generic certificate checking and unfolding notation.
+theorem Term.uses_all (t : Term s) : t.uses (fun _ => True) := by
+  induction t <;> simp_all [uses]
+
+theorem Formula.uses_all (p : Formula s) : p.uses (fun _ => True) := by
+  induction p <;> simp_all [uses, Term.uses_all]
+
+theorem Term.denote_portable (t : Term s) (ρ : Assignment s) :
+    t.denote (portable s) ρ = t.eval ρ := by
+  induction t <;> simp_all [denote, eval, portable]
+
+theorem Formula.sat_portable (p : Formula s) (ρ : Assignment s) :
+    p.sat (portable s) ρ ↔ p.Holds ρ := by
+  induction p generalizing ρ with
+  | truth => rfl
+  | falsity => rfl
+  | eqn a b =>
+      change ACU (a.denote (portable s) ρ) (b.denote (portable s) ρ) ↔ _
+      rw [a.denote_portable, b.denote_portable]
+      rfl
+  | conj p q hp hq => exact and_congr (hp ρ) (hq ρ)
+  | disj p q hp hq => exact or_congr (hp ρ) (hq ρ)
+  | ex p hp => exact exists_congr (fun v => hp (push v ρ))
+
+/-- A reusable boundary for lifting every checked certificate, not a new
+per-problem proof rule. encode/decode need only form a retraction: unused raw
+atom codes may collapse under decoding, since source/answer syntax is checked. -/
+structure Bridge {α : Type} (m : Semantics α) (s : Sorts) where
+  allowed : Nat → Prop
+  encode : α → Value s
+  decode : Value s → α
+  roundtrip : ∀ a, decode (encode a) = a
+  forward : Hom m (portable s) encode allowed
+  backward : Hom (portable s) m decode (fun _ => True)
+
+theorem Bridge.transport {α : Type} {m : Semantics α} (b : Bridge m s)
+    {p q : Formula s} (hp : p.uses b.allowed) (equiv : Equivalent p q)
+    (ρ : Nat → α) : p.sat m ρ → q.sat m ρ := by
+  intro h
+  have rawP := (p.sat_portable _).mp (p.map_sat b.forward hp ρ h)
+  have rawQ := (equiv _).mp rawP
+  have nativeQ := q.map_sat b.backward q.uses_all _ ((q.sat_portable _).mpr rawQ)
+  simpa only [b.roundtrip] using nativeQ
+
+/-- A checked portable certificate lifts BOTH directions to native semantics.
+The ONLY per-problem obligations are finite syntax/checker computations. -/
+theorem Bridge.check_exact [DecidableEq Sorts] {α : Type} {m : Semantics α}
+    (b : Bridge m s) (p q : Formula s) (cert : Certificate)
+    (accepted : check p q cert = true)
+    (hp : p.uses b.allowed) (hq : q.uses b.allowed) (ρ : Nat → α) :
+    p.sat m ρ ↔ q.sat m ρ :=
+  let equiv := Certification2.check_exact p q cert accepted
+  ⟨b.transport hp equiv ρ, b.transport hq (fun σ => (equiv σ).symm) ρ⟩
+
+end Certification2
+
+namespace Certification2.Indexed
+
+/-! ## Library prototype: finite-arity many-sorted syntax and derivations -/
+
+structure Signature (Sorts : Type) where
+  Symbol : List Sorts → Sorts → Type
+  ACUOp : Sorts → Type
+  add : ∀ {s}, ACUOp s → Symbol [s, s] s
+  zero : ∀ {s}, ACUOp s → Symbol [] s
+
+variable {Sorts : Type} (sig : Signature Sorts)
+
+mutual
+  inductive Tree : Sorts → Type where
+    | app {ss s} (head : sig.Symbol ss s) (args : Trees ss) : Tree s
+  inductive Trees : List Sorts → Type where
+    | nil : Trees []
+    | cons {s ss} (first : Tree s) (rest : Trees ss) : Trees (s :: ss)
+end
+
+def zero {s : Sorts} (op : sig.ACUOp s) : Tree sig s := .app (sig.zero op) .nil
+def add {s : Sorts} (op : sig.ACUOp s) (a b : Tree sig s) : Tree sig s :=
+  .app (sig.add op) (.cons a (.cons b .nil))
+
+mutual
+  /-- Constructor identity and argument sorts remain in EVERY derivation. -/
+  inductive Eq : {s : Sorts} → Tree sig s → Tree sig s → Prop where
+    | refl {s} (a : Tree sig s) : Eq a a
+    | symm {s} {a b : Tree sig s} : Eq a b → Eq b a
+    | trans {s} {a b c : Tree sig s} : Eq a b → Eq b c → Eq a c
+    | congr {ss s} (head : sig.Symbol ss s) {a b : Trees sig ss} :
+        Eqs a b → Eq (.app head a) (.app head b)
+    | comm {s} (op : sig.ACUOp s) (a b : Tree sig s) :
+        Eq (add sig op a b) (add sig op b a)
+    | assoc {s} (op : sig.ACUOp s) (a b c : Tree sig s) :
+        Eq (add sig op (add sig op a b) c) (add sig op a (add sig op b c))
+    | unit {s} (op : sig.ACUOp s) (a : Tree sig s) : Eq (add sig op (zero sig op) a) a
+  inductive Eqs : {ss : List Sorts} → Trees sig ss → Trees sig ss → Prop where
+    | nil : Eqs .nil .nil
+    | cons {s ss} {a b : Tree sig s} {as bs : Trees sig ss} :
+        Eq a b → Eqs as bs → Eqs (.cons a as) (.cons b bs)
+end
+
+def Args (C : Sorts → Type) : List Sorts → Type
+  | [] => PUnit
+  | s :: ss => C s × Args C ss
+
+structure Algebra where
+  Carrier : Sorts → Type
+  apply : ∀ {ss s}, sig.Symbol ss s → Args Carrier ss → Carrier s
+
+variable {sig}
+
+mutual
+  def Tree.eval (A : Algebra sig) : {s : Sorts} → Tree sig s → A.Carrier s
+    | _, .app f args => A.apply f (args.eval A)
+  def Trees.eval (A : Algebra sig) : {ss : List Sorts} → Trees sig ss → Args A.Carrier ss
+    | _, .nil => PUnit.unit
+    | _, .cons a as => (a.eval A, as.eval A)
+end
+
+variable (sig)
+
+def ArgsRel {C : Sorts → Type} (R : ∀ s, C s → C s → Prop) :
+    (ss : List Sorts) → Args C ss → Args C ss → Prop
+  | [], _, _ => True
+  | s :: ss, (a, as), (b, bs) => R s a b ∧ ArgsRel R ss as bs
+
+/-- Semantic metatheorem input, not user registration. Instantiated by library
+interpretations below. Ordinary constructor compatibility is genuinely sorted. -/
+structure Model (A : Algebra sig) where
+  Rel : ∀ s, A.Carrier s → A.Carrier s → Prop
+  refl : ∀ s a, Rel s a a
+  symm : ∀ s {a b}, Rel s a b → Rel s b a
+  trans : ∀ s {a b c}, Rel s a b → Rel s b c → Rel s a c
+  congr : ∀ {ss s} (f : sig.Symbol ss s) {a b},
+    ArgsRel Rel ss a b → Rel s (A.apply f a) (A.apply f b)
+  comm : ∀ {s} (op : sig.ACUOp s) a b,
+    Rel s (A.apply (sig.add op) (a, b, PUnit.unit))
+      (A.apply (sig.add op) (b, a, PUnit.unit))
+  assoc : ∀ {s} (op : sig.ACUOp s) a b c,
+    Rel s (A.apply (sig.add op) (A.apply (sig.add op) (a, b, PUnit.unit), c, PUnit.unit))
+      (A.apply (sig.add op) (a, A.apply (sig.add op) (b, c, PUnit.unit), PUnit.unit))
+  unit : ∀ {s} (op : sig.ACUOp s) a,
+    Rel s (A.apply (sig.add op) (A.apply (sig.zero op) PUnit.unit, a, PUnit.unit)) a
+
+theorem Eq.sound {s : Sorts} {A : Algebra sig} (M : Model sig A)
+    {a b : Tree sig s} (h : Eq sig a b) : M.Rel s (a.eval A) (b.eval A) := by
+  refine Eq.rec
+    (motive_1 := fun {s} a b _ => M.Rel s (a.eval A) (b.eval A))
+    (motive_2 := fun {ss} a b _ => ArgsRel M.Rel ss (a.eval A) (b.eval A))
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
+  · intro s a; exact M.refl s _
+  · intro s a b h ih; exact M.symm s ih
+  · intro s a b c h₁ h₂ ih₁ ih₂; exact M.trans s ih₁ ih₂
+  · intro ss s f a b h ih; exact M.congr f ih
+  · intro s op a b; exact M.comm op _ _
+  · intro s op a b c; exact M.assoc op _ _ _
+  · intro s op a; exact M.unit op _
+  · trivial
+  · intro s ss a b as bs h₁ h₂ ih₁ ih₂; exact ⟨ih₁, ih₂⟩
+
+/-! ## Library prototype: native registration boundary
+
+ONLY syntactic identities below. A generator emits quote by constructor recursion,
+apply by constructor enumeration, and proves the equations by rfl / induction.
+These fields are not semantic ACU proof obligations delegated to the user.
 -/
-theorem two_unifiers (X Y Z : V) :
-    (X +ᵤ Y) +ᵤ Z ≈ᵤ Value.atom 7 +ᵤ Z ↔
-      (X ≈ᵤ .zero ∧ Y ≈ᵤ .atom 7) ∨ (X ≈ᵤ .atom 7 ∧ Y ≈ᵤ .zero) := by
-  have certificate := check_exact twoInput twoOutput twoTrace (by decide)
-  exact certificate (fun n => match n with | 0 => X | 1 => Y | _ => Z)
 
-/-- One equation, one parametric unifier with four fresh ACU pieces. -/
-def matrixInput : F := .eqn (.add x y) (.add z w)
+def Args.quote {C : Sorts → Type} (quote : ∀ s, C s → Tree sig s) :
+    (ss : List Sorts) → Args C ss → Trees sig ss
+  | [], _ => .nil
+  | s :: ss, (a, as) => .cons (quote s a) (Args.quote quote ss as)
 
-def matrixOutput : F := mutation x y z w
+structure Registration extends Algebra sig where
+  quote : ∀ s, Carrier s → Tree sig s
+  eval_quote : ∀ s a, (quote s a).eval toAlgebra = a
+  quote_apply : ∀ {ss s} (f : sig.Symbol ss s) (args : Args Carrier ss),
+    quote s (apply f args) = .app f (Args.quote sig quote ss args)
 
-/--
-Here Maude only needs to emit `rule mutate`. The theorem demonstrates that the
-fresh variables are real existential binders, disjoint from the original four.
-The all-zero choices and all possible overlaps are covered automatically.
+def NativeEq (reg : Registration sig) {s : Sorts} (a b : reg.Carrier s) : Prop :=
+  Eq sig (reg.quote s a) (reg.quote s b)
+
+/-- The same structural induction works for any constructor-compatible reifier,
+without assuming that every semantic value is a valid syntax encoding. -/
+theorem Tree.rebuild_eval (A : Algebra sig) (quote : ∀ s, A.Carrier s → Tree sig s)
+    (compatible : ∀ {ss s} (f : sig.Symbol ss s) (args : Args A.Carrier ss),
+      quote s (A.apply f args) = .app f (Args.quote sig quote ss args))
+    {s : Sorts} (a : Tree sig s) : quote s (a.eval A) = a := by
+  refine Tree.rec
+    (motive_1 := fun {s} a => quote s (a.eval A) = a)
+    (motive_2 := fun {ss} as => Args.quote sig quote ss (as.eval A) = as)
+    ?_ ?_ ?_ a
+  · intro ss s f args ih
+    change quote s (A.apply f (args.eval A)) = _
+    rw [compatible, ih]
+  · rfl
+  · intro s ss a as ih₁ ih₂
+    change Trees.cons (quote s (a.eval A)) (Args.quote sig quote ss (as.eval A)) = _
+    rw [ih₁, ih₂]
+
+theorem Registration.quote_eval (reg : Registration sig) {s : Sorts} (a : Tree sig s) :
+    reg.quote s (a.eval reg.toAlgebra) = a :=
+  Tree.rebuild_eval sig reg.toAlgebra reg.quote reg.quote_apply a
+
+/-! ## Library adapter to existing EqMod: arbitrary constructor arity -/
+
+def Curried (C : Sorts → Type) : List Sorts → Sorts → Type
+  | [], s => C s
+  | a :: as, s => C a → Curried C as s
+
+def applyCurried {C : Sorts → Type} : {ss : List Sorts} → {s : Sorts} →
+    Curried C ss s → Args C ss → C s
+  | [], _, f, _ => f
+  | _ :: _, _, f, (a, as) => applyCurried (f a) as
+
+theorem applyCurried_congr {B : Structural.Theory} {C : Sorts → Type}
+    {ss : List Sorts} {s : Sorts} {f g : Curried C ss s}
+    (h : Structural.ConstructorCongruence B f g) {a b : Args C ss}
+    (args : ArgsRel (fun _ => Structural.EqMod B) ss a b) :
+    Structural.EqMod B (applyCurried f a) (applyCurried g b) := by
+  induction ss with
+  | nil => exact .constructor h
+  | cons first rest ih => exact ih (.app h args.1) args.2
+
+/-- Only native symbols, registered-law witnesses and a definitional application
+equation. No EqMod reflection field. This metadata is generated by enumeration. -/
+structure Legacy (B : Structural.Theory) (A : Algebra sig) where
+  head : ∀ {ss s}, sig.Symbol ss s → Curried A.Carrier ss s
+  apply_head : ∀ {ss s} (f : sig.Symbol ss s) args,
+    A.apply f args = applyCurried (head f) args
+  registered : ∀ {ss s} (f : sig.Symbol ss s), Structural.HasConstructor B (head f)
+  comm : ∀ {s} (op : sig.ACUOp s), Structural.HasComm B (head (sig.add op))
+  assoc : ∀ {s} (op : sig.ACUOp s), Structural.HasAssoc B (head (sig.add op))
+  unit : ∀ {s} (op : sig.ACUOp s),
+    Structural.HasIdentity B (head (sig.add op)) (head (sig.zero op))
+
+def Legacy.model {B : Structural.Theory} {A : Algebra sig} (metadata : Legacy sig B A) :
+    Model sig A where
+  Rel := fun _ => Structural.EqMod B
+  refl := fun _ _ => .ofEq rfl
+  symm := fun _ {_ _} h => .symm h
+  trans := fun _ {_ _ _} h₁ h₂ => .trans h₁ h₂
+  congr := by
+    intro ss s f a b h
+    rw [metadata.apply_head, metadata.apply_head]
+    letI := metadata.registered f
+    exact applyCurried_congr (.head (metadata.head f)) h
+  comm := by
+    intro s op a b
+    simp only [metadata.apply_head, applyCurried]
+    letI := metadata.comm op
+    exact .comm _ _ _
+  assoc := by
+    intro s op a b c
+    simp only [metadata.apply_head, applyCurried]
+    letI := metadata.assoc op
+    exact .assoc _ _ _ _
+  unit := by
+    intro s op a
+    simp only [metadata.apply_head, applyCurried]
+    letI := metadata.unit op
+    exact .identityLeft _ _ _
+
+theorem NativeEq.to_legacy {B : Structural.Theory} (reg : Registration sig)
+    (metadata : Legacy sig B reg.toAlgebra) {s : Sorts} {a b : reg.Carrier s}
+    (h : NativeEq sig reg a b) : Structural.EqMod B a b := by
+  have lifted := Eq.sound sig (metadata.model sig) h
+  simpa only [reg.eval_quote] using lifted
+
+end Certification2.Indexed
+
+/-! ## Library metatheorems for a supported signature fragment
+
+One ACU carrier (with ANY countable atom alphabet) and a free unary wrapper.
+These declarations know no user datatype, constructor name or unification problem.
+The generic infrastructure above already permits other arities/multiple ACU ops;
+the semantic decomposition metatheorems for those fragments remain future work.
 -/
-theorem shared_pieces (X Y U W : V) :
-    X +ᵤ Y ≈ᵤ U +ᵤ W ↔
-      ∃ p q r t : V,
-        X ≈ᵤ p +ᵤ q ∧ Y ≈ᵤ r +ᵤ t ∧ U ≈ᵤ p +ᵤ r ∧ W ≈ᵤ q +ᵤ t := by
-  have certificate := check_exact matrixInput matrixOutput (.rule .mutate) (by decide)
-  exact certificate (fun n => match n with | 0 => X | 1 => Y | 2 => U | _ => W)
 
-/-- Two unifiers with SHARED, arbitrary fresh pieces, for one atomic problem. -/
-def overlapInput : F := .eqn (.add x y) (.add (.atom 7) z)
+namespace Certification2.WrapperFragment
 
-def overlapOutput : F := peel x y z 7
+open Indexed
+
+inductive SortTag where
+  | bag | configuration
+  deriving DecidableEq
+
+inductive Symbol (Atom : Type) : List SortTag → SortTag → Type where
+  | empty : Symbol Atom [] .bag
+  | atom (a : Atom) : Symbol Atom [] .bag
+  | union : Symbol Atom [.bag, .bag] .bag
+  | wrap : Symbol Atom [.bag] .configuration
+
+inductive Operator : SortTag → Type where
+  | union : Operator .bag
+
+def signature (Atom : Type) : Signature SortTag where
+  Symbol := Symbol Atom
+  ACUOp := Operator
+  add := fun op => match op with | .union => .union
+  zero := fun op => match op with | .union => .empty
+
+variable {Atom : Type}
+
+abbrev BagTree (Atom : Type) := Tree (signature Atom) .bag
+abbrev ConfTree (Atom : Type) := Tree (signature Atom) .configuration
+abbrev Raw := Value SortTag.bag
+
+def empty : BagTree Atom := .app .empty .nil
+def atom (a : Atom) : BagTree Atom := .app (.atom a) .nil
+def union (a b : BagTree Atom) : BagTree Atom := .app .union (.cons a (.cons b .nil))
+def wrap (a : BagTree Atom) : ConfTree Atom := .app .wrap (.cons a .nil)
+
+/-- Encoding of the supported fragment into the existing ACU certificate algebra.
+The wrapper is free and unary, so observing its payload loses no information. -/
+def algebra (code : Atom → Nat) : Algebra (signature Atom) where
+  Carrier := fun _ => Raw
+  apply := fun f args => match f, args with
+    | .empty, _ => .zero
+    | .atom a, _ => .atom (code a)
+    | .union, (a, b, _) => .add a b
+    | .wrap, (a, _) => a
+
+def observation (code : Atom → Nat) : Model (signature Atom) (algebra code) where
+  Rel := fun _ => ACU
+  refl := fun _ _ => .refl _
+  symm := fun _ {_ _} h => .symm h
+  trans := fun _ {_ _ _} h₁ h₂ => .trans h₁ h₂
+  congr := by
+    intro ss s f a b h
+    cases f with
+    | empty => exact .refl _
+    | atom => exact .refl _
+    | union => exact .congr h.1 h.2.1
+    | wrap => exact h.1
+  comm := by intro s op a b; cases op; exact .comm _ _
+  assoc := by intro s op a b c; cases op; exact .assoc _ _ _
+  unit := by intro s op a; cases op; exact .unit _
+
+def rebuildBag (read : Nat → Atom) : Raw → BagTree Atom
+  | .zero => empty
+  | .atom n => atom (read n)
+  | .add a b => union (rebuildBag read a) (rebuildBag read b)
+
+def rebuild (read : Nat → Atom) : (s : SortTag) → Raw → Tree (signature Atom) s
+  | .bag, a => rebuildBag read a
+  | .configuration, a => wrap (rebuildBag read a)
+
+theorem rebuild_eval (code : Atom → Nat) (read : Nat → Atom)
+    (inverse : ∀ a, read (code a) = a) {s : SortTag} (a : Tree (signature Atom) s) :
+    rebuild read s (a.eval (algebra code)) = a := by
+  apply Tree.rebuild_eval
+  intro ss s f args
+  cases f with
+  | empty => cases args; rfl
+  | atom a => cases args; simp only [algebra, rebuild, rebuildBag, inverse, atom, Args.quote]
+  | union => rcases args with ⟨a, b, u⟩; cases u; rfl
+  | wrap => rcases args with ⟨a, u⟩; cases u; rfl
+
+theorem rebuildBag_congr (read : Nat → Atom) {a b : Raw} (h : ACU a b) :
+    Indexed.Eq (signature Atom) (rebuildBag read a) (rebuildBag read b) := by
+  induction h with
+  | refl => exact .refl _
+  | symm _ ih => exact .symm ih
+  | trans _ _ ih₁ ih₂ => exact .trans ih₁ ih₂
+  | congr _ _ ih₁ ih₂ =>
+      exact Indexed.Eq.congr (sig := signature Atom) Symbol.union (.cons ih₁ (.cons ih₂ .nil))
+  | comm => exact Indexed.Eq.comm (sig := signature Atom) Operator.union _ _
+  | assoc => exact Indexed.Eq.assoc (sig := signature Atom) Operator.union _ _ _
+  | unit => exact Indexed.Eq.unit (sig := signature Atom) Operator.union _
+
+/-- Both directions, including free-wrapper inversion. A general library lemma,
+not a field supplied during user registration. -/
+theorem exact (code : Atom → Nat) (read : Nat → Atom)
+    (inverse : ∀ a, read (code a) = a) {s : SortTag}
+    (a b : Tree (signature Atom) s) :
+    Indexed.Eq (signature Atom) a b ↔
+      ACU (a.eval (algebra code)) (b.eval (algebra code)) := by
+  constructor
+  · exact Indexed.Eq.sound _ (observation code)
+  · intro h
+    have lifted : Indexed.Eq (signature Atom)
+        (rebuild read s (a.eval (algebra code)))
+        (rebuild read s (b.eval (algebra code))) := by
+      cases s with
+      | bag => exact rebuildBag_congr read h
+      | configuration =>
+          exact Indexed.Eq.congr (sig := signature Atom) Symbol.wrap (.cons (rebuildBag_congr read h) .nil)
+    simpa only [rebuild_eval code read inverse] using lifted
+
+theorem wrap_iff (code : Atom → Nat) (read : Nat → Atom)
+    (inverse : ∀ a, read (code a) = a) (a b : BagTree Atom) :
+    Indexed.Eq (signature Atom) (wrap a) (wrap b) ↔ Indexed.Eq (signature Atom) a b :=
+  (exact code read inverse (wrap a) (wrap b)).trans (exact code read inverse a b).symm
+
+end Certification2.WrapperFragment
+
+/-! ## Example certificate data (shared with the Maude experiment) -/
+
+namespace Certification2.Demo
 
 /-- Abbreviations for certificate DATA; no new proof rules. Every sequence ends
 with deterministic cleanup. `beneath n` specifies an explicit binder depth. -/
@@ -814,9 +1191,9 @@ X+Y ≈ atom(7)+Z
   -> ∃ p q r t. X≈p+q ∧ Y≈r+t ∧ atom(7)≈p+r ∧ Z≈q+t
   -> allocation p≈0,r≈atom(7) OR p≈atom(7),r≈0 (both retained)
   -> distribute, replace/eliminate p,r, simplify units
-  -> the two solved substitution families in overlapOutput.
+  -> the two solved substitution families shown in the final native theorem.
 
-No call to peelAtom, ACU.peel_atom, or a problem-specific proof occurs here.
+Only primitive rule data is used; no problem-specific proof occurs here.
 -/
 def overlapPrimitiveTrace : Certificate := steps [
   .rule .mutate,
@@ -829,123 +1206,251 @@ def overlapPrimitiveTrace : Certificate := steps [
   .right eliminatePieces,
   .rule .swapBranches]
 
-/--
-σ₁ = { X ↦ atom(7)+p, Y ↦ q,         Z ↦ p+q }
-σ₂ = { X ↦ p,         Y ↦ atom(7)+q, Z ↦ p+q }
+end Certification2.Demo
 
-No feasibility or arithmetic obligation occurs. The iff quantifies over ALL
-ground ACU assignments, including nonempty shared pieces and unit instances.
+/-! ## User model: ordinary datatypes and the existing structural declaration -/
+
+namespace Certification2.IndexedExample
+
+inductive Bag where
+  | empty | red | blue
+  | union : Bag → Bag → Bag
+  deriving Repr, DecidableEq
+
+inductive Conf where
+  | wrap : Bag → Conf
+
+instance : framework.State Conf := ⟨⟩
+
+open scoped Structural
+
+structural WrappedTheory where
+  assoc Bag.union
+  comm Bag.union
+  id Bag.union Bag.empty
+
+/-! ## Prototype stand-in for GENERATED registration metadata
+
+A future generator reads the above declarations and emits this block. It only
+enumerates constructors and defines structural recursion. The proof fields use
+cases/induction/rfl, or existing registration witnesses; there are no ACU or
+unification/reflection obligations. An interim annotation may identify this
+supported fragment and its symbols, e.g. "bag ACU, configuration free-wrapper".
+That annotation/command is NOT implemented yet.
 -/
-theorem overlapping_unifiers (X Y Z : V) :
-    X +ᵤ Y ≈ᵤ Value.atom 7 +ᵤ Z ↔
-      (∃ p q : V, X ≈ᵤ Value.atom 7 +ᵤ p ∧ Y ≈ᵤ q ∧ Z ≈ᵤ p +ᵤ q) ∨
-      (∃ p q : V, X ≈ᵤ p ∧ Y ≈ᵤ Value.atom 7 +ᵤ q ∧ Z ≈ᵤ p +ᵤ q) := by
-  have certificate := check_exact overlapInput overlapOutput overlapPrimitiveTrace (by decide)
-  exact certificate (fun n => match n with | 0 => X | 1 => Y | _ => Z)
 
-/-- A variable occurring on both sides is not automatically an occurs failure. -/
-def cycleInput : F := .eqn (.add x y) x
+open Indexed
+abbrev Tag := WrapperFragment.SortTag
+abbrev Sig := WrapperFragment.signature Bool
 
-def cycleOutput : F := .eqn y .zero
+def nativeAlgebra : Algebra Sig where
+  Carrier := fun s => match s with | .bag => Bag | .configuration => Conf
+  apply := fun f args => match f, args with
+    | .empty, _ => Bag.empty
+    | .atom false, _ => Bag.red
+    | .atom true, _ => Bag.blue
+    | .union, (a, b, _) => Bag.union a b
+    | .wrap, (a, _) => Conf.wrap a
 
-def cycleTrace : Certificate :=
-  .seq (.rule .commLeft) (.seq (.rule .padRight) (.rule .cancel))
+def quoteBag : Bag → Tree Sig .bag
+  | .empty => .app .empty .nil
+  | .red => .app (.atom false) .nil
+  | .blue => .app (.atom true) .nil
+  | .union a b => .app .union (.cons (quoteBag a) (.cons (quoteBag b) .nil))
 
-theorem unit_cycle (X Y : V) : X +ᵤ Y ≈ᵤ X ↔ Y ≈ᵤ .zero := by
-  have certificate := check_exact cycleInput cycleOutput cycleTrace (by decide)
-  exact certificate (fun n => match n with | 0 => X | _ => Y)
+def quote : (s : Tag) → nativeAlgebra.Carrier s → Tree Sig s
+  | .bag, a => quoteBag a
+  | .configuration, .wrap a => .app .wrap (.cons (quoteBag a) .nil)
 
-/-- Four distinct solved substitutions for one equation with four variables. -/
-def fourInput : F := .eqn (.add (.add x y) (.add z w)) (.atom 7)
+def registration : Registration Sig where
+  toAlgebra := nativeAlgebra
+  quote := quote
+  eval_quote := by
+    intro s a
+    cases s with
+    | bag => induction a <;> simp_all [quote, quoteBag, Tree.eval, Trees.eval, nativeAlgebra]
+    | configuration =>
+        cases a with
+        | wrap a =>
+            have h : (quoteBag a).eval nativeAlgebra = a := by
+              induction a <;> simp_all [quoteBag, Tree.eval, Trees.eval, nativeAlgebra]
+            change Conf.wrap ((quoteBag a).eval nativeAlgebra) = Conf.wrap a
+            rw [h]
+  quote_apply := by
+    intro ss s f args
+    cases f with
+    | empty => cases args; rfl
+    | atom a => cases args; cases a <;> rfl
+    | union => rcases args with ⟨a, b, u⟩; cases u; rfl
+    | wrap => rcases args with ⟨a, u⟩; cases u; rfl
 
-def bothZero (a b : T) : F := .conj (.eqn a .zero) (.eqn b .zero)
-def onRight (a b : T) : F := .conj (.eqn a .zero) (.eqn b (.atom 7))
-def onLeft (a b : T) : F := .conj (.eqn a (.atom 7)) (.eqn b .zero)
+def nativeHead {ss s} : Sig.Symbol ss s → Curried nativeAlgebra.Carrier ss s
+  | .empty => Bag.empty
+  | .atom false => Bag.red
+  | .atom true => Bag.blue
+  | .union => Bag.union
+  | .wrap => Conf.wrap
 
-def fourOutput : F :=
-  .disj
-    (.disj (.conj (bothZero x y) (onRight z w))
-           (.conj (bothZero x y) (onLeft z w)))
-    (.disj (.conj (onRight x y) (bothZero z w))
-           (.conj (onLeft x y) (bothZero z w)))
+def legacy : Legacy Sig WrappedTheory nativeAlgebra where
+  head := nativeHead
+  apply_head := by
+    intro ss s f args
+    cases f with
+    | empty => rfl
+    | atom a => cases a <;> rfl
+    | union => rfl
+    | wrap => rfl
+  registered := by
+    intro ss s f
+    cases f with
+    | atom a =>
+        cases a with
+        | false => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.red)
+        | true => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.blue)
+    | empty => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.empty)
+    | union => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.union)
+    | wrap => exact (inferInstance : Structural.HasConstructor WrappedTheory Conf.wrap)
+  «comm» := by
+    intro s op; cases op
+    exact (inferInstance : Structural.HasComm WrappedTheory Bag.union)
+  «assoc» := by
+    intro s op; cases op
+    exact (inferInstance : Structural.HasAssoc WrappedTheory Bag.union)
+  unit := by
+    intro s op; cases op
+    exact (inferInstance : Structural.HasIdentity WrappedTheory Bag.union Bag.empty)
 
-/-- Focus paths preserve the other branch. Distribute only rearranges logic. -/
-def fourTrace : Certificate :=
-  .seq (.rule .splitAtom)
-    (.seq
-      (.left (.seq (.left (.rule .splitZero))
-        (.seq (.right (.rule .splitAtom)) (.rule .distributeRight))))
-      (.right (.seq (.left (.rule .splitAtom))
-        (.seq (.right (.rule .splitZero)) (.rule .distributeLeft)))))
+/-! ## Library instantiation, kept separate from registration
 
-theorem four_unifiers (X Y Z W : V) :
-    (X +ᵤ Y) +ᵤ (Z +ᵤ W) ≈ᵤ Value.atom 7 ↔
-      (((X ≈ᵤ .zero ∧ Y ≈ᵤ .zero) ∧ (Z ≈ᵤ .zero ∧ W ≈ᵤ .atom 7)) ∨
-       ((X ≈ᵤ .zero ∧ Y ≈ᵤ .zero) ∧ (Z ≈ᵤ .atom 7 ∧ W ≈ᵤ .zero))) ∨
-      (((X ≈ᵤ .zero ∧ Y ≈ᵤ .atom 7) ∧ (Z ≈ᵤ .zero ∧ W ≈ᵤ .zero)) ∨
-       ((X ≈ᵤ .atom 7 ∧ Y ≈ᵤ .zero) ∧ (Z ≈ᵤ .zero ∧ W ≈ᵤ .zero))) := by
-  have certificate := check_exact fourInput fourOutput fourTrace (by decide)
-  exact certificate (fun n => match n with | 0 => X | 1 => Y | 2 => Z | _ => W)
+All nontrivial reasoning uses the generic fragment theorems. The functions here
+just select the generated metadata; they are not additional user obligations.
+-/
 
-/-! Negative checks: a well-typed certificate is not automatically accepted. -/
+def code : Bool → Nat | false => 0 | true => 1
+def read : Nat → Bool | 0 => false | _ + 1 => true
 
--- The full primitive trace cannot certify just one of the two returned families.
-example : check overlapInput
-    (.ex (.ex (.conj (.eqn x.lift.lift (.add (.atom 7) (.var 1)))
-      (.conj (.eqn y.lift.lift (.var 0)) (.eqn z.lift.lift (.add (.var 1) (.var 0)))))))
-    overlapPrimitiveTrace = false := by decide
+theorem read_code (a : Bool) : read (code a) = a := by cases a <;> rfl
 
--- Freshness: x = x+atom(7) cannot be eliminated by a capture-prone substitution.
--- Failure of THIS rule is not an occurs-check theorem about ACU solvability.
-example : check (s := Kind.processes)
-    (.ex (.conj (.eqn (.var 0) (.add (.var 0) (.atom 7))) .truth))
+abbrev bagEq (a b : Bag) := NativeEq Sig registration (s := .bag) a b
+abbrev confEq (a b : Conf) := NativeEq Sig registration (s := .configuration) a b
+
+-- Distinct temporary notation: do NOT silently reinterpret existing =[WrappedTheory].
+local infix:50 " ≈ᵇ " => bagEq
+local infix:50 " ≈ᶜ " => confEq
+
+def encode (a : Bag) : WrapperFragment.Raw := (quoteBag a).eval (WrapperFragment.algebra code)
+def decode (a : WrapperFragment.Raw) : Bag :=
+  (WrapperFragment.rebuildBag read a).eval nativeAlgebra
+
+theorem decode_encode (a : Bag) : decode (encode a) = a := by
+  have h := WrapperFragment.rebuild_eval code read read_code (quoteBag a)
+  have h' := congrArg (fun t => t.eval nativeAlgebra) h
+  exact h'.trans (registration.eval_quote .bag a)
+
+theorem bagEq_iff (a b : Bag) : a ≈ᵇ b ↔ ACU (encode a) (encode b) :=
+  WrapperFragment.exact code read read_code (quoteBag a) (quoteBag b)
+
+theorem wrap_iff (a b : Bag) : Conf.wrap a ≈ᶜ Conf.wrap b ↔ a ≈ᵇ b :=
+  WrapperFragment.wrap_iff code read read_code (quoteBag a) (quoteBag b)
+
+theorem to_legacy {a b : Conf} (h : a ≈ᶜ b) : a =[WrappedTheory] b :=
+  NativeEq.to_legacy Sig registration legacy h
+
+def nativeSemantics : Semantics Bag :=
+  ⟨.empty, (fun n => if read n then .blue else .red), .union, bagEq⟩
+
+def bridge : Bridge nativeSemantics WrapperFragment.SortTag.bag where
+  allowed := fun n => n = 0 ∨ n = 1
+  encode := encode
+  decode := decode
+  roundtrip := decode_encode
+  forward := {
+    zero := rfl
+    atom := by intro n hn; rcases hn with rfl | rfl <;> rfl
+    add := fun _ _ => rfl
+    rel := fun h => (bagEq_iff _ _).mp h }
+  backward := {
+    zero := rfl
+    atom := by intro n hn; cases n <;> rfl
+    add := fun _ _ => rfl
+    rel := by
+      intro a b h
+      have lifted := WrapperFragment.rebuildBag_congr read h
+      change Indexed.Eq Sig
+        (registration.quote .bag ((WrapperFragment.rebuildBag read a).eval registration.toAlgebra))
+        (registration.quote .bag ((WrapperFragment.rebuildBag read b).eval registration.toAlgebra))
+      rw [Registration.quote_eval Sig registration, Registration.quote_eval Sig registration]
+      exact lifted }
+
+/-! ## User-level certificate example
+
+Only native constructor terms in the statement. Inversion of the free wrapper
+is a library theorem; after that the SAME primitive ACU certificate is checked.
+The main statement uses the experimental indexed relation, not old EqMod.
+-/
+
+theorem wrapped_two_unifiers (X Y Z : Bag) :
+    Conf.wrap (Bag.union X Y) ≈ᶜ Conf.wrap (Bag.union .red Z) ↔
+      (∃ p q : Bag, X ≈ᵇ Bag.union .red p ∧ Y ≈ᵇ q ∧ Z ≈ᵇ Bag.union p q) ∨
+      (∃ p q : Bag, X ≈ᵇ p ∧ Y ≈ᵇ Bag.union .red q ∧ Z ≈ᵇ Bag.union p q) := by
+  rw [wrap_iff]
+  have certified := bridge.check_exact
+    (.eqn (.add (.var 0) (.var 1)) (.add (.atom 0) (.var 2)))
+    (overlapSolutions (.var 0) (.var 1) (.var 2) 0)
+    Demo.overlapPrimitiveTrace (by decide)
+    (by simp [Formula.uses, Term.uses, bridge])
+    (by simp [overlapSolutions, Formula.uses, Term.uses, Term.lift, bridge])
+    (fun n => match n with | 0 => X | 1 => Y | _ => Z)
+  simpa only [overlapSolutions, Formula.sat, Term.denote, Term.lift, nativeSemantics, read,
+    Bool.false_eq_true, ↓reduceIte] using certified
+
+-- Regression checks: the free wrapper respects ACU but does not collapse atoms.
+example (a : Bag) : Conf.wrap (Bag.union a .empty) ≈ᶜ Conf.wrap a := by
+  rw [wrap_iff, bagEq_iff]
+  exact .unitRight _
+
+example : ¬ (Conf.wrap Bag.red ≈ᶜ Conf.wrap Bag.blue) := by
+  rw [wrap_iff, bagEq_iff]
+  intro h
+  have hp := h.flatten_perm
+  simp [encode, quoteBag, Tree.eval, WrapperFragment.algebra,
+    code, Value.flatten] at hp
+
+#print axioms wrapped_two_unifiers
+#print axioms to_legacy
+
+end Certification2.IndexedExample
+
+/-! ## Internal regression checks (not additional user proof obligations) -/
+
+namespace Certification2.Regression
+
+abbrev F := Formula WrapperFragment.SortTag.bag
+
+-- A successful derivation cannot certify an answer with one branch omitted.
+example : check
+    (.eqn (.add (.var 0) (.var 1)) (.add (.atom 0) (.var 2)) : F)
+    (.ex (.ex (.conj (.eqn (.var 2) (.add (.atom 0) (.var 1)))
+      (.conj (.eqn (.var 3) (.var 0)) (.eqn (.var 4) (.add (.var 1) (.var 0)))))))
+    Demo.overlapPrimitiveTrace = false := by decide
+
+-- Elimination refuses a replacement mentioning the binder being removed.
+example : check
+    (.ex (.conj (.eqn (.var 0) (.add (.var 0) (.atom 0))) .truth) : F)
     .truth (.rule .eliminate) = false := by decide
 
--- ∃x. x≈y ∧ (∃z. x≈z)  ->  ∃z. y≈z.
--- The outer y becomes index 1 under z, NEVER index 0 (which would capture it).
-example : check (s := Kind.processes)
-    (.ex (.conj (.eqn (.var 0) (.var 1)) (.ex (.eqn (.var 1) (.var 0)))))
-    (.ex (.eqn (.var 1) (.var 0)))
-    (steps [.rule .eliminate]) = true := by decide
-example : check (s := Kind.processes)
-    (.ex (.conj (.eqn (.var 0) (.var 1)) (.ex (.eqn (.var 1) (.var 0)))))
-    (.ex (.eqn (.var 0) (.var 0)))
-    (steps [.rule .eliminate]) = false := by decide
+-- Substitution lifts through inner binders; it never captures the outer y.
+-- ∃x. x≈y ∧ (∃z. x≈z) -> ∃z. y≈z, not ∃z. z≈z.
+example : check
+    (.ex (.conj (.eqn (.var 0) (.var 1)) (.ex (.eqn (.var 1) (.var 0)))) : F)
+    (.ex (.eqn (.var 1) (.var 0))) (Demo.steps [.rule .eliminate]) = true := by decide
+example : check
+    (.ex (.conj (.eqn (.var 0) (.var 1)) (.ex (.eqn (.var 1) (.var 0)))) : F)
+    (.ex (.eqn (.var 0) (.var 0))) (Demo.steps [.rule .eliminate]) = false := by decide
 
--- Swapping existential binders also lifts through further nested binders.
-example : check (s := Kind.processes)
-    (.ex (.ex (.ex (.eqn (.var 2) (.var 0)))))
-    (.ex (.ex (.ex (.eqn (.var 1) (.var 0)))))
-    (.rule .exchangeExists) = true := by decide
+-- ACU does not permit an ordinary syntactic occurs-check failure: X+Y≈X iff Y≈0.
+example : check (.eqn (.add (.var 0) (.var 1)) (.var 0) : F)
+    (.eqn (.var 1) .zero)
+    (.seq (.rule .commLeft) (.seq (.rule .padRight) (.rule .cancel))) = true := by decide
 
--- Removing a returned unifier must fail, even though the surviving one is sound.
-example : check twoInput (.conj (.eqn x .zero) (.eqn y (.atom 7))) twoTrace = false := by
-  decide
-
--- Cancellation checks the common summand syntactically; it does not assume it.
-example : check (.eqn (.add x z) (.add y w)) (.eqn x y) (.rule .cancel) = false := by
-  decide
-
--- A different answer is rejected, even with a valid trace for the input.
-example : check cycleInput (.eqn x .zero) cycleTrace = false := by decide
-
--- A supplied atom clash is checked, rather than trusted as a terminal flag.
-example : check (s := Kind.processes) (.eqn (.atom 7) (.atom 8)) .falsity
-    (.rule .clash) = true := by decide
-example : check (s := Kind.processes) (.eqn (.atom 7) (.atom 7)) .falsity
-    (.rule .clash) = false := by decide
-
--- The same rule data works inside existential binders, with de Bruijn scoping.
-example : check (s := Kind.processes)
-    (.ex (.eqn (.add (.var 0) (.var 1)) .zero))
-    (.ex (.conj (.eqn (.var 0) .zero) (.eqn (.var 1) .zero)))
-    (.under (.rule .splitZero)) = true := by decide
-
--- No search, external executable, native_decide, or problem-specific theorem.
-#print axioms two_unifiers
-#print axioms shared_pieces
-#print axioms overlapping_unifiers
-#print axioms four_unifiers
-
-end Examples
-end Certification2
+end Certification2.Regression

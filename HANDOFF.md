@@ -2,6 +2,35 @@
 
 This document records the design decisions and current implementation state needed to continue development in a new conversation. The current repository is `/home/byhoson/workspace/conPanna`.
 
+## Current certification milestone (2026-10-01)
+
+ONE active Lean prototype: `certification2.lean`. Read the header guide and jump
+to `IndexedExample.wrapped_two_unifiers` for the native two-unifier theorem.
+The obsolete `certification.lean` and intermediate bridge/diagnostic Lean files
+were removed. Keep further experiments in this file unless separation is necessary.
+The companion `certification2.maude` is unchanged.
+
+The consolidated file contains general rule metatheorems and exact replay,
+generic positive-formula transport, sort/argument-indexed constructor derivations,
+a library theorem for ACU plus a free unary wrapper, generated-registration
+stand-in metadata, and one main native certificate proof. LSP/compiler and axiom
+checks pass without admissions. Capture and omitted-branch tests are retained.
+
+Important boundary: native proofs use the experimental indexed relation, which
+maps into existing Structural.EqMod. No reverse bridge for all old derivations
+has been proved, and core semantics are untouched. This is not yet a complete
+ACU search procedure, automatic trace importer, or Bakery certificate.
+
+User requirement: no nontrivial semantic registration obligations. Registration
+contains syntactic metadata/round trips and existing law witnesses; reflection
+and wrapper inversion are library theorems. The user also requires reporting
+library limitations and proposing core improvements instead of accumulating
+legacy workarounds. Next scope the indexed-constructor change to Structural,
+preserving user syntax, and obtain approval before modifying core. Defer more
+prototype/metadata work until that representation decision. See TODO.md.
+
+The remainder records historical design context, not the current work queue.
+
 ## Project objective
 
 conPanna is a Lean prototype for constrained-pattern unification and narrowing, with generalized reachability-logic reasoning as the longer-term goal. The code is divided conceptually into:
