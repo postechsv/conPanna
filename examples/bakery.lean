@@ -392,6 +392,8 @@ structural BakeryTheory where
   comm ProcSet.union
   id ProcSet.union ProcSet.empty
 
+certify_structural BakeryTheory for Conf
+
 open Mode ProcSet
 open scoped Multiset
 

@@ -152,11 +152,11 @@ def ofSubsumesType (type : Expr) : MetaM SubsumptionInput := do
       target := arguments[arguments.size - 1]!
     }
   if type.getAppFn.isConstOf ``framework.Patterns.SubsumesMod &&
-      arguments.size >= 3 then
+      arguments.size >= 4 then
     return {
       source := arguments[arguments.size - 2]!
       target := arguments[arguments.size - 1]!
-      theory? := some arguments[0]!
+      theory? := some arguments[1]!
     }
   throwError
     "`subsume` expects a goal of the form `source ⊑ target` or `source ⊑[theory] target`"
@@ -384,13 +384,13 @@ private def conjunction (propositions : Array Expr) : MetaM Expr := do
     result ← mkAppM ``And #[proposition, result]
   return result
 
-/-- One completeness proposition per atomic rule/source problem. -/
+/-- One legacy literal-factorization obligation per atomic rule/source problem. -/
 def completenessBundleType (theory : Expr)
     (branches : Array Backend.BranchSolution) : MetaM (Array Expr × Expr) := do
   let mut propositions := #[]
   for branch in branches do
     propositions := propositions.push
-      (← Unification.ModCertificate.completenessType theory
+      (← Unification.ModCertificate.literalCompletenessType theory
         branch.problem.overlap.unification branch.solutionSet)
   return (propositions, ← conjunction propositions)
 

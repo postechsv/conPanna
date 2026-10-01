@@ -297,6 +297,10 @@ end ConstructorCongruence
 
 namespace EqMod
 
+theorem equivalence (theory : Theory.{u}) (α : Type u) :
+    Equivalence (EqMod theory (α := α)) :=
+  ⟨fun _ => .ofEq rfl, fun h => .symm h, fun h₁ h₂ => .trans h₁ h₂⟩
+
 theorem reflAt (theory : Theory.{u}) {α : Type u} (value : α) :
     EqMod theory value value :=
   .ofEq rfl
@@ -726,6 +730,10 @@ instance {theory : CertifiedTheory} {α : Type} [NativeSort theory α] :
     ModRelation theory α where
   relate := theory.Rel
 
+theorem CertifiedTheory.equivalence (theory : CertifiedTheory) (α : Type)
+    [NativeSort theory α] : Equivalence (theory.Rel (α := α)) :=
+  ⟨fun _ => .refl _, fun h => .symm h, fun h₁ h₂ => .trans h₁ h₂⟩
+
 /-- Sound migration boundary. The reverse direction is deliberately not claimed. -/
 theorem CertifiedTheory.to_original (theory : CertifiedTheory) {α : Type}
     [sort : NativeSort theory α] {a b : α} (h : theory.Rel a b) :
@@ -738,10 +746,9 @@ end Structural
 
 open Lean Elab Command Meta
 
-/-! Automatic registration currently supports one ACU datatype with nullary
-atoms, underneath a free unary state constructor. Unsupported signatures are
-rejected, not silently approximated. Generated proofs only establish syntactic
-round trips and reuse the existing structural-law witnesses. -/
+/-! Automatic registration supports many-sorted first-order datatypes with one
+ACU operator. Generated proofs establish syntactic round trips and reuse existing
+law witnesses. The unary-wrapper fragment retains its specialized metadata. -/
 
 private partial def structuralList (e : Expr) : Term.TermElabM (Array Expr) := do
   let e ← whnf e
@@ -772,87 +779,197 @@ private def nativeSortInfo (name : Name) : Term.TermElabM InductiveVal := do
     throwError "certify_structural requires an unparameterized, non-mutual datatype: {name}"
   return info
 
-syntax "certify_structural " ident " for " ident : command
+private structure NativeConstructor where
+  name : Name
+  fields : Array Name
+  deriving Inhabited
 
-elab_rules : command
-  | `(certify_structural $theory:ident for $root:ident) => do
-      let (bag, wrapper, unit, op, atoms, theoryName, rootName) ← liftTermElabM do
-        let b ← Term.elabTerm theory (some (mkConst ``Structural.Theory [Level.zero]))
-        let some theoryName := b.constName?
-          | throwError "certify_structural expects a named structural theory"
-        let rootExpr ← Term.elabType root
-        let some rootName := rootExpr.constName?
-          | throwError "certify_structural expects a native state datatype"
-        let rootInfo ← nativeSortInfo rootName
-        unless rootInfo.ctors.length == 1 do
-          throwError "certify_structural currently requires one free unary state constructor"
-        let wrapper := rootInfo.ctors.head!
-        let fields ← nativeFields wrapper
-        unless fields.size == 1 do
-          throwError "certify_structural currently requires one free unary state constructor"
-        let bag := fields[0]!
-        let bagInfo ← nativeSortInfo bag
-        let _ ← synthInstance (← mkAppM ``framework.State #[rootExpr])
-        let idDecl ← structuralSingleton b ``Structural.Theory.identities
-        let opExpr ← whnf (← mkAppM ``Structural.IdentityDeclaration.operation #[idDecl])
-        let unitExpr ← whnf (← mkAppM ``Structural.IdentityDeclaration.element #[idDecl])
-        let some op := opExpr.constName? | throwError "ACU operation must be a native constructor"
-        let some unit := unitExpr.constName? | throwError "ACU unit must be a native constructor"
-        for (field, project) in [(``Structural.Theory.symbols, ``Structural.Symbol.operation),
-            (``Structural.Theory.commutative, ``Structural.CommutativeDeclaration.operation),
-            (``Structural.Theory.associative, ``Structural.AssociativeDeclaration.operation)] do
-          let decl ← structuralSingleton b field
-          unless ← isDefEq opExpr (← mkAppM project #[decl]) do
-            throwError "certify_structural requires all laws to concern the same ACU constructor"
-        unless bagInfo.ctors.contains op && bagInfo.ctors.contains unit &&
-            (← nativeFields op) == #[bag, bag] && (← nativeFields unit).isEmpty do
-          throwError "expected an ACU binary constructor and a nullary unit in {bag}"
-        let atoms := bagInfo.ctors.filter fun n => n != op && n != unit
-        unless !atoms.isEmpty do
-          throwError "certify_structural currently requires at least one nullary atom"
-        for a in atoms do
-          unless (← nativeFields a).isEmpty do
-            throwError "certify_structural currently supports nullary atoms only: {a}"
-        return (bag, wrapper, unit, op, atoms, theoryName, rootName)
-      -- Fully qualified native names avoid capture by generated declarations.
-      let qualified (n : Name) := "_root_." ++ n.toString
-      let bag := qualified bag
-      let wrapper := qualified wrapper
-      let unit := qualified unit
-      let op := qualified op
-      let atoms := atoms.toArray.map qualified
-      let emit (source : String) : CommandElabM Unit := do
-        match Parser.runParserCategory (← getEnv) `command source with
-        | .ok stx => elabCommand stx
-        | .error err => throwError "generated registration syntax: {err}"
-      let join (xs : Array String) := String.intercalate "\n" xs.toList
-      let t := qualified theoryName
-      let r := qualified rootName
-      let generatedNamespace := theory.getId.toString
-      unless theoryName == (← getCurrNamespace) ++ theory.getId do
-        throwError "place certify_structural beside the theory declaration and use its local name"
-      emit s!"namespace {generatedNamespace}"
-      emit "namespace Generated"
-      emit "open Structural.Indexed"
-      emit ("inductive Atom where\n" ++ join (atoms.mapIdx fun i _ => s!"  | a{i}"))
-      emit "abbrev Tag := Structural.Indexed.Wrapper.SortTag"
-      emit "abbrev Sig := Structural.Indexed.Wrapper.signature Atom"
-      emit (s!"def atomValue : Atom → {bag}\n" ++
-        join (atoms.mapIdx fun i a => s!"  | .a{i} => {a}"))
-      emit s!"def nativeAlgebra : Algebra Sig where
+private structure NativeSortDecl where
+  name : Name
+  constructors : Array NativeConstructor
+  deriving Inhabited
+
+private structure NativeRegistration where
+  theory : Name
+  root : Name
+  sorts : Array NativeSortDecl
+  bag : Name
+  operation : Name
+  unit : Name
+
+-- Dependencies precede their users; direct recursion stays within one sort.
+private partial def collectNativeSorts (name : Name) (path : Array Name := #[])
+    (sorts : Array NativeSortDecl := #[]) : Term.TermElabM (Array NativeSortDecl) := do
+  if sorts.any (·.name == name) then return sorts
+  if path.contains name then
+    throwError "certify_structural does not support mutually recursive sorts: {name}"
+  let info ← nativeSortInfo name
+  let constructors ← info.ctors.toArray.mapM fun ctor => do
+    return { name := ctor, fields := ← nativeFields ctor : NativeConstructor }
+  let mut sorts := sorts
+  for ctor in constructors do
+    for field in ctor.fields do
+      if field != name then
+        sorts ← collectNativeSorts field (path.push name) sorts
+  return sorts.push { name, constructors }
+
+private def inspectNativeRegistration (theory root : Ident) :
+    Term.TermElabM NativeRegistration := do
+  let b ← Term.elabTerm theory (some (mkConst ``Structural.Theory [Level.zero]))
+  let some theoryName := b.constName?
+    | throwError "certify_structural expects a named structural theory"
+  let rootExpr ← Term.elabType root
+  let some rootName := rootExpr.constName?
+    | throwError "certify_structural expects a native state datatype"
+  let _ ← synthInstance (← mkAppM ``framework.State #[rootExpr])
+  let sorts ← collectNativeSorts rootName
+  let idDecl ← structuralSingleton b ``Structural.Theory.identities
+  let opExpr ← whnf (← mkAppM ``Structural.IdentityDeclaration.operation #[idDecl])
+  let unitExpr ← whnf (← mkAppM ``Structural.IdentityDeclaration.element #[idDecl])
+  let some operation := opExpr.constName?
+    | throwError "ACU operation must be a native constructor"
+  let some unit := unitExpr.constName?
+    | throwError "ACU unit must be a native constructor"
+  for (field, project) in [(``Structural.Theory.symbols, ``Structural.Symbol.operation),
+      (``Structural.Theory.commutative, ``Structural.CommutativeDeclaration.operation),
+      (``Structural.Theory.associative, ``Structural.AssociativeDeclaration.operation)] do
+    let decl ← structuralSingleton b field
+    unless ← isDefEq opExpr (← mkAppM project #[decl]) do
+      throwError "certify_structural requires all laws to concern the same ACU constructor"
+  let some bag := sorts.find? fun s => s.constructors.any (·.name == operation)
+    | throwError "registered ACU operator is outside the native signature"
+  unless (← nativeFields operation) == #[bag.name, bag.name] &&
+      bag.constructors.any (·.name == unit) && (← nativeFields unit).isEmpty do
+    throwError "expected an ACU binary constructor and a nullary unit in {bag.name}"
+  return { theory := theoryName, root := rootName, sorts, bag := bag.name, operation, unit }
+
+private def qualified (name : Name) : String := "_root_." ++ name.toString
+
+private def emitRegistration (source : String) : CommandElabM Unit := do
+  match Parser.runParserCategory (← getEnv) `command source with
+  | .ok stx => elabCommand stx
+  | .error err => throwError "generated registration syntax: {err}"
+
+private def joinLines (lines : Array String) : String :=
+  String.intercalate "\n" lines.toList
+
+private def wrapperFragment? (spec : NativeRegistration) : Option (Name × Array Name) := Id.run do
+  let some root := spec.sorts.find? (·.name == spec.root) | return none
+  if root.constructors.size != 1 then return none
+  let wrapper := root.constructors[0]!
+  if wrapper.fields != #[spec.bag] then return none
+  let some bag := spec.sorts.find? (·.name == spec.bag) | return none
+  let atoms := bag.constructors.filter fun c => c.name != spec.operation && c.name != spec.unit
+  if atoms.isEmpty || atoms.any (!·.fields.isEmpty) then return none
+  return some (wrapper.name, atoms.map (·.name))
+
+private def emitNativeRegistration (spec : NativeRegistration) : CommandElabM Unit := do
+  let emit := emitRegistration
+  let sortTag (name : Name) := s!"s{(spec.sorts.findIdx? (·.name == name)).get!}"
+  let constructors := spec.sorts.flatMap fun s =>
+    s.constructors.map fun c => (s.name, c)
+  let symbol (name : Name) := s!"c{(constructors.findIdx? (·.2.name == name)).get!}"
+  let fields (names : Array Name) :=
+    "[" ++ String.intercalate ", " (names.toList.map fun n => "." ++ sortTag n) ++ "]"
+  emit ("inductive Tag where\n" ++ joinLines (spec.sorts.mapIdx fun i _ => s!"  | s{i}") ++
+    "\n  deriving DecidableEq")
+  emit ("inductive Symbol : List Tag → Tag → Type where\n" ++
+    joinLines (constructors.map fun (s, c) =>
+      s!"  | {symbol c.name} : Symbol {fields c.fields} .{sortTag s}") ++
+    "\n  deriving DecidableEq")
+  emit s!"inductive Operator : Tag → Type where
+  | acu : Operator .{sortTag spec.bag}
+  deriving DecidableEq"
+  emit s!"def Sig : Signature Tag where
+  Symbol := Symbol
+  ACUOp := Operator
+  add := fun op => match op with | .acu => .{symbol spec.operation}
+  zero := fun op => match op with | .acu => .{symbol spec.unit}"
+  let argument (i : Nat) := "args" ++ String.join (List.replicate i ".2") ++ ".1"
+  emit ("def nativeAlgebra : Algebra Sig where\n  Carrier := fun s => match s with\n" ++
+    joinLines (spec.sorts.map fun s => s!"    | .{sortTag s.name} => {qualified s.name}") ++
+    "\n  apply := fun f args => match f with\n" ++
+    joinLines (constructors.map fun (_, c) =>
+      s!"    | .{symbol c.name} => {qualified c.name}" ++
+        String.join (c.fields.toList.mapIdx fun i _ => " " ++ argument i)))
+  for i in [:spec.sorts.size] do
+    let s := spec.sorts[i]!
+    let cases := s.constructors.map fun c => Id.run do
+      let mut args := ".nil"
+      for j in (List.range c.fields.size).reverse do
+        let index := (spec.sorts.findIdx? (·.name == c.fields[j]!)).get!
+        args := s!"(.cons (quote{index} a{j}) {args})"
+      let binders := String.join (c.fields.toList.mapIdx fun j _ => s!" a{j}")
+      return s!"  | {qualified c.name}{binders} => .app .{symbol c.name} {args}"
+    emit (s!"def quote{i} : {qualified s.name} → Tree Sig .s{i}\n" ++ joinLines cases)
+    let dependencies := (s.constructors.flatMap (·.fields)).filter (· != s.name)
+    let earlier := String.join ((dependencies.toList.eraseDups).map fun name =>
+      s!", evalQuote{(spec.sorts.findIdx? (·.name == name)).get!}")
+    emit s!"theorem evalQuote{i} (a : {qualified s.name}) : (quote{i} a).eval nativeAlgebra = a := by
+  induction a <;> simp_all only [quote{i}, Tree.eval, Trees.eval{earlier}] <;> rfl"
+  emit ("def quote : (s : Tag) → nativeAlgebra.Carrier s → Tree Sig s\n" ++
+    joinLines (spec.sorts.mapIdx fun i _ => s!"  | .s{i}, a => quote{i} a"))
+  let destructArgs (c : NativeConstructor) :=
+    if c.fields.isEmpty then "cases args; rfl"
+    else "rcases args with ⟨" ++
+      String.intercalate ", " (c.fields.toList.mapIdx (fun i _ => s!"a{i}") ++ ["u"]) ++
+      "⟩; cases u; rfl"
+  emit ("def registration : Registration Sig where\n  toAlgebra := nativeAlgebra\n  quote := quote\n" ++
+    "  eval_quote := by\n    intro s a\n    cases s with\n" ++
+    joinLines (spec.sorts.mapIdx fun i _ => s!"    | s{i} => exact evalQuote{i} a") ++
+    "\n  quote_apply := by\n    intro ss s f args\n    cases f with\n" ++
+    joinLines (constructors.map fun (_, c) => s!"    | {symbol c.name} => {destructArgs c}"))
+  emit ("def nativeHead {ss s} : Sig.Symbol ss s → Curried nativeAlgebra.Carrier ss s\n" ++
+    joinLines (constructors.map fun (_, c) => s!"  | .{symbol c.name} => {qualified c.name}"))
+  let t := qualified spec.theory
+  emit (s!"def legacy : Legacy Sig {t} nativeAlgebra where
+  head := nativeHead
+  apply_head := by intro ss s f args; cases f <;> rfl
+  registered := by
+    intro ss s f
+    cases f with\n" ++
+    joinLines (constructors.map fun (_, c) => s!"    | {symbol c.name} =>
+        exact (inferInstance : Structural.HasConstructor {t} {qualified c.name})") ++
+    s!"\n  «comm» := by
+    intro s op; cases op
+    exact (inferInstance : Structural.HasComm {t} {qualified spec.operation})
+  «assoc» := by
+    intro s op; cases op
+    exact (inferInstance : Structural.HasAssoc {t} {qualified spec.operation})
+  unit := by
+    intro s op; cases op
+    exact (inferInstance : Structural.HasIdentity {t} {qualified spec.operation} {qualified spec.unit})")
+
+private def emitWrapperRegistration (spec : NativeRegistration)
+    (wrapper : Name) (atoms : Array Name) : CommandElabM Unit := do
+  let emit := emitRegistration
+  let join := joinLines
+  let t := qualified spec.theory
+  let r := qualified spec.root
+  let bag := qualified spec.bag
+  let wrapper := qualified wrapper
+  let unit := qualified spec.unit
+  let op := qualified spec.operation
+  let atoms := atoms.map qualified
+  emit ("inductive Atom where\n" ++ join (atoms.mapIdx fun i _ => s!"  | a{i}"))
+  emit "abbrev Tag := Structural.Indexed.Wrapper.SortTag"
+  emit "abbrev Sig := Structural.Indexed.Wrapper.signature Atom"
+  emit (s!"def atomValue : Atom → {bag}\n" ++
+    join (atoms.mapIdx fun i a => s!"  | .a{i} => {a}"))
+  emit s!"def nativeAlgebra : Algebra Sig where
   Carrier := fun s => match s with | .bag => {bag} | .configuration => {r}
   apply := fun f args => match f, args with
     | .empty, _ => {unit}
     | .atom a, _ => atomValue a
     | .union, (a, b, _) => {op} a b
     | .wrap, (a, _) => {wrapper} a"
-      emit (s!"def quoteBag : {bag} → Tree Sig .bag\n  | {unit} => .app .empty .nil\n" ++
-        join (atoms.mapIdx fun i a => s!"  | {a} => .app (.atom .a{i}) .nil") ++
-        s!"\n  | {op} a b => .app .union (.cons (quoteBag a) (.cons (quoteBag b) .nil))")
-      emit s!"def quote : (s : Tag) → nativeAlgebra.Carrier s → Tree Sig s
+  emit (s!"def quoteBag : {bag} → Tree Sig .bag\n  | {unit} => .app .empty .nil\n" ++
+    join (atoms.mapIdx fun i a => s!"  | {a} => .app (.atom .a{i}) .nil") ++
+    s!"\n  | {op} a b => .app .union (.cons (quoteBag a) (.cons (quoteBag b) .nil))")
+  emit s!"def quote : (s : Tag) → nativeAlgebra.Carrier s → Tree Sig s
   | .bag, a => quoteBag a
   | .configuration, {wrapper} a => .app .wrap (.cons (quoteBag a) .nil)"
-      emit s!"def registration : Registration Sig where
+  emit s!"def registration : Registration Sig where
   toAlgebra := nativeAlgebra
   quote := quote
   eval_quote := by
@@ -873,12 +990,12 @@ elab_rules : command
     | atom a => cases args; cases a <;> rfl
     | union => rcases args with ⟨a, b, u⟩; cases u; rfl
     | wrap => rcases args with ⟨a, u⟩; cases u; rfl"
-      emit ("def nativeHead {ss s} : Sig.Symbol ss s → Curried nativeAlgebra.Carrier ss s\n" ++ s!"
+  emit ("def nativeHead {ss s} : Sig.Symbol ss s → Curried nativeAlgebra.Carrier ss s\n" ++ s!"
   | .empty => {unit}
   | .atom a => atomValue a
   | .union => {op}
   | .wrap => {wrapper}")
-      emit (s!"def legacy : Legacy Sig {t} nativeAlgebra where
+  emit (s!"def legacy : Legacy Sig {t} nativeAlgebra where
   head := nativeHead
   apply_head := by
     intro ss s f args
@@ -892,7 +1009,7 @@ elab_rules : command
     cases f with
     | atom a =>
         cases a with\n" ++ join (atoms.mapIdx fun i a =>
-          s!"        | a{i} => exact (inferInstance : Structural.HasConstructor {t} {a})") ++ s!"
+      s!"        | a{i} => exact (inferInstance : Structural.HasConstructor {t} {a})") ++ s!"
     | empty => exact (inferInstance : Structural.HasConstructor {t} {unit})
     | union => exact (inferInstance : Structural.HasConstructor {t} {op})
     | wrap => exact (inferInstance : Structural.HasConstructor {t} {wrapper})
@@ -905,10 +1022,29 @@ elab_rules : command
   unit := by
     intro s op; cases op
     exact (inferInstance : Structural.HasIdentity {t} {op} {unit})")
-      emit ("def code : Atom → Nat\n" ++ join (atoms.mapIdx fun i _ => s!"  | .a{i} => {i}"))
-      emit ("def read : Nat → Atom\n" ++ join (atoms.mapIdx fun i _ => s!"  | {i} => .a{i}") ++
-        "\n  | _ => .a0")
-      emit "theorem read_code (a : Atom) : read (code a) = a := by cases a <;> rfl"
+  emit ("def code : Atom → Nat\n" ++ join (atoms.mapIdx fun i _ => s!"  | .a{i} => {i}"))
+  emit ("def read : Nat → Atom\n" ++ join (atoms.mapIdx fun i _ => s!"  | {i} => .a{i}") ++
+    "\n  | _ => .a0")
+  emit "theorem read_code (a : Atom) : read (code a) = a := by cases a <;> rfl"
+
+syntax "certify_structural " ident " for " ident : command
+
+elab_rules : command
+  | `(certify_structural $theory:ident for $root:ident) => do
+      let spec ← liftTermElabM <| inspectNativeRegistration theory root
+      let generatedNamespace := theory.getId.toString
+      unless spec.theory == (← getCurrNamespace) ++ theory.getId do
+        throwError "place certify_structural beside the theory declaration and use its local name"
+      let emit := emitRegistration
+      let t := qualified spec.theory
+      let wrapper? := wrapperFragment? spec
+      emit s!"namespace {generatedNamespace}"
+      emit "namespace Generated"
+      emit "open Structural.Indexed"
+      if let some (wrapper, atoms) := wrapper? then
+        emitWrapperRegistration spec wrapper atoms
+      else
+        emitNativeRegistration spec
       emit "end Generated"
       emit s!"def certified : Structural.CertifiedTheory where
   Sorts := Generated.Tag
@@ -916,8 +1052,11 @@ elab_rules : command
   native := Generated.registration
   original := {t}
   translation := Generated.legacy"
-      emit s!"instance : Structural.NativeSort certified {bag} := ⟨.bag, rfl⟩"
-      emit s!"instance : Structural.NativeSort certified {r} := ⟨.configuration, rfl⟩"
+      let tags : Array (Name × String) := match wrapper? with
+        | some _ => #[(spec.bag, "bag"), (spec.root, "configuration")]
+        | none => spec.sorts.mapIdx fun i s => (s.name, s!"s{i}")
+      for (name, tag) in tags do
+        emit s!"instance : Structural.NativeSort certified {qualified name} := ⟨.{tag}, rfl⟩"
       emit s!"end {generatedNamespace}"
 
 declare_syntax_cat structuralLaw

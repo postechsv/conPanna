@@ -2,6 +2,11 @@
 
 ## Short-term goal: certified constrained narrowing
 
+**Active milestone:** proof-producing Maude unification for Bakery, replacing
+candidate-only results and user completeness holes. Read the NEXT SESSION section
+of HANDOFF.md for the precise contract, entry points, blockers and restart prompt.
+The dump/parser are now part of this milestone, not indefinitely deferred work.
+
 Agreed pipeline (2026-10-01):
 
 1. Encode the user's native constructors and registered structural laws as
@@ -22,6 +27,16 @@ an infeasible residual constraint denotes an empty successor.
 
 ### Current prototype and next step
 
+- First integration increment verified (2026-10-02): shared `ModRelation` pattern/
+  rule semantics; universal `ModCertificate.exactnessType` with modulo equations
+  at each variable's sort; generic `witnessPost_exact` retaining original constraint
+  assignments. The lift has no axioms. Wrapper regressions cover exact post-image
+  lifting and zero/one/two-family contract shapes. Production materialization,
+  backend proof results and named-post automation are not wired to it yet.
+- Second increment: `certify_structural BakeryTheory for Conf` now generates
+  metadata for the actual four sorts and nine constructors. Syntactic round trips
+  and typed law transport are checked without admissions. The semantic checker
+  bridge and genuine Bakery ACU splitting remain next; metadata alone is insufficient.
 - ONE active Lean experiment: `certification2.lean`. Start with
   `IndexedExample.wrapped_two_unifiers` near the bottom.
 - General library code, automatic registration, and the single main
@@ -32,28 +47,40 @@ an infeasible residual constraint denotes an empty successor.
   without admissions. Rejection/capture regression checks are retained.
 - Registration needs syntactic sort/symbol tables, quoting/round trips and
   existing law witnesses—not user freeness, reflection or unification proofs.
-  `certify_structural T for Conf` now generates it for one ACU datatype with
-  nullary atoms and a free unary state wrapper. Put the annotation beside T's
-  declaration. Unsupported signatures are rejected explicitly.
+  `certify_structural T for Conf` now generates it for many-sorted first-order
+  datatypes with one ACU operator. The wrapper fragment retains its specialized
+  metadata. Put the annotation beside T's declaration. Unsupported signatures
+  are rejected explicitly.
 - The indexed relation has a proved map INTO existing Structural.EqMod, not an
   equivalence with all old derivations. Indexed signatures, native registration,
   and the forward bridge now live in conPanna.Structural. `=[T.certified]` opts
   into indexed equality; `=[T]` and existing narrowing retain their semantics.
 - `certification2.maude` is unchanged: a scripted object-level derivation with
   both unifiers in one result. No complete search strategy/trace importer yet.
-- Next: extend automatic registration and the generic checker bridge to multiple
-  sorts and payload constructors needed by Bakery, then migrate structural rule/
+- `Certification2.BakeryExamples` checks three simple exact unit/variable-solving
+  examples against the real old BakeryTheory. It does not test Bakery ACU
+  splitting, reflection or the external certificate pipeline.
+- `ModCertificate.exactnessType` now uses modulo factorization. The old manual
+  obligation is named `literalCompletenessType` and remains in existing lifting.
+  Integrate `witnessPost_exact` into materialization/lifting before claiming
+  automatic structural completeness; changing the proposition alone is insufficient.
+- Next: extend the generic checker bridge/decomposition to multiple sorts and
+  payload constructors already registered for Bakery, then migrate structural rule/
   pattern semantics and narrowing to certified theories. The explicit indexed
   path is transitional, not a reason to build two independent narrowing engines.
   Core changes were authorized; keep reporting semantic migration boundaries.
 - Repeated-variable search/termination and checking complexity remain research
   tasks; successful finite certificate checks do not establish a full algorithm.
 
-### Deferred until the prototype is stable
+### Active integration stages (after settling the semantic contract)
 
 - Automatic Lean-to-Maude model translation/module dumping for certification.
 - Automatic trace parsing, certificate transport, and proof-interface integration.
 - Native registration/faithfulness automation and constrained-narrowing lifting.
+- Bind the certificate to the exact signature, input equation, and decoded
+  unifier family. Reject partial results and malformed/captured/wrong-sort traces.
+- Remove Bakery's three hcomplete holes only after the resulting theorems check
+  without admitted axioms; retain independent subsumption/domain proofs.
 - Maude metaprogramming is optional: ordinary rewrite rules and traces, or an
   explicit certificate accumulator, should suffice for the initial experiments.
 

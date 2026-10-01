@@ -383,12 +383,8 @@ private partial def withBasisVariables
 def instantiateImage (image : Expr) (basis : Array Expr) : Expr :=
   mkAppN image basis
 
-/--
-Turn a branch into its public logical meaning:
-
-`∃ u₁ ... uₖ, x₁ = image₁ u ∧ ... ∧ xₙ = imageₙ u`.
--/
-def factorizationType
+/-- Existential parameters and pointwise equations, using the supplied relation. -/
+def factorizationTypeWith (relate : Expr → Expr → MetaM Expr)
     (alternative : Alternative) (actualArguments : Array Expr) : MetaM Expr := do
   unless alternative.images.size == actualArguments.size do
     throwError "a unification branch has the wrong number of substitution images"
@@ -396,18 +392,23 @@ def factorizationType
     let mut equations := #[]
     for i in [:actualArguments.size] do
       let image ← whnf (instantiateImage alternative.images[i]! basis)
-      equations := equations.push (← mkEq actualArguments[i]! image)
+      equations := equations.push (← relate actualArguments[i]! image)
     let body ← mkAndAll equations
     mkExistsOver basis body
 
-/-- Build the disjunction represented by an entire solver result. -/
-def solutionSetType
+/-- Build the disjunction represented by the entire solver result. -/
+def solutionSetTypeWith (relate : Expr → Expr → MetaM Expr)
     (solutionSet : SolutionSet) (actualArguments : Array Expr) : MetaM
       (Array Expr × Expr) := do
   let mut branches := #[]
   for alternative in solutionSet.alternatives do
-    branches := branches.push (← factorizationType alternative actualArguments)
+    branches := branches.push (← factorizationTypeWith relate alternative actualArguments)
   return (branches, ← mkOrAll branches)
+
+/-- Literal factorization, used by the free solver and the legacy manual interface. -/
+def factorizationType := factorizationTypeWith mkEq
+
+def solutionSetType := solutionSetTypeWith mkEq
 
 end Certificate
 
@@ -820,24 +821,34 @@ private partial def withOriginalArguments
   else
     continuation arguments
 
-/--
-State that every solution of the explicit equation modulo `theory` factors
-through one of the computed alternatives. This is the only solver-specific
-fact required by the safety-oriented narrowing interface.
--/
-def completenessType (theory : Expr) (problem : Problem.Input)
+private def equationType (theory : Expr) (problem : Problem.Input)
+    (arguments : Array Expr) : MetaM Expr := do
+  let lhsCount := problem.lhs.arguments.size
+  let lhs ← withTransparency .all <| whnf
+    (instantiateApplication problem.lhs (arguments.extract 0 lhsCount))
+  let rhs ← withTransparency .all <| whnf
+    (instantiateApplication problem.rhs (arguments.extract lhsCount arguments.size))
+  mkAppM ``Structural.eqModOf #[theory, lhs, rhs]
+
+/-- Legacy manual obligation: stronger than modulo factorization, and false for general ACU. -/
+def literalCompletenessType (theory : Expr) (problem : Problem.Input)
     (solutionSet : Certificate.SolutionSet) : MetaM Expr :=
   withOriginalArguments problem 0 #[] fun arguments => do
-    let lhsCount := problem.lhs.arguments.size
-    let lhs ← withTransparency .all <| whnf
-      (instantiateApplication problem.lhs (arguments.extract 0 lhsCount))
-    let rhs ← withTransparency .all <| whnf
-      (instantiateApplication problem.rhs
-        (arguments.extract lhsCount arguments.size))
-    let equation ← mkAppM ``Structural.EqMod #[theory, lhs, rhs]
+    let equation ← equationType theory problem arguments
     let (_, factorization) ←
       Certificate.solutionSetType solutionSet arguments
     let body ← mkArrow equation factorization
+    mkForallFVars arguments body
+
+/-- Universal exactness for this input and this family, modulo the relation at each sort. -/
+def exactnessType (theory : Expr) (problem : Problem.Input)
+    (solutionSet : Certificate.SolutionSet) : MetaM Expr :=
+  withOriginalArguments problem 0 #[] fun arguments => do
+    let equation ← equationType theory problem arguments
+    let (_, factorization) ← Certificate.solutionSetTypeWith
+      (fun left right => mkAppM ``Structural.eqModOf #[theory, left, right])
+      solutionSet arguments
+    let body ← mkAppM ``Iff #[equation, factorization]
     mkForallFVars arguments body
 
 end ModCertificate

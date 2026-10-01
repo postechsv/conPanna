@@ -28,10 +28,11 @@ Scope/status:
   Existing Theory/EqMod and narrowing semantics keep their original meaning.
   Keeping sort/argument indices avoids recovering domains from equality of
   arbitrary Lean function types, the obstacle in the discarded diagnostic.
-* Automatic registration currently accepts one ACU datatype with nullary atoms
-  and one free unary state wrapper. Other signatures are rejected explicitly.
-  Broader signatures and migration of narrowing remain next steps, not extra
-  user semantic proof obligations. No new experimental Lean files were added.
+* Automatic registration now supports many-sorted first-order datatypes with
+  one ACU operator, including Bakery. The wrapper fragment retains its original
+  metadata for these checker examples. Bakery round trips and indexed law
+  transport are checked below; its decomposition/checker bridge remains next.
+  No new experimental Lean files were added.
 
 References for the rule-based design:
 * Boudet–Contejean, "Syntactic" AC-Unification, CCL 1994, Definition 4 and
@@ -1106,6 +1107,100 @@ example {a b : Conf} (h : a =[WrappedTheory.certified] b) : a =[WrappedTheory] b
 
 end Certification2.IndexedExample
 
+/-! ## Exact-result and constraint-transport regressions -/
+
+namespace Certification2.IndexedExample.ContractRegression
+
+open Structural.Indexed framework framework.Patterns framework.Rules
+open WrappedTheory.Generated
+
+-- The condition intentionally distinguishes ACU-equal representatives.
+def rule (xy : Bag × Bag) : RuleBody Conf :=
+  ⟨Conf.wrap (Bag.union xy.1 xy.2), Conf.wrap xy.1, xy.2 = Bag.union .empty .empty⟩
+
+def source (z : Bag) : APattBody Conf :=
+  ⟨Conf.wrap (Bag.union .red z), z = .empty⟩
+
+def family (xy : Bag × Bag) (z : Bag) : Prop :=
+  (∃ p q : Bag, xy.1 =[WrappedTheory.certified] Bag.union .red p ∧
+    xy.2 =[WrappedTheory.certified] q ∧ z =[WrappedTheory.certified] Bag.union p q) ∨
+  (∃ p q : Bag, xy.1 =[WrappedTheory.certified] p ∧
+    xy.2 =[WrappedTheory.certified] Bag.union .red q ∧
+    z =[WrappedTheory.certified] Bag.union p q)
+
+theorem constrained_two_unifiers :
+    rule ⊢ source ↝[WrappedTheory.certified] witnessPost rule source family :=
+  witnessPost_exact (Structural.CertifiedTheory.equivalence _ _) rule source family
+    (fun xy z => wrapped_two_unifiers xy.1 xy.2 z)
+
+example : Bag.union .empty .empty =[WrappedTheory.certified] Bag.empty ∧
+    Bag.union Bag.empty Bag.empty ≠ Bag.empty :=
+  ⟨Structural.Indexed.Eq.unit (sig := Sig) Wrapper.Operator.union _, by decide⟩
+
+-- Exercise the public result builder, including a variable at the root sort.
+open Lean Meta Elab Tactic in
+example : ∀ (x : Bag) (c : Conf), Conf.wrap x =[WrappedTheory.certified] c ↔
+    ∃ p : Bag, x =[WrappedTheory.certified] p ∧
+      c =[WrappedTheory.certified] Conf.wrap p := by
+  run_tac
+    let left ← elabTerm (← `(fun x : Bag => Conf.wrap x)) none
+    let right ← elabTerm (← `(fun c : Conf => c)) none
+    let problem : Unification.Problem.Input := {
+      lhs := ← Unification.Problem.saturatePattern left
+      rhs := ← Unification.Problem.saturatePattern right }
+    let result : Unification.Certificate.SolutionSet := { alternatives := #[{
+      basisTypes := #[mkConst ``Bag]
+      images := #[← elabTerm (← `(fun p : Bag => p)) none,
+        ← elabTerm (← `(fun p : Bag => Conf.wrap p)) none] }] }
+    let expected ← Unification.ModCertificate.exactnessType
+      (mkConst ``WrappedTheory.certified) problem result
+    replaceMainGoal [← (← getMainGoal).change expected]
+  intro x c
+  constructor
+  · intro h
+    exact ⟨x, .refl _, .symm h⟩
+  · rintro ⟨p, hx, hc⟩
+    exact .trans ((Wrapper.native_wrap_iff registration code read read_code _ _).mpr hx)
+      (.symm hc)
+
+-- The contract keeps every branch; an empty family means False.
+open Lean Meta Elab Tactic in
+example : ∀ x y z : Bag,
+    Conf.wrap (Bag.union x y) =[WrappedTheory.certified] Conf.wrap (Bag.union .red z) ↔
+      family (x, y) z := by
+  run_tac
+    let left ← elabTerm (← `(fun x y : Bag => Conf.wrap (Bag.union x y))) none
+    let right ← elabTerm (← `(fun z : Bag => Conf.wrap (Bag.union .red z))) none
+    let problem : Unification.Problem.Input := {
+      lhs := ← Unification.Problem.saturatePattern left
+      rhs := ← Unification.Problem.saturatePattern right }
+    let first : Unification.Certificate.Alternative := {
+      basisTypes := #[mkConst ``Bag, mkConst ``Bag]
+      images := #[← elabTerm (← `(fun p _q : Bag => Bag.union .red p)) none,
+        ← elabTerm (← `(fun _p q : Bag => q)) none,
+        ← elabTerm (← `(fun p q : Bag => Bag.union p q)) none] }
+    let second : Unification.Certificate.Alternative := { first with images := #[
+      ← elabTerm (← `(fun p _q : Bag => p)) none,
+      ← elabTerm (← `(fun _p q : Bag => Bag.union .red q)) none, first.images[2]!] }
+    let contract := Unification.ModCertificate.exactnessType
+      (mkConst ``WrappedTheory.certified) problem
+    let expected ← contract { alternatives := #[first, second] }
+    let omitted ← contract { alternatives := #[first] }
+    if ← isDefEq expected omitted then
+      throwError "the exactness contract lost a branch"
+    let empty ← contract { alternatives := #[] }
+    let emptyExpected ← elabTerm (← `(∀ x y z : Bag,
+      Conf.wrap (Bag.union x y) =[WrappedTheory.certified] Conf.wrap (Bag.union .red z) ↔
+        False)) none
+    unless ← isDefEq empty emptyExpected do
+      throwError "an empty family must denote False"
+    replaceMainGoal [← (← getMainGoal).change expected]
+  exact wrapped_two_unifiers
+
+#print axioms constrained_two_unifiers
+
+end Certification2.IndexedExample.ContractRegression
+
 /-! Registration regression: different names, three atoms, and an atom declared
 after the binary constructor. No generated declarations are supplied by hand. -/
 namespace Certification2.RegistrationRegression
@@ -1143,7 +1238,9 @@ example (x : Contents) :
 inductive NotAWrapper where
   | first | second
 
-/-- error: certify_structural currently requires one free unary state constructor -/
+instance : framework.State NotAWrapper := ⟨⟩
+
+/-- error: registered ACU operator is outside the native signature -/
 #guard_msgs in
 certify_structural FruitTheory for NotAWrapper
 
@@ -1257,3 +1354,41 @@ theorem configuration_unifier (n s : Nat) (P : ProcSet) (C : Conf) :
 #print axioms configuration_unifier
 
 end Certification2.BakeryExamples
+
+/-! Native registration for the actual many-sorted Bakery signature.
+These check syntax round trips and indexed law transport, not ACU decomposition. -/
+namespace Certification2.BakeryRegistration
+
+open Structural.Indexed BakeryTheory.Generated
+
+theorem native_roundtrip (c : Conf) :
+    (registration.quote .s3 c).eval registration.toAlgebra = c :=
+  registration.eval_quote .s3 c
+
+-- Constructor identity and the Nat payload survive quotation.
+example (n : Nat) : quote .s1 (Mode.wait n) ≠ quote .s1 (Mode.crit n) := by
+  intro h
+  have impossible := congrArg (fun t : Tree Sig .s1 => t.eval nativeAlgebra) h
+  simp only [quote, evalQuote1] at impossible
+  cases impossible
+
+theorem unit_in_configuration (n s : Nat) (p : ProcSet) :
+    Conf.mk n s (ProcSet.union p .empty) =[BakeryTheory.certified] Conf.mk n s p := by
+  change Eq Sig
+    (.app .c8 (.cons (quote0 n) (.cons (quote0 s)
+      (.cons (add Sig .acu (quote2 p) (zero Sig .acu)) .nil))))
+    (.app .c8 (.cons (quote0 n) (.cons (quote0 s) (.cons (quote2 p) .nil))))
+  refine Structural.Indexed.Eq.congr (sig := Sig) Symbol.c8
+    (.cons (.refl _) (.cons (.refl _) (.cons ?_ .nil)))
+  exact .trans (Structural.Indexed.Eq.comm (sig := Sig) Operator.acu _ _)
+    (Structural.Indexed.Eq.unit (sig := Sig) Operator.acu _)
+
+-- The existing forward adapter also works for the many-sorted registration.
+example (n s : Nat) (p : ProcSet) :
+    Conf.mk n s (ProcSet.union p .empty) =[BakeryTheory] Conf.mk n s p :=
+  Structural.CertifiedTheory.to_original _ (unit_in_configuration n s p)
+
+#print axioms native_roundtrip
+#print axioms unit_in_configuration
+
+end Certification2.BakeryRegistration
