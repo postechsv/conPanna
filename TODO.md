@@ -35,10 +35,16 @@ an infeasible residual constraint denotes an empty successor.
   backend proof results and named-post automation are not wired to it yet.
 - Second increment: `certify_structural BakeryTheory for Conf` now generates
   metadata for the actual four sorts and nine constructors. Syntactic round trips
-  and typed law transport are checked without admissions. The semantic checker
-  bridge and genuine Bakery ACU splitting remain next; metadata alone is insufficient.
+  and typed law transport are checked without admissions.
+- Third increment: generic sorted-tree ACU rebuilding/checker transport plus a
+  manually instantiated interpretation of Bakery's generated native algebra.
+  `BakeryCertificate.two_families` replays the primitive trace for the whole
+  two-family solution disjunction of P+Q = singleton(idle)+R. ProcSet assignments
+  may contain any Mode/Nat payloads. Three-field Conf decomposition and the same
+  certificate at the root also check. Dependencies: only propext and Quot.sound.
+  Semantic interpretation generation and payload-variable solving remain gaps.
 - ONE active Lean experiment: `certification2.lean`. Start with
-  `IndexedExample.wrapped_two_unifiers` near the bottom.
+  `BakeryCertificate.two_families` at the bottom.
 - General library code, automatic registration, and the single main
   user proof are clearly separated. Superseded experimental Lean files were
   removed; do not add more intermediate files without a concrete need.
@@ -64,9 +70,11 @@ an infeasible residual constraint denotes an empty successor.
   obligation is named `literalCompletenessType` and remains in existing lifting.
   Integrate `witnessPost_exact` into materialization/lifting before claiming
   automatic structural completeness; changing the proposition alone is insufficient.
-- Next: extend the generic checker bridge/decomposition to multiple sorts and
-  payload constructors already registered for Bakery, then migrate structural rule/
-  pattern semantics and narrowing to certified theories. The explicit indexed
+- Next: automate the semantic interpretation from generated metadata using
+  general free-constructor/ACU fragment proofs. Add an explicit Maude certificate
+  protocol/parser for the proved ground-payload fragment; extend the calculus to
+  sorted payload variables before integrating Bakery's actual overlaps. Migrate
+  structural rule/pattern semantics and narrowing to certified theories. The explicit indexed
   path is transitional, not a reason to build two independent narrowing engines.
   Core changes were authorized; keep reporting semantic migration boundaries.
 - Repeated-variable search/termination and checking complexity remain research

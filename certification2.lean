@@ -9,21 +9,23 @@ manually runs the same primitive derivation; no generated model/trace importer
 is implemented yet. Run: lake env lean certification2.lean
 
 Reading order:
-1. For the user-facing result, jump to IndexedExample.wrapped_two_unifiers
-   near the bottom: one native equation, two unifiers, one certification proof.
-2. The model and ONE `certify_structural` annotation immediately precede it.
-   Registration data and syntactic round-trip proofs are generated automatically.
-   There are no user-provided freeness, reflection, or unification proofs.
-3. Everything before the model is LIBRARY PROTOTYPE code: ACU proof rules,
-   generic transport and wrapper metatheorems. Indexed constructor semantics and
+1. For the actual Bakery result, jump to BakeryCertificate.two_families at the
+   bottom: one native equation, two unifiers, one certification proof.
+2. Its native model and `certify_structural` annotation are in examples/bakery.
+   Registration data and syntactic round trips are generated. BakeryEncoding
+   separately instantiates the signature interpretation, not yet generated.
+3. The earlier sections contain LIBRARY PROTOTYPE code: ACU proof rules,
+   generic transport and ACU/wrapper metatheorems. Indexed constructor semantics and
    registration generation now live in conPanna.Structural, not duplicated here.
 
 Scope/status:
 * Primitive certificate replay, wrapper inversion and the native example are
   proved without admissions. Constructor congruence has arbitrary typed arity.
-* Semantic decomposition is tested for ONE ACU sort plus a free unary wrapper.
-  This is not a complete ACU search algorithm or a Bakery certificate yet.
-* Native proofs use `=[WrappedTheory.certified]`, the library's new sort-indexed
+* Semantic decomposition covers the wrapper fragment and Bakery's actual four
+  sorts, payload constructors and three-field Conf. Bakery's interpretation is
+  instantiated in this prototype; automatic interpretation generation is pending.
+  The checked Bakery certificate is not a complete ACU search algorithm.
+* Native proofs use `=[T.certified]`, the library's new sort-indexed
   relation. Its map to existing Structural.EqMod is proved; the reverse is NOT.
   Existing Theory/EqMod and narrowing semantics keep their original meaning.
   Keeping sort/argument indices avoids recovering domains from equality of
@@ -801,6 +803,14 @@ structure Bridge {α : Type} (m : Semantics α) (s : Sorts) where
   forward : Hom m (portable s) encode allowed
   backward : Hom (portable s) m decode (fun _ => True)
 
+theorem Bridge.rel_exact {α : Type} {m : Semantics α} (b : Bridge m s) (a c : α) :
+    m.rel a c ↔ ACU (b.encode a) (b.encode c) := by
+  constructor
+  · exact b.forward.rel
+  · intro h
+    have native := b.backward.rel h
+    simpa only [b.roundtrip] using native
+
 theorem Bridge.transport {α : Type} {m : Semantics α} (b : Bridge m s)
     {p q : Formula s} (hp : p.uses b.allowed) (equiv : Equivalent p q)
     (ρ : Nat → α) : p.sat m ρ → q.sat m ρ := by
@@ -826,11 +836,77 @@ end Certification2
 
 /-! ## Library metatheorems for a supported signature fragment
 
-One ACU carrier (with ANY countable atom alphabet) and a free unary wrapper.
+ACU payload-tree rebuilding applies independently of the enclosing signature.
+The wrapper fragment also has generic inversion for its free unary constructor.
 These declarations know no user datatype, constructor name or unification problem.
-The generic infrastructure above already permits other arities/multiple ACU ops;
-the semantic decomposition metatheorems for those fragments remain future work.
+Automatic semantic interpretation for more general signatures remains future work.
 -/
+
+namespace Structural.Indexed.ACU
+
+open Certification2
+
+variable {Sorts : Type} {sig : Signature Sorts} {s : Sorts} {RawSorts : Type}
+  {r : RawSorts}
+
+/-- Payloads are actual sorted trees, rather than new nullary user constructors. -/
+def rebuild (op : sig.ACUOp s) (atoms : Nat → Tree sig s) : Value r → Tree sig s
+  | .zero => zero sig op
+  | .atom n => atoms n
+  | .add a b => add sig op (rebuild op atoms a) (rebuild op atoms b)
+
+theorem rebuild_congr (op : sig.ACUOp s) (atoms : Nat → Tree sig s)
+    {a b : Value r} (h : Certification2.ACU a b) :
+    Structural.Indexed.Eq sig (rebuild op atoms a) (rebuild op atoms b) := by
+  induction h with
+  | refl => exact .refl _
+  | symm _ ih => exact .symm ih
+  | trans _ _ ih₁ ih₂ => exact .trans ih₁ ih₂
+  | congr _ _ ih₁ ih₂ =>
+      exact Structural.Indexed.Eq.congr (sig := sig) (sig.add op)
+        (.cons ih₁ (.cons ih₂ .nil))
+  | «comm» => exact Structural.Indexed.Eq.comm (sig := sig) op _ _
+  | «assoc» => exact Structural.Indexed.Eq.assoc (sig := sig) op _ _ _
+  | unit => exact Structural.Indexed.Eq.unit (sig := sig) op _
+
+def nativeSemantics (reg : Registration sig) (op : sig.ACUOp s)
+    (atoms : Nat → Tree sig s) : Semantics (reg.Carrier s) where
+  zero := reg.apply (sig.zero op) PUnit.unit
+  atom := fun n => (atoms n).eval reg.toAlgebra
+  add := fun a b => reg.apply (sig.add op) (a, b, PUnit.unit)
+  rel := NativeEq sig reg
+
+/-- A model observation applies to native assignments through generated quoting. -/
+theorem observe_native (reg : Registration sig) (model : Model sig reg.toAlgebra)
+    {a b : reg.Carrier s} (h : NativeEq sig reg a b) : model.Rel s a b := by
+  have sound := Structural.Indexed.Eq.sound sig model h
+  simpa only [reg.eval_quote] using sound
+
+/-- The signature interpretation supplies one encoding, independently of any
+equation. Decoding and its relation proof are shared for all ACU signatures. -/
+def checker (reg : Registration sig) (op : sig.ACUOp s) (atoms : Nat → Tree sig s)
+    (encode : reg.Carrier s → Value r) (allowed : Nat → Prop)
+    (roundtrip : ∀ a, (rebuild op atoms (encode a)).eval reg.toAlgebra = a)
+    (forward : Hom (nativeSemantics reg op atoms) (portable r) encode allowed) :
+    Bridge (nativeSemantics reg op atoms) r where
+  allowed := allowed
+  encode := encode
+  decode := fun a => (rebuild op atoms a).eval reg.toAlgebra
+  roundtrip := roundtrip
+  forward := forward
+  backward := {
+    zero := rfl
+    atom := by intro _ _; rfl
+    add := fun _ _ => rfl
+    rel := by
+      intro a b h
+      change Structural.Indexed.Eq sig
+        (reg.quote s ((rebuild op atoms a).eval reg.toAlgebra))
+        (reg.quote s ((rebuild op atoms b).eval reg.toAlgebra))
+      rw [Registration.quote_eval, Registration.quote_eval]
+      exact rebuild_congr op atoms h }
+
+end Structural.Indexed.ACU
 
 namespace Structural.Indexed.Wrapper
 
@@ -1392,3 +1468,189 @@ example (n s : Nat) (p : ProcSet) :
 #print axioms unit_in_configuration
 
 end Certification2.BakeryRegistration
+
+/-! Interpretation of the generated Bakery signature. This is shared by every
+certificate over ProcSet; it contains no equation-specific proof rules.
+Generating this interpretation from metadata remains a separate integration step. -/
+namespace Certification2.BakeryEncoding
+
+open Structural.Indexed BakeryTheory.Generated
+
+def code : Mode → Nat
+  | .idle => 0
+  | .wait n => 2*n + 1
+  | .crit n => 2*n + 2
+
+def read : Nat → Mode
+  | 0 => .idle
+  | n+1 => if n%2 = 0 then .wait (n/2) else .crit (n/2)
+
+theorem read_code (a : Mode) : read (code a) = a := by
+  cases a with
+  | idle => rfl
+  | wait n =>
+      simp only [code, read]
+      have hm : (2*n)%2 = 0 := by omega
+      have hd : (2*n)/2 = n := by omega
+      simp only [hm, hd, ite_true]
+  | crit n =>
+      change (if (2*n+1)%2 = 0 then Mode.wait ((2*n+1)/2)
+        else Mode.crit ((2*n+1)/2)) = Mode.crit n
+      have hm : (2*n+1)%2 ≠ 0 := by omega
+      have hd : (2*n+1)/2 = n := by omega
+      simp only [hm, hd, ite_false]
+
+def encode : ProcSet → Value Tag.s2
+  | .empty => .zero
+  | .singleton a => .atom (code a)
+  | .union a b => .add (encode a) (encode b)
+
+def relation : ∀ s, nativeAlgebra.Carrier s → nativeAlgebra.Carrier s → Prop
+  | .s0 => _root_.Eq
+  | .s1 => _root_.Eq
+  | .s2 => fun a b => ACU (encode a) (encode b)
+  | .s3 => fun a b => a.next = b.next ∧ a.serving = b.serving ∧
+      ACU (encode a.procs) (encode b.procs)
+
+def model : Model Sig nativeAlgebra where
+  Rel := relation
+  refl := by
+    intro s a
+    cases s
+    · rfl
+    · rfl
+    · exact .refl _
+    · exact ⟨rfl, rfl, .refl _⟩
+  symm := by
+    intro s a b h
+    cases s
+    · exact h.symm
+    · exact h.symm
+    · exact .symm h
+    · exact ⟨h.1.symm, h.2.1.symm, .symm h.2.2⟩
+  trans := by
+    intro s a b c h k
+    cases s
+    · exact h.trans k
+    · exact h.trans k
+    · exact .trans h k
+    · exact ⟨h.1.trans k.1, h.2.1.trans k.2.1, .trans h.2.2 k.2.2⟩
+  congr := by
+    intro ss s f a b h
+    cases f with
+    | c0 => rfl
+    | c1 => exact congrArg Nat.succ h.1
+    | c2 => rfl
+    | c3 => exact congrArg Mode.wait h.1
+    | c4 => exact congrArg Mode.crit h.1
+    | c5 => exact .refl _
+    | c6 =>
+        change ACU (.atom (code a.1)) (.atom (code b.1))
+        rw [h.1]
+        exact .refl _
+    | c7 => exact .congr h.1 h.2.1
+    | c8 => exact ⟨h.1, h.2.1, h.2.2.1⟩
+  «comm» := by intro s op a b; cases op; exact .comm _ _
+  «assoc» := by intro s op a b c; cases op; exact .assoc _ _ _
+  unit := by intro s op a; cases op; exact .unit _
+
+def atoms (n : Nat) : Tree Sig .s2 := registration.quote .s2 (.singleton (read n))
+
+theorem roundtrip (a : ProcSet) :
+    (Structural.Indexed.ACU.rebuild Operator.acu atoms (encode a)).eval nativeAlgebra = a := by
+  induction a with
+  | empty => rfl
+  | singleton a =>
+      change (quote2 (.singleton (read (code a)))).eval nativeAlgebra = _
+      rw [evalQuote2, read_code]
+  | union a b ha hb =>
+      change ProcSet.union _ _ = ProcSet.union a b
+      dsimp only [Trees.eval]
+      rw [ha, hb]
+
+def bridge :
+    Bridge (Structural.Indexed.ACU.nativeSemantics registration Operator.acu atoms) Tag.s2 :=
+  Structural.Indexed.ACU.checker registration Operator.acu atoms encode
+    (fun n => code (read n) = n) roundtrip {
+      zero := rfl
+      atom := by
+        intro n hn
+        change encode ((quote2 (.singleton (read n))).eval nativeAlgebra) = .atom n
+        rw [evalQuote2]
+        change Value.atom (code (read n)) = Value.atom n
+        rw [hn]
+      add := fun _ _ => rfl
+      rel := fun h => Structural.Indexed.ACU.observe_native registration model h }
+
+/-- Decompose the native three-field constructor, retaining both free Nat fields. -/
+theorem configuration_iff (n s n' s' : Nat) (p q : ProcSet) :
+    Conf.mk n s p =[BakeryTheory.certified] Conf.mk n' s' q ↔
+      n = n' ∧ s = s' ∧ p =[BakeryTheory.certified] q := by
+  constructor
+  · intro h
+    have observed := Structural.Indexed.ACU.observe_native registration model h
+    exact ⟨observed.1, observed.2.1, (bridge.rel_exact p q).mpr observed.2.2⟩
+  · rintro ⟨rfl, rfl, h⟩
+    change Structural.Indexed.Eq Sig
+      (.app .c8 (.cons (quote0 n) (.cons (quote0 s) (.cons (quote2 p) .nil))))
+      (.app .c8 (.cons (quote0 n) (.cons (quote0 s) (.cons (quote2 q) .nil))))
+    exact Structural.Indexed.Eq.congr (sig := Sig) Symbol.c8
+      (.cons (.refl _) (.cons (.refl _) (.cons h .nil)))
+
+-- Constructor inversion here is semantic, beyond quoted-syntax distinction.
+example (n : Nat) : ¬ (Mode.wait n =[BakeryTheory.certified] Mode.crit n) := by
+  intro h
+  have impossible := Structural.Indexed.ACU.observe_native registration model h
+  cases impossible
+
+example (n m : Nat) :
+    ¬ (ProcSet.singleton (.wait n) =[BakeryTheory.certified] ProcSet.singleton (.crit m)) := by
+  intro h
+  have perm := ((bridge.rel_exact _ _).mp h).flatten_perm
+  change [code (.wait n)].Perm [code (.crit m)] at perm
+  have same : code (.wait n) = code (.crit m) := by simpa using perm
+  simp only [code] at same
+  omega
+
+end Certification2.BakeryEncoding
+
+namespace Certification2.BakeryCertificate
+
+open BakeryEncoding
+
+theorem two_families (P Q R : ProcSet) :
+    ProcSet.union P Q =[BakeryTheory.certified] ProcSet.union (.singleton .idle) R ↔
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] ProcSet.union (.singleton .idle) A ∧
+        Q =[BakeryTheory.certified] B ∧ R =[BakeryTheory.certified] ProcSet.union A B) ∨
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] A ∧
+        Q =[BakeryTheory.certified] ProcSet.union (.singleton .idle) B ∧
+        R =[BakeryTheory.certified] ProcSet.union A B) := by
+  have certified := bridge.check_exact
+    (.eqn (.add (.var 0) (.var 1)) (.add (.atom 0) (.var 2)))
+    (overlapSolutions (.var 0) (.var 1) (.var 2) 0)
+    Demo.overlapPrimitiveTrace (by decide)
+    (by simp [Formula.uses, Term.uses, bridge, Structural.Indexed.ACU.checker,
+      code, BakeryEncoding.read])
+    (by simp [overlapSolutions, Formula.uses, Term.uses, Term.lift, bridge,
+      Structural.Indexed.ACU.checker, code, BakeryEncoding.read])
+    (fun n => match n with | 0 => P | 1 => Q | _ => R)
+  simpa only [overlapSolutions, Formula.sat, Term.denote, Term.lift,
+    Structural.Indexed.ACU.nativeSemantics, BakeryEncoding.atoms,
+    BakeryTheory.Generated.registration.eval_quote, BakeryEncoding.read] using certified
+
+theorem configuration_two_families (n s : Nat) (P Q R : ProcSet) :
+    Conf.mk n s (ProcSet.union P Q) =[BakeryTheory.certified]
+      Conf.mk n s (ProcSet.union (.singleton .idle) R) ↔
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] ProcSet.union (.singleton .idle) A ∧
+        Q =[BakeryTheory.certified] B ∧ R =[BakeryTheory.certified] ProcSet.union A B) ∨
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] A ∧
+        Q =[BakeryTheory.certified] ProcSet.union (.singleton .idle) B ∧
+        R =[BakeryTheory.certified] ProcSet.union A B) := by
+  rw [configuration_iff]
+  simpa only [true_and, eq_self] using two_families P Q R
+
+#print axioms two_families
+#print axioms configuration_two_families
+#print axioms BakeryEncoding.configuration_iff
+
+end Certification2.BakeryCertificate

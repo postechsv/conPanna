@@ -5,7 +5,8 @@ This document records the design decisions and current implementation state need
 ## NEXT SESSION: proof-producing Maude unification (2026-10-02)
 
 Read this section FIRST. The long historical notes below are not the active plan.
-Baseline commit: `86125ee`. Both integration increments below are uncommitted.
+Baseline commit: `200e815`. The first two integration increments are committed;
+the third increment below is uncommitted.
 
 ### First integration increment: exactness and constraint witnesses
 
@@ -33,7 +34,7 @@ approval is needed. Do not commit unless asked.
   Its theorem `constrained_two_unifiers` uses only propext and Quot.sound.
   Contract tests exercise Bag/Conf variables, zero/one/two alternatives and a
   changed type when a branch is omitted. These are wrapper-model regressions;
-  Bakery ACU splitting remains unimplemented. Native registration is covered below.
+  Native Bakery replay is covered in the third increment below.
 - Verified with lean-lsp-mcp diagnostics and axiom checks, `lake build`, and
   `lake env lean` on certification2, Bakery, theory_examples and narrowing_examples. Bakery's
   three pre-existing hcomplete sorries remain. The wrapper theorem's pre-existing
@@ -64,11 +65,42 @@ approval is needed. Do not commit unless asked.
   `lake env lean -o .lake/build/lib/lean/examples/bakery.olean -i .lake/build/lib/lean/examples/bakery.ilean examples/bakery.lean`
   before checking `certification2.lean`; otherwise it may import stale metadata.
 
-Next: prove the generic semantic bridge/decomposition for Bakery payloads and
-the three-field Conf constructor, then a genuine two-family Bakery ACU certificate.
-Keep general metatheorems separate from model regressions. Establish that bridge
-before exporter/parser integration. Maude search/protocol and the production
-proof-carrying backend are still future increments.
+### Third integration increment: actual Bakery two-family replay
+
+- `Bridge.rel_exact` proves relation reflection for every existing bridge.
+  `Structural.Indexed.ACU.rebuild`, `rebuild_congr`, `observe_native` and `checker`
+  are generic metatheorems/builders for any registered signature's ACU carrier.
+  Atoms decode to actual sorted payload trees, not invented native constructors.
+- `Certification2.BakeryEncoding` interprets the generated native algebra: Nat
+  and Mode use literal equality; ProcSet uses portable ACU equality under an
+  injective encoding of ALL Mode payloads; Conf retains both Nat fields and that
+  ProcSet relation. Its model proves compatibility for all nine native symbols.
+  The native retraction includes arbitrary wait/crit Nat values. No native model
+  was redefined. This interpretation is manually instantiated in the prototype;
+  automatic generation of semantic interpretations is NOT implemented.
+- `BakeryEncoding.configuration_iff` proves three-field constructor decomposition
+  for this interpretation. Semantic regressions reject wait/crit mismatches,
+  both directly and inside singleton process sets.
+- `Certification2.BakeryCertificate.two_families` kernel-replays the existing
+  primitive trace for P+Q = singleton(idle)+R, proving iff the WHOLE two-family
+  disjunction over arbitrary native ProcSet assignments. The root-level theorem
+  `configuration_two_families` uses the same certificate plus decomposition.
+  Both use only propext and Quot.sound; no sorryAx or new axioms. This certifies
+  `BakeryTheory.certified`, not completeness for old BakeryTheory/EqMod.
+- The checker equation has ProcSet variables and a ground idle payload. It does
+  not yet solve variables inside payload constructors or across multiple sorts.
+  The Maude trace remains manually mirrored data; no parser/search was added.
+- Verified: lean-lsp-mcp full diagnostics and axiom/source audit, `lake build`,
+  and full `lake env lean certification2.lean` (exit 0). Only the prototype and
+  handoff/TODO were changed; no new library warnings or proof admissions.
+
+Next: automate the semantic interpretation from generated signature metadata,
+using reusable free-constructor/ACU fragment proofs instead of extending the
+hand-instantiated Bakery interpretation. Then implement the first explicit Maude
+certificate-output protocol and parser for this proved ground-payload fragment.
+Extend sorted payload-variable rules before claiming coverage of Bakery's actual
+atomic overlaps. Production proof-carrying results and constrained lifting are
+still future increments.
 
 ### User's requested outcome
 
@@ -96,7 +128,8 @@ algorithm based on the single scripted trace currently present.
 2. **Lean calculus**: `certification2.lean` contains `Rule`, `Certificate`,
    `applyRule`, `replay`, `check_exact`, and generic transport via `Bridge`.
    Successful replay proves an iff of solution predicates. The two-unifier
-   `IndexedExample.wrapped_two_unifiers` is kernel checked without admissions.
+   `IndexedExample.wrapped_two_unifiers` and actual native Bakery
+   `BakeryCertificate.two_families` are kernel checked without admissions.
 3. **Maude mirror**: `certification2.maude` scripts one primitive derivation of
    X+Y = atom+Z, retaining both unifiers as ONE disjunction. It uses object-level
    rules and a hand-written strategy, NOT built-in unify or META-LEVEL. Its trace
@@ -105,14 +138,20 @@ algorithm based on the single scripted trace currently present.
 4. **Library registration**: `Structural.Indexed` provides sort/argument-indexed
    signatures, trees, equality, native registration and a forward legacy map.
    `certify_structural T for Conf` now generates metadata for many-sorted native
-   signatures with one ACU operator, including Bakery. Wrapper-specific checker
-   transport remains the only proved semantic decomposition fragment.
+   signatures with one ACU operator, including Bakery. Generic ACU rebuilding
+   supports payload trees; the prototype separately instantiates a semantic model
+   and retraction for Bakery. Only the wrapper interpretation is generated.
 5. **Latest Bakery tests**: `Certification2.BakeryExamples` imports the actual
    model and proves three simple unit-normalization/variable-solving iff results
    against the OLD BakeryTheory/EqMod. They use general `NativeRules.normalize`
    and `shared`. These do NOT establish Bakery ACU cancellation, splitting,
    automatic native registration, or certificate replay. Their only axiom is
    propext. Do not inflate their significance.
+6. **New Bakery replay**: `BakeryEncoding` and `BakeryCertificate` interpret the
+   generated actual signature and certify the complete two-family ProcSet equation
+   and its Conf wrapper. This interpretation is manually instantiated, and the
+   theorem uses indexed equality. Payload-variable unification, automatic semantic
+   generation and external certificate parsing remain unsupported.
 
 ### Read these entry points, not the whole repository
 
@@ -143,7 +182,7 @@ algorithm based on the single scripted trace currently present.
   equality or claiming a lifting theorem applies.
 - `certification2.lean`: general rules first, checker/Bridge, generic wrapper
   transport, trace DATA, native two-unifier example, contract regressions,
-  BakeryExamples and BakeryRegistration at the end.
+  BakeryExamples, BakeryRegistration, BakeryEncoding and BakeryCertificate at the end.
   `certification2.maude`: corresponding rule labels and scripted strategy.
 
 ### Semantic blockers that MUST NOT be hidden
@@ -246,15 +285,18 @@ patching around it. No unrelated work, caching, existential tactics or dm-check.
 
 ### Copy-paste prompt for the new session
 
-> Read AGENTS.md, the NEXT SESSION section of HANDOFF.md (including both
+> Read AGENTS.md, the NEXT SESSION section of HANDOFF.md (including all three
 > integration increments), and TODO.md. Continue the authorized implementation of
 > proof-producing Maude unification for the actual Bakery model, step by step.
 > The universal modulo exactness contract, shared theory-generic semantics and
 > witnessPost_exact theorem are implemented; production materialization and
 > lifting still use the legacy literal obligation. Native registration now
 > generates Bakery's four sorts/nine constructors and syntactic round trips.
-> Next prove the generic semantic bridge/decomposition for its payloads and Conf,
-> then a genuine Bakery two-family ACU certificate before protocol work.
+> Actual Bakery two-family replay and three-field Conf decomposition now check
+> without admissions, using a manually instantiated signature interpretation.
+> Next automate that interpretation from syntax metadata using general fragment
+> metatheorems, then add explicit Maude certificate output/parsing for the proved
+> ground-payload fragment. Sorted payload-variable unification is still missing.
 > Preserve native constructors and the named-post/subsumption interface. The
 > old EqMod reverse bridge is unproved; report any semantic migration explicitly.
 > Rebuild the Bakery import artifact as recorded in HANDOFF.md before checking
