@@ -10,23 +10,27 @@ is implemented yet. Run: lake env lean certification2.lean
 Reading order:
 1. For the user-facing result, jump to IndexedExample.wrapped_two_unifiers
    near the bottom: one native equation, two unifiers, one certification proof.
-2. The model and GENERATED-registration stand-in immediately precede that proof.
-   Registration contains syntactic data/round trips and existing law witnesses,
-   not user-provided freeness, reflection, or unification proofs.
+2. The model and ONE `certify_structural` annotation immediately precede it.
+   Registration data and syntactic round-trip proofs are generated automatically.
+   There are no user-provided freeness, reflection, or unification proofs.
 3. Everything before the model is LIBRARY PROTOTYPE code: ACU proof rules,
-   generic transport, indexed constructor semantics, and wrapper metatheorems.
+   generic transport and wrapper metatheorems. Indexed constructor semantics and
+   registration generation now live in conPanna.Structural, not duplicated here.
 
 Scope/status:
 * Primitive certificate replay, wrapper inversion and the native example are
   proved without admissions. Constructor congruence has arbitrary typed arity.
 * Semantic decomposition is tested for ONE ACU sort plus a free unary wrapper.
   This is not a complete ACU search algorithm or a Bakery certificate yet.
-* Native proofs use the experimental sort-indexed relation. Its map to existing
-  Structural.EqMod is proved; the reverse is NOT. No core semantics are changed.
+* Native proofs use `=[WrappedTheory.certified]`, the library's new sort-indexed
+  relation. Its map to existing Structural.EqMod is proved; the reverse is NOT.
+  Existing Theory/EqMod and narrowing semantics keep their original meaning.
   Keeping sort/argument indices avoids recovering domains from equality of
   arbitrary Lean function types, the obstacle in the discarded diagnostic.
-* Metadata generation and broader signatures are next, not additional user
-  semantic proof obligations. Existing inductive/structural syntax is retained.
+* Automatic registration currently accepts one ACU datatype with nullary atoms
+  and one free unary state wrapper. Other signatures are rejected explicitly.
+  Broader signatures and migration of narrowing remain next steps, not extra
+  user semantic proof obligations. No new experimental Lean files were added.
 
 References for the rule-based design:
 * Boudet–Contejean, "Syntactic" AC-Unification, CCL 1994, Definition 4 and
@@ -816,217 +820,7 @@ theorem Bridge.check_exact [DecidableEq Sorts] {α : Type} {m : Semantics α}
 
 end Certification2
 
-namespace Certification2.Indexed
 
-/-! ## Library prototype: finite-arity many-sorted syntax and derivations -/
-
-structure Signature (Sorts : Type) where
-  Symbol : List Sorts → Sorts → Type
-  ACUOp : Sorts → Type
-  add : ∀ {s}, ACUOp s → Symbol [s, s] s
-  zero : ∀ {s}, ACUOp s → Symbol [] s
-
-variable {Sorts : Type} (sig : Signature Sorts)
-
-mutual
-  inductive Tree : Sorts → Type where
-    | app {ss s} (head : sig.Symbol ss s) (args : Trees ss) : Tree s
-  inductive Trees : List Sorts → Type where
-    | nil : Trees []
-    | cons {s ss} (first : Tree s) (rest : Trees ss) : Trees (s :: ss)
-end
-
-def zero {s : Sorts} (op : sig.ACUOp s) : Tree sig s := .app (sig.zero op) .nil
-def add {s : Sorts} (op : sig.ACUOp s) (a b : Tree sig s) : Tree sig s :=
-  .app (sig.add op) (.cons a (.cons b .nil))
-
-mutual
-  /-- Constructor identity and argument sorts remain in EVERY derivation. -/
-  inductive Eq : {s : Sorts} → Tree sig s → Tree sig s → Prop where
-    | refl {s} (a : Tree sig s) : Eq a a
-    | symm {s} {a b : Tree sig s} : Eq a b → Eq b a
-    | trans {s} {a b c : Tree sig s} : Eq a b → Eq b c → Eq a c
-    | congr {ss s} (head : sig.Symbol ss s) {a b : Trees sig ss} :
-        Eqs a b → Eq (.app head a) (.app head b)
-    | comm {s} (op : sig.ACUOp s) (a b : Tree sig s) :
-        Eq (add sig op a b) (add sig op b a)
-    | assoc {s} (op : sig.ACUOp s) (a b c : Tree sig s) :
-        Eq (add sig op (add sig op a b) c) (add sig op a (add sig op b c))
-    | unit {s} (op : sig.ACUOp s) (a : Tree sig s) : Eq (add sig op (zero sig op) a) a
-  inductive Eqs : {ss : List Sorts} → Trees sig ss → Trees sig ss → Prop where
-    | nil : Eqs .nil .nil
-    | cons {s ss} {a b : Tree sig s} {as bs : Trees sig ss} :
-        Eq a b → Eqs as bs → Eqs (.cons a as) (.cons b bs)
-end
-
-def Args (C : Sorts → Type) : List Sorts → Type
-  | [] => PUnit
-  | s :: ss => C s × Args C ss
-
-structure Algebra where
-  Carrier : Sorts → Type
-  apply : ∀ {ss s}, sig.Symbol ss s → Args Carrier ss → Carrier s
-
-variable {sig}
-
-mutual
-  def Tree.eval (A : Algebra sig) : {s : Sorts} → Tree sig s → A.Carrier s
-    | _, .app f args => A.apply f (args.eval A)
-  def Trees.eval (A : Algebra sig) : {ss : List Sorts} → Trees sig ss → Args A.Carrier ss
-    | _, .nil => PUnit.unit
-    | _, .cons a as => (a.eval A, as.eval A)
-end
-
-variable (sig)
-
-def ArgsRel {C : Sorts → Type} (R : ∀ s, C s → C s → Prop) :
-    (ss : List Sorts) → Args C ss → Args C ss → Prop
-  | [], _, _ => True
-  | s :: ss, (a, as), (b, bs) => R s a b ∧ ArgsRel R ss as bs
-
-/-- Semantic metatheorem input, not user registration. Instantiated by library
-interpretations below. Ordinary constructor compatibility is genuinely sorted. -/
-structure Model (A : Algebra sig) where
-  Rel : ∀ s, A.Carrier s → A.Carrier s → Prop
-  refl : ∀ s a, Rel s a a
-  symm : ∀ s {a b}, Rel s a b → Rel s b a
-  trans : ∀ s {a b c}, Rel s a b → Rel s b c → Rel s a c
-  congr : ∀ {ss s} (f : sig.Symbol ss s) {a b},
-    ArgsRel Rel ss a b → Rel s (A.apply f a) (A.apply f b)
-  comm : ∀ {s} (op : sig.ACUOp s) a b,
-    Rel s (A.apply (sig.add op) (a, b, PUnit.unit))
-      (A.apply (sig.add op) (b, a, PUnit.unit))
-  assoc : ∀ {s} (op : sig.ACUOp s) a b c,
-    Rel s (A.apply (sig.add op) (A.apply (sig.add op) (a, b, PUnit.unit), c, PUnit.unit))
-      (A.apply (sig.add op) (a, A.apply (sig.add op) (b, c, PUnit.unit), PUnit.unit))
-  unit : ∀ {s} (op : sig.ACUOp s) a,
-    Rel s (A.apply (sig.add op) (A.apply (sig.zero op) PUnit.unit, a, PUnit.unit)) a
-
-theorem Eq.sound {s : Sorts} {A : Algebra sig} (M : Model sig A)
-    {a b : Tree sig s} (h : Eq sig a b) : M.Rel s (a.eval A) (b.eval A) := by
-  refine Eq.rec
-    (motive_1 := fun {s} a b _ => M.Rel s (a.eval A) (b.eval A))
-    (motive_2 := fun {ss} a b _ => ArgsRel M.Rel ss (a.eval A) (b.eval A))
-    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
-  · intro s a; exact M.refl s _
-  · intro s a b h ih; exact M.symm s ih
-  · intro s a b c h₁ h₂ ih₁ ih₂; exact M.trans s ih₁ ih₂
-  · intro ss s f a b h ih; exact M.congr f ih
-  · intro s op a b; exact M.comm op _ _
-  · intro s op a b c; exact M.assoc op _ _ _
-  · intro s op a; exact M.unit op _
-  · trivial
-  · intro s ss a b as bs h₁ h₂ ih₁ ih₂; exact ⟨ih₁, ih₂⟩
-
-/-! ## Library prototype: native registration boundary
-
-ONLY syntactic identities below. A generator emits quote by constructor recursion,
-apply by constructor enumeration, and proves the equations by rfl / induction.
-These fields are not semantic ACU proof obligations delegated to the user.
--/
-
-def Args.quote {C : Sorts → Type} (quote : ∀ s, C s → Tree sig s) :
-    (ss : List Sorts) → Args C ss → Trees sig ss
-  | [], _ => .nil
-  | s :: ss, (a, as) => .cons (quote s a) (Args.quote quote ss as)
-
-structure Registration extends Algebra sig where
-  quote : ∀ s, Carrier s → Tree sig s
-  eval_quote : ∀ s a, (quote s a).eval toAlgebra = a
-  quote_apply : ∀ {ss s} (f : sig.Symbol ss s) (args : Args Carrier ss),
-    quote s (apply f args) = .app f (Args.quote sig quote ss args)
-
-def NativeEq (reg : Registration sig) {s : Sorts} (a b : reg.Carrier s) : Prop :=
-  Eq sig (reg.quote s a) (reg.quote s b)
-
-/-- The same structural induction works for any constructor-compatible reifier,
-without assuming that every semantic value is a valid syntax encoding. -/
-theorem Tree.rebuild_eval (A : Algebra sig) (quote : ∀ s, A.Carrier s → Tree sig s)
-    (compatible : ∀ {ss s} (f : sig.Symbol ss s) (args : Args A.Carrier ss),
-      quote s (A.apply f args) = .app f (Args.quote sig quote ss args))
-    {s : Sorts} (a : Tree sig s) : quote s (a.eval A) = a := by
-  refine Tree.rec
-    (motive_1 := fun {s} a => quote s (a.eval A) = a)
-    (motive_2 := fun {ss} as => Args.quote sig quote ss (as.eval A) = as)
-    ?_ ?_ ?_ a
-  · intro ss s f args ih
-    change quote s (A.apply f (args.eval A)) = _
-    rw [compatible, ih]
-  · rfl
-  · intro s ss a as ih₁ ih₂
-    change Trees.cons (quote s (a.eval A)) (Args.quote sig quote ss (as.eval A)) = _
-    rw [ih₁, ih₂]
-
-theorem Registration.quote_eval (reg : Registration sig) {s : Sorts} (a : Tree sig s) :
-    reg.quote s (a.eval reg.toAlgebra) = a :=
-  Tree.rebuild_eval sig reg.toAlgebra reg.quote reg.quote_apply a
-
-/-! ## Library adapter to existing EqMod: arbitrary constructor arity -/
-
-def Curried (C : Sorts → Type) : List Sorts → Sorts → Type
-  | [], s => C s
-  | a :: as, s => C a → Curried C as s
-
-def applyCurried {C : Sorts → Type} : {ss : List Sorts} → {s : Sorts} →
-    Curried C ss s → Args C ss → C s
-  | [], _, f, _ => f
-  | _ :: _, _, f, (a, as) => applyCurried (f a) as
-
-theorem applyCurried_congr {B : Structural.Theory} {C : Sorts → Type}
-    {ss : List Sorts} {s : Sorts} {f g : Curried C ss s}
-    (h : Structural.ConstructorCongruence B f g) {a b : Args C ss}
-    (args : ArgsRel (fun _ => Structural.EqMod B) ss a b) :
-    Structural.EqMod B (applyCurried f a) (applyCurried g b) := by
-  induction ss with
-  | nil => exact .constructor h
-  | cons first rest ih => exact ih (.app h args.1) args.2
-
-/-- Only native symbols, registered-law witnesses and a definitional application
-equation. No EqMod reflection field. This metadata is generated by enumeration. -/
-structure Legacy (B : Structural.Theory) (A : Algebra sig) where
-  head : ∀ {ss s}, sig.Symbol ss s → Curried A.Carrier ss s
-  apply_head : ∀ {ss s} (f : sig.Symbol ss s) args,
-    A.apply f args = applyCurried (head f) args
-  registered : ∀ {ss s} (f : sig.Symbol ss s), Structural.HasConstructor B (head f)
-  comm : ∀ {s} (op : sig.ACUOp s), Structural.HasComm B (head (sig.add op))
-  assoc : ∀ {s} (op : sig.ACUOp s), Structural.HasAssoc B (head (sig.add op))
-  unit : ∀ {s} (op : sig.ACUOp s),
-    Structural.HasIdentity B (head (sig.add op)) (head (sig.zero op))
-
-def Legacy.model {B : Structural.Theory} {A : Algebra sig} (metadata : Legacy sig B A) :
-    Model sig A where
-  Rel := fun _ => Structural.EqMod B
-  refl := fun _ _ => .ofEq rfl
-  symm := fun _ {_ _} h => .symm h
-  trans := fun _ {_ _ _} h₁ h₂ => .trans h₁ h₂
-  congr := by
-    intro ss s f a b h
-    rw [metadata.apply_head, metadata.apply_head]
-    letI := metadata.registered f
-    exact applyCurried_congr (.head (metadata.head f)) h
-  comm := by
-    intro s op a b
-    simp only [metadata.apply_head, applyCurried]
-    letI := metadata.comm op
-    exact .comm _ _ _
-  assoc := by
-    intro s op a b c
-    simp only [metadata.apply_head, applyCurried]
-    letI := metadata.assoc op
-    exact .assoc _ _ _ _
-  unit := by
-    intro s op a
-    simp only [metadata.apply_head, applyCurried]
-    letI := metadata.unit op
-    exact .identityLeft _ _ _
-
-theorem NativeEq.to_legacy {B : Structural.Theory} (reg : Registration sig)
-    (metadata : Legacy sig B reg.toAlgebra) {s : Sorts} {a b : reg.Carrier s}
-    (h : NativeEq sig reg a b) : Structural.EqMod B a b := by
-  have lifted := Eq.sound sig (metadata.model sig) h
-  simpa only [reg.eval_quote] using lifted
-
-end Certification2.Indexed
 
 /-! ## Library metatheorems for a supported signature fragment
 
@@ -1036,39 +830,13 @@ The generic infrastructure above already permits other arities/multiple ACU ops;
 the semantic decomposition metatheorems for those fragments remain future work.
 -/
 
-namespace Certification2.WrapperFragment
+namespace Structural.Indexed.Wrapper
 
-open Indexed
-
-inductive SortTag where
-  | bag | configuration
-  deriving DecidableEq
-
-inductive Symbol (Atom : Type) : List SortTag → SortTag → Type where
-  | empty : Symbol Atom [] .bag
-  | atom (a : Atom) : Symbol Atom [] .bag
-  | union : Symbol Atom [.bag, .bag] .bag
-  | wrap : Symbol Atom [.bag] .configuration
-
-inductive Operator : SortTag → Type where
-  | union : Operator .bag
-
-def signature (Atom : Type) : Signature SortTag where
-  Symbol := Symbol Atom
-  ACUOp := Operator
-  add := fun op => match op with | .union => .union
-  zero := fun op => match op with | .union => .empty
+open Certification2
 
 variable {Atom : Type}
 
-abbrev BagTree (Atom : Type) := Tree (signature Atom) .bag
-abbrev ConfTree (Atom : Type) := Tree (signature Atom) .configuration
 abbrev Raw := Value SortTag.bag
-
-def empty : BagTree Atom := .app .empty .nil
-def atom (a : Atom) : BagTree Atom := .app (.atom a) .nil
-def union (a b : BagTree Atom) : BagTree Atom := .app .union (.cons a (.cons b .nil))
-def wrap (a : BagTree Atom) : ConfTree Atom := .app .wrap (.cons a .nil)
 
 /-- Encoding of the supported fragment into the existing ACU certificate algebra.
 The wrapper is free and unary, so observing its payload loses no information. -/
@@ -1092,8 +860,8 @@ def observation (code : Atom → Nat) : Model (signature Atom) (algebra code) wh
     | atom => exact .refl _
     | union => exact .congr h.1 h.2.1
     | wrap => exact h.1
-  comm := by intro s op a b; cases op; exact .comm _ _
-  assoc := by intro s op a b c; cases op; exact .assoc _ _ _
+  «comm» := by intro s op a b; cases op; exact .comm _ _
+  «assoc» := by intro s op a b c; cases op; exact .assoc _ _ _
   unit := by intro s op a; cases op; exact .unit _
 
 def rebuildBag (read : Nat → Atom) : Raw → BagTree Atom
@@ -1117,42 +885,97 @@ theorem rebuild_eval (code : Atom → Nat) (read : Nat → Atom)
   | wrap => rcases args with ⟨a, u⟩; cases u; rfl
 
 theorem rebuildBag_congr (read : Nat → Atom) {a b : Raw} (h : ACU a b) :
-    Indexed.Eq (signature Atom) (rebuildBag read a) (rebuildBag read b) := by
+    Structural.Indexed.Eq (signature Atom) (rebuildBag read a) (rebuildBag read b) := by
   induction h with
   | refl => exact .refl _
   | symm _ ih => exact .symm ih
   | trans _ _ ih₁ ih₂ => exact .trans ih₁ ih₂
   | congr _ _ ih₁ ih₂ =>
-      exact Indexed.Eq.congr (sig := signature Atom) Symbol.union (.cons ih₁ (.cons ih₂ .nil))
-  | comm => exact Indexed.Eq.comm (sig := signature Atom) Operator.union _ _
-  | assoc => exact Indexed.Eq.assoc (sig := signature Atom) Operator.union _ _ _
-  | unit => exact Indexed.Eq.unit (sig := signature Atom) Operator.union _
+      exact Structural.Indexed.Eq.congr (sig := signature Atom) Symbol.union (.cons ih₁ (.cons ih₂ .nil))
+  | «comm» => exact Structural.Indexed.Eq.comm (sig := signature Atom) Operator.union _ _
+  | «assoc» => exact Structural.Indexed.Eq.assoc (sig := signature Atom) Operator.union _ _ _
+  | unit => exact Structural.Indexed.Eq.unit (sig := signature Atom) Operator.union _
 
 /-- Both directions, including free-wrapper inversion. A general library lemma,
 not a field supplied during user registration. -/
 theorem exact (code : Atom → Nat) (read : Nat → Atom)
     (inverse : ∀ a, read (code a) = a) {s : SortTag}
     (a b : Tree (signature Atom) s) :
-    Indexed.Eq (signature Atom) a b ↔
+    Structural.Indexed.Eq (signature Atom) a b ↔
       ACU (a.eval (algebra code)) (b.eval (algebra code)) := by
   constructor
-  · exact Indexed.Eq.sound _ (observation code)
+  · exact Structural.Indexed.Eq.sound _ (observation code)
   · intro h
-    have lifted : Indexed.Eq (signature Atom)
+    have lifted : Structural.Indexed.Eq (signature Atom)
         (rebuild read s (a.eval (algebra code)))
         (rebuild read s (b.eval (algebra code))) := by
       cases s with
       | bag => exact rebuildBag_congr read h
       | configuration =>
-          exact Indexed.Eq.congr (sig := signature Atom) Symbol.wrap (.cons (rebuildBag_congr read h) .nil)
+          exact Structural.Indexed.Eq.congr (sig := signature Atom) Symbol.wrap (.cons (rebuildBag_congr read h) .nil)
     simpa only [rebuild_eval code read inverse] using lifted
 
 theorem wrap_iff (code : Atom → Nat) (read : Nat → Atom)
     (inverse : ∀ a, read (code a) = a) (a b : BagTree Atom) :
-    Indexed.Eq (signature Atom) (wrap a) (wrap b) ↔ Indexed.Eq (signature Atom) a b :=
+    Structural.Indexed.Eq (signature Atom) (wrap a) (wrap b) ↔ Structural.Indexed.Eq (signature Atom) a b :=
   (exact code read inverse (wrap a) (wrap b)).trans (exact code read inverse a b).symm
 
-end Certification2.WrapperFragment
+/-- Generic native interpretation of the proof system: no model-specific lemmas. -/
+def nativeSemantics (reg : Registration (signature Atom)) (read : Nat → Atom) :
+    Semantics (reg.Carrier .bag) where
+  zero := reg.apply .empty PUnit.unit
+  atom := fun n => reg.apply (.atom (read n)) PUnit.unit
+  add := fun a b => reg.apply .union (a, b, PUnit.unit)
+  rel := NativeEq (signature Atom) reg
+
+/-- Instantiating the checker needs only generated syntax metadata. -/
+def checker (reg : Registration (signature Atom)) (code : Atom → Nat) (read : Nat → Atom)
+    (inverse : ∀ a, read (code a) = a) : Bridge (nativeSemantics reg read) SortTag.bag where
+  allowed := fun n => code (read n) = n
+  encode := fun a => (reg.quote .bag a).eval (algebra code)
+  decode := fun a => (rebuildBag read a).eval reg.toAlgebra
+  roundtrip := by
+    intro a
+    have h := rebuild_eval code read inverse (reg.quote .bag a)
+    exact (congrArg (fun t => t.eval reg.toAlgebra) h).trans (reg.eval_quote .bag a)
+  forward := {
+    zero := by
+      change (reg.quote .bag (reg.apply .empty PUnit.unit)).eval (algebra code) = _
+      rw [reg.quote_apply]; rfl
+    atom := by
+      intro n hn
+      change (reg.quote .bag (reg.apply (.atom (read n)) PUnit.unit)).eval (algebra code) = _
+      rw [reg.quote_apply]
+      change Value.atom (code (read n)) = Value.atom n
+      rw [hn]
+    add := by
+      intro a b
+      change (reg.quote .bag (reg.apply .union (a, b, PUnit.unit))).eval (algebra code) = _
+      rw [reg.quote_apply]; rfl
+    rel := fun h => (exact code read inverse _ _).mp h }
+  backward := {
+    zero := rfl
+    atom := by intro n _; rfl
+    add := fun _ _ => rfl
+    rel := by
+      intro a b h
+      change Structural.Indexed.Eq (signature Atom)
+        (reg.quote .bag ((rebuildBag read a).eval reg.toAlgebra))
+        (reg.quote .bag ((rebuildBag read b).eval reg.toAlgebra))
+      rw [Registration.quote_eval, Registration.quote_eval]
+      exact rebuildBag_congr read h }
+
+theorem native_wrap_iff (reg : Registration (signature Atom))
+    (code : Atom → Nat) (read : Nat → Atom) (inverse : ∀ a, read (code a) = a)
+    (a b : reg.Carrier .bag) :
+    NativeEq (signature Atom) reg (s := .configuration)
+      (reg.apply .wrap (a, PUnit.unit)) (reg.apply .wrap (b, PUnit.unit)) ↔
+    NativeEq (signature Atom) reg a b := by
+  unfold NativeEq
+  rw [reg.quote_apply, reg.quote_apply]
+  exact wrap_iff code read inverse _ _
+
+end Structural.Indexed.Wrapper
 
 /-! ## Example certificate data (shared with the Maude experiment) -/
 
@@ -1229,203 +1052,107 @@ structural WrappedTheory where
   comm Bag.union
   id Bag.union Bag.empty
 
-/-! ## Prototype stand-in for GENERATED registration metadata
+-- One annotation; all constructor metadata and registration proofs are generated.
+certify_structural WrappedTheory for Conf
 
-A future generator reads the above declarations and emits this block. It only
-enumerates constructors and defines structural recursion. The proof fields use
-cases/induction/rfl, or existing registration witnesses; there are no ACU or
-unification/reflection obligations. An interim annotation may identify this
-supported fragment and its symbols, e.g. "bag ACU, configuration free-wrapper".
-That annotation/command is NOT implemented yet.
--/
+open Structural.Indexed WrappedTheory.Generated
 
-open Indexed
-abbrev Tag := WrapperFragment.SortTag
-abbrev Sig := WrapperFragment.signature Bool
-
-def nativeAlgebra : Algebra Sig where
-  Carrier := fun s => match s with | .bag => Bag | .configuration => Conf
-  apply := fun f args => match f, args with
-    | .empty, _ => Bag.empty
-    | .atom false, _ => Bag.red
-    | .atom true, _ => Bag.blue
-    | .union, (a, b, _) => Bag.union a b
-    | .wrap, (a, _) => Conf.wrap a
-
-def quoteBag : Bag → Tree Sig .bag
-  | .empty => .app .empty .nil
-  | .red => .app (.atom false) .nil
-  | .blue => .app (.atom true) .nil
-  | .union a b => .app .union (.cons (quoteBag a) (.cons (quoteBag b) .nil))
-
-def quote : (s : Tag) → nativeAlgebra.Carrier s → Tree Sig s
-  | .bag, a => quoteBag a
-  | .configuration, .wrap a => .app .wrap (.cons (quoteBag a) .nil)
-
-def registration : Registration Sig where
-  toAlgebra := nativeAlgebra
-  quote := quote
-  eval_quote := by
-    intro s a
-    cases s with
-    | bag => induction a <;> simp_all [quote, quoteBag, Tree.eval, Trees.eval, nativeAlgebra]
-    | configuration =>
-        cases a with
-        | wrap a =>
-            have h : (quoteBag a).eval nativeAlgebra = a := by
-              induction a <;> simp_all [quoteBag, Tree.eval, Trees.eval, nativeAlgebra]
-            change Conf.wrap ((quoteBag a).eval nativeAlgebra) = Conf.wrap a
-            rw [h]
-  quote_apply := by
-    intro ss s f args
-    cases f with
-    | empty => cases args; rfl
-    | atom a => cases args; cases a <;> rfl
-    | union => rcases args with ⟨a, b, u⟩; cases u; rfl
-    | wrap => rcases args with ⟨a, u⟩; cases u; rfl
-
-def nativeHead {ss s} : Sig.Symbol ss s → Curried nativeAlgebra.Carrier ss s
-  | .empty => Bag.empty
-  | .atom false => Bag.red
-  | .atom true => Bag.blue
-  | .union => Bag.union
-  | .wrap => Conf.wrap
-
-def legacy : Legacy Sig WrappedTheory nativeAlgebra where
-  head := nativeHead
-  apply_head := by
-    intro ss s f args
-    cases f with
-    | empty => rfl
-    | atom a => cases a <;> rfl
-    | union => rfl
-    | wrap => rfl
-  registered := by
-    intro ss s f
-    cases f with
-    | atom a =>
-        cases a with
-        | false => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.red)
-        | true => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.blue)
-    | empty => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.empty)
-    | union => exact (inferInstance : Structural.HasConstructor WrappedTheory Bag.union)
-    | wrap => exact (inferInstance : Structural.HasConstructor WrappedTheory Conf.wrap)
-  «comm» := by
-    intro s op; cases op
-    exact (inferInstance : Structural.HasComm WrappedTheory Bag.union)
-  «assoc» := by
-    intro s op; cases op
-    exact (inferInstance : Structural.HasAssoc WrappedTheory Bag.union)
-  unit := by
-    intro s op; cases op
-    exact (inferInstance : Structural.HasIdentity WrappedTheory Bag.union Bag.empty)
-
-/-! ## Library instantiation, kept separate from registration
-
-All nontrivial reasoning uses the generic fragment theorems. The functions here
-just select the generated metadata; they are not additional user obligations.
--/
-
-def code : Bool → Nat | false => 0 | true => 1
-def read : Nat → Bool | 0 => false | _ + 1 => true
-
-theorem read_code (a : Bool) : read (code a) = a := by cases a <;> rfl
-
-abbrev bagEq (a b : Bag) := NativeEq Sig registration (s := .bag) a b
-abbrev confEq (a b : Conf) := NativeEq Sig registration (s := .configuration) a b
-
--- Distinct temporary notation: do NOT silently reinterpret existing =[WrappedTheory].
-local infix:50 " ≈ᵇ " => bagEq
-local infix:50 " ≈ᶜ " => confEq
-
-def encode (a : Bag) : WrapperFragment.Raw := (quoteBag a).eval (WrapperFragment.algebra code)
-def decode (a : WrapperFragment.Raw) : Bag :=
-  (WrapperFragment.rebuildBag read a).eval nativeAlgebra
-
-theorem decode_encode (a : Bag) : decode (encode a) = a := by
-  have h := WrapperFragment.rebuild_eval code read read_code (quoteBag a)
-  have h' := congrArg (fun t => t.eval nativeAlgebra) h
-  exact h'.trans (registration.eval_quote .bag a)
-
-theorem bagEq_iff (a b : Bag) : a ≈ᵇ b ↔ ACU (encode a) (encode b) :=
-  WrapperFragment.exact code read read_code (quoteBag a) (quoteBag b)
-
-theorem wrap_iff (a b : Bag) : Conf.wrap a ≈ᶜ Conf.wrap b ↔ a ≈ᵇ b :=
-  WrapperFragment.wrap_iff code read read_code (quoteBag a) (quoteBag b)
-
-theorem to_legacy {a b : Conf} (h : a ≈ᶜ b) : a =[WrappedTheory] b :=
-  NativeEq.to_legacy Sig registration legacy h
-
-def nativeSemantics : Semantics Bag :=
-  ⟨.empty, (fun n => if read n then .blue else .red), .union, bagEq⟩
-
-def bridge : Bridge nativeSemantics WrapperFragment.SortTag.bag where
-  allowed := fun n => n = 0 ∨ n = 1
-  encode := encode
-  decode := decode
-  roundtrip := decode_encode
-  forward := {
-    zero := rfl
-    atom := by intro n hn; rcases hn with rfl | rfl <;> rfl
-    add := fun _ _ => rfl
-    rel := fun h => (bagEq_iff _ _).mp h }
-  backward := {
-    zero := rfl
-    atom := by intro n hn; cases n <;> rfl
-    add := fun _ _ => rfl
-    rel := by
-      intro a b h
-      have lifted := WrapperFragment.rebuildBag_congr read h
-      change Indexed.Eq Sig
-        (registration.quote .bag ((WrapperFragment.rebuildBag read a).eval registration.toAlgebra))
-        (registration.quote .bag ((WrapperFragment.rebuildBag read b).eval registration.toAlgebra))
-      rw [Registration.quote_eval Sig registration, Registration.quote_eval Sig registration]
-      exact lifted }
+-- Generic checker instantiated with automatically generated metadata.
+private abbrev bridge := Wrapper.checker registration code read read_code
 
 /-! ## User-level certificate example
 
 Only native constructor terms in the statement. Inversion of the free wrapper
 is a library theorem; after that the SAME primitive ACU certificate is checked.
-The main statement uses the experimental indexed relation, not old EqMod.
+The explicit `.certified` selects the library's indexed semantics. The existing
+`=[WrappedTheory]` retains its original meaning during migration.
 -/
 
 theorem wrapped_two_unifiers (X Y Z : Bag) :
-    Conf.wrap (Bag.union X Y) ≈ᶜ Conf.wrap (Bag.union .red Z) ↔
-      (∃ p q : Bag, X ≈ᵇ Bag.union .red p ∧ Y ≈ᵇ q ∧ Z ≈ᵇ Bag.union p q) ∨
-      (∃ p q : Bag, X ≈ᵇ p ∧ Y ≈ᵇ Bag.union .red q ∧ Z ≈ᵇ Bag.union p q) := by
-  rw [wrap_iff]
+    Conf.wrap (Bag.union X Y) =[WrappedTheory.certified] Conf.wrap (Bag.union .red Z) ↔
+      (∃ p q : Bag, X =[WrappedTheory.certified] Bag.union .red p ∧
+        Y =[WrappedTheory.certified] q ∧ Z =[WrappedTheory.certified] Bag.union p q) ∨
+      (∃ p q : Bag, X =[WrappedTheory.certified] p ∧
+        Y =[WrappedTheory.certified] Bag.union .red q ∧ Z =[WrappedTheory.certified] Bag.union p q) := by
+  refine (Wrapper.native_wrap_iff registration code read read_code _ _).trans ?_
   have certified := bridge.check_exact
     (.eqn (.add (.var 0) (.var 1)) (.add (.atom 0) (.var 2)))
     (overlapSolutions (.var 0) (.var 1) (.var 2) 0)
     Demo.overlapPrimitiveTrace (by decide)
-    (by simp [Formula.uses, Term.uses, bridge])
-    (by simp [overlapSolutions, Formula.uses, Term.uses, Term.lift, bridge])
+    (by simp [Formula.uses, Term.uses, bridge, Wrapper.checker, code, WrappedTheory.Generated.read])
+    (by simp [overlapSolutions, Formula.uses, Term.uses, Term.lift, bridge,
+      Wrapper.checker, code, WrappedTheory.Generated.read])
     (fun n => match n with | 0 => X | 1 => Y | _ => Z)
-  simpa only [overlapSolutions, Formula.sat, Term.denote, Term.lift, nativeSemantics, read,
-    Bool.false_eq_true, ↓reduceIte] using certified
+  simpa only [overlapSolutions, Formula.sat, Term.denote, Term.lift] using certified
 
 -- Regression checks: the free wrapper respects ACU but does not collapse atoms.
-example (a : Bag) : Conf.wrap (Bag.union a .empty) ≈ᶜ Conf.wrap a := by
-  rw [wrap_iff, bagEq_iff]
+example (a : Bag) : Conf.wrap (Bag.union a .empty) =[WrappedTheory.certified] Conf.wrap a := by
+  apply (Wrapper.native_wrap_iff registration code read read_code _ _).mpr
+  apply (Wrapper.exact code read read_code _ _).mpr
   exact .unitRight _
 
-example : ¬ (Conf.wrap Bag.red ≈ᶜ Conf.wrap Bag.blue) := by
-  rw [wrap_iff, bagEq_iff]
+example : ¬ (Conf.wrap Bag.red =[WrappedTheory.certified] Conf.wrap Bag.blue) := by
   intro h
-  have hp := h.flatten_perm
-  simp [encode, quoteBag, Tree.eval, WrapperFragment.algebra,
-    code, Value.flatten] at hp
+  have hp := ((Wrapper.exact code read read_code _ _).mp h).flatten_perm
+  change ([0] : List Nat).Perm [1] at hp
+  simp at hp
 
 #print axioms wrapped_two_unifiers
-#print axioms to_legacy
+
+-- Certified equality still provides ordinary EqMod evidence to existing clients.
+example {a b : Conf} (h : a =[WrappedTheory.certified] b) : a =[WrappedTheory] b :=
+  Structural.CertifiedTheory.to_original WrappedTheory.certified h
 
 end Certification2.IndexedExample
+
+/-! Registration regression: different names, three atoms, and an atom declared
+after the binary constructor. No generated declarations are supplied by hand. -/
+namespace Certification2.RegistrationRegression
+
+inductive Contents where
+  | nothing | apple
+  | combine : Contents → Contents → Contents
+  | pear | plum
+
+inductive State where
+  | box : Contents → State
+
+instance : framework.State State := ⟨⟩
+
+open scoped Structural
+
+structural FruitTheory where
+  comm Contents.combine
+  id Contents.combine Contents.nothing
+  assoc Contents.combine
+
+certify_structural FruitTheory for State
+
+example (x : Contents) :
+    State.box (Contents.combine x .nothing) =[FruitTheory.certified] State.box x := by
+  apply (Structural.Indexed.Wrapper.native_wrap_iff FruitTheory.Generated.registration
+    FruitTheory.Generated.code FruitTheory.Generated.read FruitTheory.Generated.read_code _ _).mpr
+  exact Structural.Indexed.Eq.trans
+    (Structural.Indexed.Eq.comm (sig := FruitTheory.Generated.Sig)
+      Structural.Indexed.Wrapper.Operator.union _ _)
+    (Structural.Indexed.Eq.unit (sig := FruitTheory.Generated.Sig)
+      Structural.Indexed.Wrapper.Operator.union _)
+
+-- Unsupported signatures fail at validation, before any metadata is generated.
+inductive NotAWrapper where
+  | first | second
+
+/-- error: certify_structural currently requires one free unary state constructor -/
+#guard_msgs in
+certify_structural FruitTheory for NotAWrapper
+
+end Certification2.RegistrationRegression
 
 /-! ## Internal regression checks (not additional user proof obligations) -/
 
 namespace Certification2.Regression
 
-abbrev F := Formula WrapperFragment.SortTag.bag
+abbrev F := Formula Structural.Indexed.Wrapper.SortTag.bag
 
 -- A successful derivation cannot certify an answer with one branch omitted.
 example : check

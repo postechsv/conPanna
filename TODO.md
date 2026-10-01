@@ -24,7 +24,7 @@ an infeasible residual constraint denotes an empty successor.
 
 - ONE active Lean experiment: `certification2.lean`. Start with
   `IndexedExample.wrapped_two_unifiers` near the bottom.
-- General library code, generated-registration stand-in, and the single main
+- General library code, automatic registration, and the single main
   user proof are clearly separated. Superseded experimental Lean files were
   removed; do not add more intermediate files without a concrete need.
 - Primitive ACU certificate replay, capture-safe elimination, indexed constructor
@@ -32,16 +32,20 @@ an infeasible residual constraint denotes an empty successor.
   without admissions. Rejection/capture regression checks are retained.
 - Registration needs syntactic sort/symbol tables, quoting/round trips and
   existing law witnesses—not user freeness, reflection or unification proofs.
-  The metadata block is currently a handwritten stand-in, not a working generator.
+  `certify_structural T for Conf` now generates it for one ACU datatype with
+  nullary atoms and a free unary state wrapper. Put the annotation beside T's
+  declaration. Unsupported signatures are rejected explicitly.
 - The indexed relation has a proved map INTO existing Structural.EqMod, not an
-  equivalence with all old derivations. Core semantics remain unchanged.
+  equivalence with all old derivations. Indexed signatures, native registration,
+  and the forward bridge now live in conPanna.Structural. `=[T.certified]` opts
+  into indexed equality; `=[T]` and existing narrowing retain their semantics.
 - `certification2.maude` is unchanged: a scripted object-level derivation with
   both unifiers in one result. No complete search strategy/trace importer yet.
-- Next: report and scope a targeted Structural library improvement: retain
-  sort/argument indices in constructor derivations while preserving user syntax.
-  Obtain approval before changing core. Do not keep extending parallel semantics
-  or compatibility code around this known limitation. Metadata automation follows
-  the representation decision, not another round of intermediate files.
+- Next: extend automatic registration and the generic checker bridge to multiple
+  sorts and payload constructors needed by Bakery, then migrate structural rule/
+  pattern semantics and narrowing to certified theories. The explicit indexed
+  path is transitional, not a reason to build two independent narrowing engines.
+  Core changes were authorized; keep reporting semantic migration boundaries.
 - Repeated-variable search/termination and checking complexity remain research
   tasks; successful finite certificate checks do not establish a full algorithm.
 

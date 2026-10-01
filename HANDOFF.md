@@ -11,23 +11,27 @@ were removed. Keep further experiments in this file unless separation is necessa
 The companion `certification2.maude` is unchanged.
 
 The consolidated file contains general rule metatheorems and exact replay,
-generic positive-formula transport, sort/argument-indexed constructor derivations,
-a library theorem for ACU plus a free unary wrapper, generated-registration
-stand-in metadata, and one main native certificate proof. LSP/compiler and axiom
-checks pass without admissions. Capture and omitted-branch tests are retained.
+generic positive-formula transport, ACU/free-wrapper metatheorems, and one main
+native certificate proof. conPanna.Structural now owns the indexed constructor
+semantics, native registration, and `certify_structural T for Conf` generator.
+The demo needs one annotation, not handwritten metadata or semantic obligations.
+The generator currently supports one ACU datatype with nullary atoms and a free
+unary state wrapper; other signatures fail explicitly. No new Lean files added.
 
-Important boundary: native proofs use the experimental indexed relation, which
-maps into existing Structural.EqMod. No reverse bridge for all old derivations
-has been proved, and core semantics are untouched. This is not yet a complete
-ACU search procedure, automatic trace importer, or Bakery certificate.
+Important boundary: `=[T.certified]` selects the new indexed library relation,
+which maps into existing Structural.EqMod. No reverse bridge for all old
+derivations has been proved. `=[T]` and current narrowing retain their meanings.
+This is not yet a complete ACU search procedure, automatic trace importer, or
+Bakery certificate. Do not present this demo as certifying current narrowing.
 
 User requirement: no nontrivial semantic registration obligations. Registration
 contains syntactic metadata/round trips and existing law witnesses; reflection
 and wrapper inversion are library theorems. The user also requires reporting
 library limitations and proposing core improvements instead of accumulating
-legacy workarounds. Next scope the indexed-constructor change to Structural,
-preserving user syntax, and obtain approval before modifying core. Defer more
-prototype/metadata work until that representation decision. See TODO.md.
+legacy workarounds. Core improvements are now explicitly authorized. Next extend
+registration/checker transport to Bakery's richer signature, then migrate rule/
+pattern semantics and narrowing to certified theories. Keep the migration explicit
+rather than silently reinterpreting old EqMod. See TODO.md.
 
 The remainder records historical design context, not the current work queue.
 
