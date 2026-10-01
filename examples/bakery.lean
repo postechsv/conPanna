@@ -394,6 +394,19 @@ structural BakeryTheory where
 
 certify_structural BakeryTheory for Conf
 
+/- Certification dump example (run from the repository root):
+
+#dump_maude_model certification Conf mod BakeryTheory
+#dump_maude_query certification
+  (fun P Q : ProcSet => Conf.mk 0 0 (.union P Q)) =?
+  (fun R : ProcSet => Conf.mk 0 0 (.union (.singleton .idle) R))
+  from Conf mod BakeryTheory
+
+The saved script is examples/bakery-certification.maude. Its proposal contains
+both families and certificate data; parsing/kernel replay is not integrated yet.
+The current strategy requires ground payloads and matching ground Nat fields.
+-/
+
 open Mode ProcSet
 open scoped Multiset
 

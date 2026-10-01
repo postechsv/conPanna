@@ -7,8 +7,10 @@ open Structural
 # Optional Maude backend
 
 This module translates structural Lean signatures and symbolic equations to
-Maude, parses complete unifier sets back into solver-neutral certificates, and
-reuses the ordinary narrowing materializer and certification interface.
+Maude and parses candidate substitutions into solver-neutral data. Built-in
+`unify` output is not a proof of completeness. Certification dump commands export
+free syntax, native signature data and a request for the object-level calculus;
+their replies still need a parser and kernel replay before narrowing can use them.
 
 Set `CONPANNA_MAUDE` to override the executable name or path. By default the
 backend runs `maude` from `PATH`.
@@ -47,6 +49,7 @@ structure MaudeVariable where
 inductive MaudeTerm where
   | variable (name : String) (sort : Name)
   | application (constructor result : Name) (arguments : Array MaudeTerm)
+  deriving BEq
 
 structure TranslatedPattern where
   term : MaudeTerm
@@ -147,6 +150,14 @@ private partial def translateTerm (sorts : Array SortDecl)
   let expression ← withTransparency .all <| whnf expression
   if let some entry := findVariable? variables expression then
     return .variable entry.maudeName entry.sort
+  if let .lit (.natVal value) := expression then
+    unless (findConstructor? sorts ``Nat.zero).isSome &&
+        (findConstructor? sorts ``Nat.succ).isSome do
+      throwError "Nat literals require Nat in the generated signature"
+    let mut term := MaudeTerm.application ``Nat.zero ``Nat #[]
+    for _ in [:value] do
+      term := .application ``Nat.succ ``Nat #[term]
+    return term
   let some constructorName := expression.getAppFn.constName?
     | throwError "unsupported Maude term: {expression}"
   let some constructor := findConstructor? sorts constructorName
@@ -737,6 +748,201 @@ def dumpModelCommand (rootSyntax theorySyntax : Syntax) : TermElabM Unit := do
 def dumpTermCommand (patternSyntax rootSyntax : Syntax) : TermElabM Unit := do
   logInfo (← elaboratePatternTranslation patternSyntax rootSyntax)
 
+/-! Certification exports free syntax and law DATA. Native Maude ACU attributes
+and built-in `unify` belong only to the candidate path above. -/
+namespace Certification
+
+structure Signature where
+  sorts : Array SortDecl
+  bag : Name
+  add : Name
+  zero : Name
+
+private partial def containsBag (sorts : Array SortDecl) (bag : Name)
+    (seen : List Name) (sort : Name) : Bool :=
+  if sort == bag then true
+  else if seen.contains sort then false
+  else match sorts.find? (·.leanName == sort) with
+    | none => false
+    | some decl => decl.constructors.any fun ctor =>
+        ctor.fields.any (containsBag sorts bag (sort :: seen))
+
+private def inspect (root theory : Expr) : MetaM Signature := do
+  let sorts ← collectSignature root
+  let operators ← inspectTheory theory
+  let [operation] := operators.toList
+    | throwError "certification currently requires exactly one ACU operator"
+  let some add := findConstructor? sorts operation.leanName
+    | throwError "certification operator is outside the native signature"
+  let mut isComm := false
+  let mut isAssoc := false
+  let mut units : Array Name := #[]
+  for law in operation.laws do
+    match law with
+    | .commutative => isComm := true
+    | .associative => isAssoc := true
+    | .identity unit => units := units.push unit
+  let [unit] := units.toList
+    | throwError "certification requires one unit constructor"
+  unless isComm && isAssoc && add.fields == #[add.result, add.result] do
+    throwError "certification requires a binary ACU constructor"
+  let some zero := findConstructor? sorts unit
+    | throwError "certification unit is outside the native signature"
+  unless zero.fields.isEmpty && zero.result == add.result do
+    throwError "certification requires a nullary unit at the ACU sort"
+  for sort in sorts do
+    for ctor in sort.constructors do
+      if ctor.result == add.result && ctor.leanName != add.leanName then
+        if ctor.fields.any (containsBag sorts add.result []) then
+          throwError "certification does not support ACU terms nested inside payloads"
+  return { sorts, bag := add.result, add := add.leanName, zero := unit }
+
+private def constructors (sig : Signature) : Array ConstructorDecl :=
+  sig.sorts.flatMap (·.constructors)
+
+private def sortId (sig : Signature) (name : Name) : MetaM Nat := do
+  let some index := sig.sorts.findIdx? (·.leanName == name)
+    | throwError "sort is outside the certification signature: {name}"
+  return index
+
+private def constructorId (sig : Signature) (name : Name) : MetaM Nat := do
+  let some index := (constructors sig).findIdx? (·.leanName == name)
+    | throwError "constructor is outside the certification signature: {name}"
+  return index
+
+private def list (nil cons : String) (items : Array String) : String :=
+  items.foldr (fun item rest => s!"{cons}({item}, {rest})") nil
+
+/-- Qualified identities and argument sorts bind later replies to the exact
+native signature. IDs are local to this packet, not generated Lean Tag indices. -/
+def renderModule (sig : Signature) : MetaM String := do
+  let sorts := sig.sorts.mapIdx fun i sort =>
+    s!"nativeSort({i}, {sort.leanName.toString.quote})"
+  let ctors ← (constructors sig).mapIdxM fun i ctor => do
+    let fields ← ctor.fields.mapM (fun s => return toString (← sortId sig s))
+    return s!"nativeCtor({i}, {ctor.leanName.toString.quote}, " ++
+      s!"{← sortId sig ctor.result}, {list "nNil" "nCons" fields})"
+  return "load conPanna/certification.maude\n\n" ++
+    "mod LEAN-CERTIFICATION-MODEL is\n  protecting CERT2-PROTOCOL .\n" ++
+    "  op nativeSignature : -> Schema .\n  eq nativeSignature = schema(" ++
+    s!"{list "sNil" "sCons" sorts}, {list "cNil" "cCons" ctors}, " ++
+    s!"{← sortId sig sig.bag}, {← constructorId sig sig.add}, " ++
+    s!"{← constructorId sig sig.zero}) .\nendm"
+
+private partial def ground : MaudeTerm → Bool
+  | .variable .. => false
+  | .application _ _ args => args.all ground
+
+/-- Project through matching free constructors. Other fields must be identical
+ground syntax; payload variables and multiple changing fields fail explicitly. -/
+private partial def project (sig : Signature) (a b : MaudeTerm) :
+    MetaM (Array Nat × MaudeTerm × MaudeTerm) := do
+  let resultSort : MaudeTerm → Name
+    | .variable _ s | .application _ s _ => s
+  unless resultSort a == resultSort b do
+    throwError "certification equation has mismatched sorts"
+  if resultSort a == sig.bag then return (#[], a, b)
+  let .application f _ aa := a
+    | throwError "certification cannot project through a free-sort variable"
+  let .application g _ bb := b
+    | throwError "certification cannot project through a free-sort variable"
+  unless f == g && aa.size == bb.size do
+    throwError "certification constructor mismatch is not supported yet"
+  let changing := aa.zip bb |>.mapIdx (fun i (a, b) => (i, a, b))
+    |>.filter (fun (_, a, b) => !(ground a && ground b && a == b))
+  let [(index, a, b)] := changing.toList
+    | throwError "certification projection requires exactly one non-ground or changing field"
+  let (path, a, b) ← project sig a b
+  return (#[index] ++ path, a, b)
+
+private partial def nativeTerm (sig : Signature) (variables : Array MaudeVariable) :
+    MaudeTerm → MetaM String
+  | .variable name sort => do
+      let some index := variables.findIdx? (·.maudeName == name)
+        | throwError "unknown certification variable: {name}"
+      return s!"v({index}, {← sortId sig sort})"
+  | .application ctor _ args => do
+      let args ← args.mapM (nativeTerm sig variables)
+      return s!"node({← constructorId sig ctor}, {list "tNil" "tCons" args})"
+
+private partial def portableTerm (sig : Signature) (variables : Array MaudeVariable)
+    (term : MaudeTerm) (atoms : Array MaudeTerm) : MetaM (String × Array MaudeTerm) := do
+  match term with
+  | .variable name sort =>
+      unless sort == sig.bag do
+        throwError "certification payload variables are not supported yet"
+      let some index := variables.findIdx? (·.maudeName == name)
+        | throwError "unknown certification variable: {name}"
+      return (s!"var({index})", atoms)
+  | .application ctor result args =>
+      unless result == sig.bag do
+        throwError "expected a certification term at the ACU sort"
+      if ctor == sig.zero then return ("zero", atoms)
+      if ctor == sig.add then
+        let #[a, b] := args | throwError "unexpected ACU constructor arity"
+        let (a, atoms) ← portableTerm sig variables a atoms
+        let (b, atoms) ← portableTerm sig variables b atoms
+        return (s!"add({a}, {b})", atoms)
+      unless ground term do
+        throwError "certification payload variables are not supported yet"
+      if let some index := atoms.findIdx? (· == term) then
+        return (s!"atom({index})", atoms)
+      return (s!"atom({atoms.size})", atoms.push term)
+
+private def isOverlap (sig : Signature) (a b : MaudeTerm) : Bool :=
+  match a, b with
+  | .application f _ #[.variable x _, .variable y _],
+      .application g _ #[atom@(.application h _ _), .variable z _] =>
+      f == sig.add && g == sig.add && h != sig.add && h != sig.zero &&
+        ground atom && x != y && x != z && y != z
+  | _, _ => false
+
+/-- Native input, sorted variables, ground-atom dictionary and projection path
+remain in the request. The portable formula alone is not its identity. -/
+def renderQuery (sig : Signature) (problem : Unification.Problem.Input) : MetaM String := do
+  let lhs ← translatePattern sig.sorts "L" problem.lhs
+  let rhs ← translatePattern sig.sorts "R" problem.rhs
+  let variables := lhs.variables ++ rhs.variables
+  let (path, nativeA, nativeB) ← project sig lhs.term rhs.term
+  let (a, atoms) ← portableTerm sig variables nativeA #[]
+  let (b, atoms) ← portableTerm sig variables nativeB atoms
+  unless variables.size == 3 && variables.all (·.sort == sig.bag) &&
+      isOverlap sig nativeA nativeB do
+    throwError "certification search currently supports only X+Y = ground-atom+Z"
+  let declarations ← variables.mapIdxM fun i v => do
+    return s!"nativeVar({i}, {← sortId sig v.sort}, {v.maudeName.quote})"
+  let dictionary ← atoms.mapIdxM fun i atom => do
+    return s!"nativeAtom({i}, {← nativeTerm sig variables atom})"
+  let request := "request(1, nativeSignature, " ++
+    s!"{list "vNil" "vCons" declarations}, {list "aNil" "aCons" dictionary}, " ++
+    s!"{← nativeTerm sig variables lhs.term}, {← nativeTerm sig variables rhs.term}, " ++
+    s!"{list "nNil" "nCons" (path.map toString)}, eqn({a}, {b}))"
+  return (← renderModule sig) ++
+    "\n\nsmod LEAN-CERTIFICATION-QUERY is\n" ++
+    "  protecting LEAN-CERTIFICATION-MODEL .\n  protecting CERT2-SEARCH .\n" ++
+    "  op nativeQuery : -> Request .\n" ++ s!"  eq nativeQuery = {request} .\nendsm\n\n" ++
+    "srew [1] in LEAN-CERTIFICATION-QUERY : query(nativeQuery) using certifyOverlap .\nquit\n"
+
+def exportQuery (root theory : Expr) (problem : Unification.Problem.Input) : MetaM String := do
+  renderQuery (← inspect root theory) problem
+
+private def elaborateSignature (rootSyntax theorySyntax : Syntax) : TermElabM Signature := do
+  let root ← elabType rootSyntax
+  discard <| synthInstance (← mkAppM ``framework.State #[root])
+  let theory ← elabTerm theorySyntax (some (← mkConstWithFreshMVarLevels ``Structural.Theory))
+  inspect root theory
+
+def dumpModelCommand (rootSyntax theorySyntax : Syntax) : TermElabM Unit := do
+  logInfo (← renderModule (← elaborateSignature rootSyntax theorySyntax))
+
+def dumpQueryCommand (lhs rhs root theory : Syntax) : TermElabM Unit := do
+  let sig ← elaborateSignature root theory
+  let left ← Unification.Problem.saturatePattern (← elabTerm lhs none)
+  let right ← Unification.Problem.saturatePattern (← elabTerm rhs none)
+  logInfo (← renderQuery sig { lhs := left, rhs := right })
+
+end Certification
+
 end Maude
 
 elab "#dump_maude_model " root:term " mod " theory:term : command => do
@@ -746,3 +952,12 @@ elab "#dump_maude_model " root:term " mod " theory:term : command => do
 elab "#dump_maude_term " pattern:term " from " root:term : command => do
   Lean.Elab.Command.liftTermElabM <|
     Maude.dumpTermCommand pattern.raw root.raw
+
+elab "#dump_maude_model " "certification " root:term " mod " theory:term : command => do
+  Lean.Elab.Command.liftTermElabM <|
+    Maude.Certification.dumpModelCommand root.raw theory.raw
+
+elab "#dump_maude_query " "certification " lhs:term " =? " rhs:term " from " root:term
+    " mod " theory:term : command => do
+  Lean.Elab.Command.liftTermElabM <|
+    Maude.Certification.dumpQueryCommand lhs.raw rhs.raw root.raw theory.raw

@@ -1,0 +1,226 @@
+--- Object-level ACU certification calculus. No built-in unify or META-LEVEL.
+--- certifyOverlap is a partial, scripted strategy for the proved overlap fragment.
+
+mod CERT2 is
+  protecting NAT .
+  sorts Term Formula Sub MaybeTerm Binding .
+  ops zero : -> Term [ctor] .
+  ops var atom : Nat -> Term [ctor] .
+  op add : Term Term -> Term [ctor] .
+  op truth : -> Formula [ctor] .
+  op eqn : Term Term -> Formula [ctor] .
+  ops conj disj : Formula Formula -> Formula [ctor] .
+  op ex : Formula -> Formula [ctor] .
+  ops shift swap : -> Sub [ctor] .
+  ops up : Sub -> Sub [ctor] .
+  op replace : Term -> Sub [ctor] .
+  op lookup : Sub Nat -> Term .
+  op subst : Sub Term -> Term .
+  op subst : Sub Formula -> Formula .
+  op lift : Term -> Term .
+  op lift4 : Term -> Term .
+  op absent : -> MaybeTerm [ctor] .
+  op present : Term -> MaybeTerm [ctor] .
+  op lower : Term -> MaybeTerm .
+  op lowerAdd : MaybeTerm MaybeTerm -> MaybeTerm .
+  op noBinding : -> Binding [ctor] .
+  op found : Term Formula -> Binding [ctor] .
+  op binding : Formula -> Binding .
+  op fromLower : MaybeTerm -> Binding .
+  op inLeft : Binding Formula Formula -> Binding .
+  op inRight : Formula Binding -> Binding .
+  op units : Term -> Term .
+  op unitAdd : Term Term -> Term .
+  op clean : Formula -> Formula .
+  op cleanAnd : Formula Formula -> Formula .
+  vars A B C D T U : Term .
+  vars P Q R : Formula .
+  vars N K : Nat .
+  var S : Sub .
+  var MT : MaybeTerm .
+
+  eq lookup(shift, N) = var(N + 1) .
+  eq lookup(swap, 0) = var(1) .
+  eq lookup(swap, 1) = var(0) .
+  ceq lookup(swap, N) = var(N) if N > 1 .
+  eq lookup(replace(T), 0) = T .
+  eq lookup(replace(T), s(N)) = var(N) .
+  eq lookup(up(S), 0) = var(0) .
+  eq lookup(up(S), s(N)) = lift(lookup(S, N)) .
+  eq subst(S, var(N)) = lookup(S, N) .
+  eq subst(S, atom(K)) = atom(K) .
+  eq subst(S, zero) = zero .
+  eq subst(S, add(A, B)) = add(subst(S, A), subst(S, B)) .
+  eq subst(S, truth) = truth .
+  eq subst(S, eqn(A, B)) = eqn(subst(S, A), subst(S, B)) .
+  eq subst(S, conj(P, Q)) = conj(subst(S, P), subst(S, Q)) .
+  eq subst(S, disj(P, Q)) = disj(subst(S, P), subst(S, Q)) .
+  eq subst(S, ex(P)) = ex(subst(up(S), P)) .
+  eq lift(T) = subst(shift, T) .
+  eq lift4(T) = lift(lift(lift(lift(T)))) .
+  eq lower(var(0)) = absent .
+  eq lower(var(s(N))) = present(var(N)) .
+  eq lower(zero) = present(zero) .
+  eq lower(atom(K)) = present(atom(K)) .
+  eq lower(add(A, B)) = lowerAdd(lower(A), lower(B)) .
+  eq lowerAdd(present(A), present(B)) = present(add(A, B)) .
+  eq lowerAdd(absent, MT) = absent .
+  eq lowerAdd(MT, absent) = absent .
+  eq binding(eqn(var(0), T)) = fromLower(lower(T)) .
+  eq binding(conj(P, Q)) = inLeft(binding(P), P, Q) .
+  eq binding(P) = noBinding [owise] .
+  eq fromLower(absent) = noBinding .
+  eq fromLower(present(T)) = found(T, truth) .
+  eq inLeft(found(T, P), R, Q) = found(T, conj(P, Q)) .
+  --- Need original left conjunct if no binding was found there.
+  eq inLeft(noBinding, P, Q) = inRight(P, binding(Q)) .
+  eq inRight(P, found(T, Q)) = found(T, conj(P, Q)) .
+  eq inRight(P, noBinding) = noBinding .
+  eq units(var(N)) = var(N) .
+  eq units(atom(K)) = atom(K) .
+  eq units(zero) = zero .
+  eq units(add(A, B)) = unitAdd(units(A), units(B)) .
+  eq unitAdd(zero, T) = T .
+  eq unitAdd(T, zero) = T .
+  eq unitAdd(A, B) = add(A, B) [owise] .
+  eq clean(truth) = truth .
+  eq clean(eqn(A, B)) = eqn(units(A), units(B)) .
+  eq clean(conj(P, Q)) = cleanAnd(clean(P), clean(Q)) .
+  eq clean(disj(P, Q)) = disj(clean(P), clean(Q)) .
+  eq clean(ex(P)) = ex(clean(P)) .
+  eq cleanAnd(truth, P) = P .
+  eq cleanAnd(P, truth) = P .
+  eq cleanAnd(P, Q) = conj(P, Q) [owise] .
+
+  rl [mutate] : eqn(add(A, B), add(C, D)) =>
+    ex(ex(ex(ex(conj(eqn(lift4(A), add(var(3), var(2))),
+      conj(eqn(lift4(B), add(var(1), var(0))),
+      conj(eqn(lift4(C), add(var(3), var(1))),
+           eqn(lift4(D), add(var(2), var(0)))))))))) .
+  rl [symmetry] : eqn(A, B) => eqn(B, A) .
+  rl [splitAtom] : eqn(add(A, B), atom(K)) =>
+    disj(conj(eqn(A, zero), eqn(B, atom(K))),
+         conj(eqn(A, atom(K)), eqn(B, zero))) .
+  rl [distributeLeft] : conj(disj(P, Q), R) => disj(conj(P, R), conj(Q, R)) .
+  rl [distributeRight] : conj(P, disj(Q, R)) => disj(conj(P, Q), conj(P, R)) .
+  rl [distributeExists] : ex(disj(P, Q)) => disj(ex(P), ex(Q)) .
+  rl [exchangeExists] : ex(ex(P)) => ex(ex(subst(swap, P))) .
+  crl [eliminate] : ex(P) => subst(replace(T), Q)
+    if found(T, Q) := binding(P) .
+  rl [cleanup] : P => clean(P) .
+  rl [swapBranches] : disj(P, Q) => disj(Q, P) .
+endm
+
+smod CERT2-DEMO is
+  protecting CERT2 .
+  vars P Q : Formula .
+  strat eliminatePieces : @ Formula .
+  strat solveOverlap : @ Formula .
+
+  --- These are strategy choices/positions, not trusted proof rules.
+  sd eliminatePieces :=
+    top(exchangeExists) ;
+    (matchrew ex(P) by P using top(exchangeExists)) ;
+    (matchrew ex(ex(P)) by P using top(exchangeExists)) ;
+    (matchrew ex(P) by P using top(exchangeExists)) ;
+    (matchrew ex(ex(ex(P))) by P using top(eliminate)) ;
+    (matchrew ex(ex(P)) by P using top(eliminate)) ; top(cleanup) .
+
+  sd solveOverlap := top(mutate) ;
+    (matchrew ex(ex(ex(ex(conj(P, conj(Q, conj(R:Formula, S:Formula)))))))
+      by R:Formula using (top(symmetry) ; top(splitAtom))) ;
+    distributeLeft ; distributeRight ; distributeRight ;
+    distributeExists ; distributeExists ; distributeExists ; distributeExists ;
+    (matchrew disj(P, Q) by P using eliminatePieces, Q using eliminatePieces) ;
+    top(swapBranches) ; top(cleanup) .
+endsm
+
+--- First-order protocol. All user constructors, their domains and structural
+--- declarations are DATA, with no ACU attributes on native or portable terms.
+mod CERT2-PROTOCOL is
+  protecting CERT2 .
+  protecting STRING .
+  sorts NativeSort NativeCtor Schema NativeTerm NativeTerms Nats
+        NativeVar NativeAtom Sorts Ctors Variables Atoms
+        Request Rule Certificate .
+  op nNil : -> Nats [ctor] .
+  op nCons : Nat Nats -> Nats [ctor] .
+  op nativeSort : Nat String -> NativeSort [ctor] .
+  op nativeCtor : Nat String Nat Nats -> NativeCtor [ctor] .
+  op sNil : -> Sorts [ctor] .
+  op sCons : NativeSort Sorts -> Sorts [ctor] .
+  op cNil : -> Ctors [ctor] .
+  op cCons : NativeCtor Ctors -> Ctors [ctor] .
+  op schema : Sorts Ctors Nat Nat Nat -> Schema [ctor] .
+  op v : Nat Nat -> NativeTerm [ctor] .
+  op node : Nat NativeTerms -> NativeTerm [ctor] .
+  op tNil : -> NativeTerms [ctor] .
+  op tCons : NativeTerm NativeTerms -> NativeTerms [ctor] .
+  op nativeVar : Nat Nat String -> NativeVar [ctor] .
+  op nativeAtom : Nat NativeTerm -> NativeAtom [ctor] .
+  op vNil : -> Variables [ctor] .
+  op vCons : NativeVar Variables -> Variables [ctor] .
+  op aNil : -> Atoms [ctor] .
+  op aCons : NativeAtom Atoms -> Atoms [ctor] .
+  --- Version, schema, sorted variables, atom dictionary, both native inputs,
+  --- free-constructor projection path, and the portable input equation.
+  op request : Nat Schema Variables Atoms NativeTerm NativeTerm Nats Formula -> Request [ctor] .
+  ops mutate splitAtom symmetry distributeLeft distributeRight distributeExists
+      exchangeExists eliminate cleanup swapBranches : -> Rule [ctor] .
+  op rule : Rule -> Certificate [ctor] .
+  op seq : Certificate Certificate -> Certificate [ctor] .
+  ops left right under : Certificate -> Certificate [ctor] .
+  op beneath : Nat Certificate -> Certificate .
+  op extrude : Nat -> Certificate .
+  ops piecesProof overlapProof : -> Certificate .
+  vars C D : Certificate .
+  var N : Nat .
+  eq beneath(0, C) = C .
+  eq beneath(s(N), C) = under(beneath(N, C)) .
+  eq extrude(0) = rule(distributeExists) .
+  eq extrude(s(N)) = seq(under(extrude(N)), rule(distributeExists)) .
+  eq piecesProof = seq(rule(exchangeExists),
+    seq(beneath(1, rule(exchangeExists)),
+    seq(beneath(2, rule(exchangeExists)),
+    seq(beneath(1, rule(exchangeExists)),
+    seq(beneath(3, rule(eliminate)),
+    seq(beneath(2, rule(eliminate)), rule(cleanup))))))) .
+  --- Explicit certificate DATA for the same partial strategy as CERT2-DEMO.
+  --- This is a fixed plan, not an automatic search-trace accumulator.
+  eq overlapProof = seq(rule(mutate),
+    seq(beneath(4, right(right(left(seq(rule(symmetry), rule(splitAtom)))))),
+    seq(beneath(4, right(right(rule(distributeLeft)))),
+    seq(beneath(4, right(rule(distributeRight))),
+    seq(beneath(4, rule(distributeRight)),
+    seq(extrude(3), seq(left(piecesProof), seq(right(piecesProof),
+    seq(rule(swapBranches), rule(cleanup)))))))))) .
+endm
+
+mod CERT2-RESULT is
+  protecting CERT2-PROTOCOL .
+  sort Reply .
+  op query : Request -> Reply [ctor] .
+  op pending : Request Formula -> Reply [ctor] .
+  op proposed : Request Formula Certificate -> Reply [ctor] .
+  vars V B A Z : Nat .
+  var S : Schema .
+  var X : Variables .
+  var K : Atoms .
+  vars L R : NativeTerm .
+  var Path : Nats .
+  var P : Formula .
+  var Q : Request .
+  rl [beginCertification] : query(request(V, S, X, K, L, R, Path, P)) =>
+    pending(request(V, S, X, K, L, R, Path, P), P) .
+  rl [finishCertification] : pending(Q, P) => proposed(Q, P, overlapProof) .
+endm
+
+smod CERT2-SEARCH is
+  protecting CERT2-RESULT .
+  protecting CERT2-DEMO .
+  var Q : Request .
+  var P : Formula .
+  strat certifyOverlap : @ Reply .
+  sd certifyOverlap := top(beginCertification) ;
+    (matchrew pending(Q, P) by P using solveOverlap) ; top(finishCertification) .
+endsm

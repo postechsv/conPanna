@@ -5,8 +5,8 @@ This document records the design decisions and current implementation state need
 ## NEXT SESSION: proof-producing Maude unification (2026-10-02)
 
 Read this section FIRST. The long historical notes below are not the active plan.
-Baseline commit: `200e815`. The first two integration increments are committed;
-the third increment below is uncommitted.
+Baseline commit: `50fabd2`. The first three integration increments are committed;
+the fourth increment below is uncommitted.
 
 ### First integration increment: exactness and constraint witnesses
 
@@ -94,13 +94,66 @@ approval is needed. Do not commit unless asked.
   and full `lake env lean certification2.lean` (exit 0). Only the prototype and
   handoff/TODO were changed; no new library warnings or proof admissions.
 
-Next: automate the semantic interpretation from generated signature metadata,
-using reusable free-constructor/ACU fragment proofs instead of extending the
-hand-instantiated Bakery interpretation. Then implement the first explicit Maude
-certificate-output protocol and parser for this proved ground-payload fragment.
-Extend sorted payload-variable rules before claiming coverage of Bakery's actual
-atomic overlaps. Production proof-carrying results and constrained lifting are
-still future increments.
+### Fourth integration increment: certification dumps and Maude reply data
+
+The user directed this increment toward the existing dump functionality and
+`certification2.maude`. It establishes an export/reply DATA path, without claiming
+automatic semantic interpretation or a checked external certificate pipeline.
+
+- `Maude.Certification` reuses native signature/law discovery and pattern
+  translation. `#dump_maude_model certification Conf mod BakeryTheory` exports
+  a free first-order schema: qualified constructor identities, all argument and
+  result sorts, and the single ACU bag/operator/unit. No native ACU attributes.
+- `#dump_maude_query certification lhs =? rhs from Conf mod BakeryTheory`
+  emits a runnable script with a version-1 Request: exact schema, sorted variable
+  IDs, ground-atom dictionary, both native inputs, free-constructor projection
+  path, and portable equation. Public Meta API: `Maude.Certification.exportQuery`.
+  Supported search shape: X+Y = ground-atom+Z with three distinct ProcSet variables;
+  enclosing free constructors must match with identical ground other fields.
+- Explicitly reject payload variables, differing configuration fields, repeated
+  variables, unsupported query shapes/laws, and ACU-containing payload sorts.
+  Shared translation now expands Nat literals to zero/succ constructor syntax,
+  fixing concrete counter/payload dumps (previously `0` was rejected).
+- `conPanna/certification.maude` contains the previous object-level calculus and
+  partial overlap strategy, plus schema/request/reply and Certificate DATA.
+  `CERT2-SEARCH.certifyOverlap` returns `proposed(request, output, certificate)`.
+  Both families remain ONE disjunction. The explicit certificate term is the
+  FIXED plan for this strategy, not an automatically accumulated search trace.
+  `certification2.maude` remains the original manual-trace/freshness regression
+  driver, now loading the shared engine.
+- `examples/bakery-certification.maude` is a runnable generated Bakery snapshot;
+  its load path is adjusted relative to examples/. Run from repository root:
+  `maude -no-banner -no-advise examples/bakery-certification.maude`.
+  The dump syntax is documented beside Bakery's native registration.
+- `Certification2.BakeryDump` checks the actual exported Maude result contains
+  the whole expected disjunction and COMPLETE certificate data matching the
+  previously kernel-checked plan. Guarded command tests
+  reject symbolic payloads, mismatched counters and repeated variables. These
+  are exporter regressions, NOT native certification proofs from parsed replies.
+  Existing production candidate unification/matching still use their old path.
+- Verified: lean-lsp-mcp diagnostics, `lake build`, fresh Bakery import artifact,
+  full `certification2.lean`, theory_examples and narrowing_examples. Both Maude
+  drivers run without warnings, return both families, and preserve the original
+  freshness checks. Old dumps and a ground wait(3) payload dump also compile.
+  Bakery reports only its three existing sorries; no new code warnings/admissions.
+
+Important next boundary: reply parsing must validate the version and EXACT echoed
+request, then parse/check the WHOLE output and certificate before decoding the
+returned family. Packet sort/constructor IDs follow Maude discovery order, NOT
+generated Lean Tag/Symbol indices. Ground-atom IDs are local dictionary indices,
+NOT BakeryEncoding.code values: idle is 0 in this example, but e.g. exported
+wait(3) is also dictionary atom(0), while BakeryEncoding.code(wait(3)) is 7.
+Do not silently use such IDs with the old bridge. Validate native payload trees
+and establish the atom remapping/native projection proof when integrating replay.
+The schema and echo are data; they do not by themselves establish faithfulness.
+
+Next: parse the versioned reply as untrusted data and connect kernel replay for
+the supported Bakery ground-idle query, with exact request/output validation.
+Automate the general semantic interpretation before extending beyond that fixed
+profile; extend sorted payload-variable rules before claiming coverage of Bakery's
+actual atomic overlaps. No-result, timeout or truncated stdout must not mean a
+complete empty unifier family. Production proof-carrying results and constrained
+lifting remain future increments; Bakery still has its three hcomplete holes.
 
 ### User's requested outcome
 
@@ -130,11 +183,12 @@ algorithm based on the single scripted trace currently present.
    Successful replay proves an iff of solution predicates. The two-unifier
    `IndexedExample.wrapped_two_unifiers` and actual native Bakery
    `BakeryCertificate.two_families` are kernel checked without admissions.
-3. **Maude mirror**: `certification2.maude` scripts one primitive derivation of
-   X+Y = atom+Z, retaining both unifiers as ONE disjunction. It uses object-level
-   rules and a hand-written strategy, NOT built-in unify or META-LEVEL. Its trace
-   is manually mirrored in Lean. There is NO automatic trace parser, general
-   strategy, or machine-readable certificate accumulator yet.
+3. **Maude data path**: `conPanna/certification.maude` runs the scripted overlap
+   strategy and returns a versioned native request, whole disjunction and explicit
+   fixed-plan certificate. `certification2.maude` loads it for the original manual
+   trace regression. `Maude.Certification` exports actual Bakery requests. There
+   is NO reply parser, general strategy, automatic trace accumulator or proof
+   integration with this external reply yet.
 4. **Library registration**: `Structural.Indexed` provides sort/argument-indexed
    signatures, trees, equality, native registration and a forward legacy map.
    `certify_structural T for Conf` now generates metadata for many-sorted native
@@ -151,7 +205,8 @@ algorithm based on the single scripted trace currently present.
    generated actual signature and certify the complete two-family ProcSet equation
    and its Conf wrapper. This interpretation is manually instantiated, and the
    theorem uses indexed equality. Payload-variable unification, automatic semantic
-   generation and external certificate parsing remain unsupported.
+   generation and external certificate parsing remain unsupported. The new
+   `BakeryDump` regression checks exporter/reply data separately from that proof.
 
 ### Read these entry points, not the whole repository
 
@@ -163,7 +218,8 @@ algorithm based on the single scripted trace currently present.
   older library tactic that opens a completeness bundle directly.
 - `conPanna/Maude.lean`: `collectSignature`, `translatePattern`, `inspectTheory`,
   `renderModule`, `runMaude`, `solveWithMaude`, `parseUnifiers`, `toSolutionSet`,
-  `solveStructuralTheory`; existing registration at the bottom. Keep matching
+  `solveStructuralTheory`, new `Certification` namespace/dump commands; existing
+  backend registration remains before the dump code. Keep matching
   (`matchStructuralTheory`) separate; subsumption search is NOT this task.
 - `conPanna/Unification.lean`: `Certificate.Alternative`/`SolutionSet`,
   `factorizationTypeWith`, `StructuralTheorySolver`, `ModCertificate.exactnessType`
@@ -182,8 +238,10 @@ algorithm based on the single scripted trace currently present.
   equality or claiming a lifting theorem applies.
 - `certification2.lean`: general rules first, checker/Bridge, generic wrapper
   transport, trace DATA, native two-unifier example, contract regressions,
-  BakeryExamples, BakeryRegistration, BakeryEncoding and BakeryCertificate at the end.
-  `certification2.maude`: corresponding rule labels and scripted strategy.
+  BakeryExamples, BakeryRegistration, BakeryEncoding, BakeryCertificate and
+  BakeryDump at the end. `conPanna/certification.maude`: rule labels, partial
+  strategy and version-1 protocol. `certification2.maude`: original trace driver.
+  `examples/bakery-certification.maude`: runnable generated native query snapshot.
 
 ### Semantic blockers that MUST NOT be hidden
 
@@ -285,7 +343,7 @@ patching around it. No unrelated work, caching, existential tactics or dm-check.
 
 ### Copy-paste prompt for the new session
 
-> Read AGENTS.md, the NEXT SESSION section of HANDOFF.md (including all three
+> Read AGENTS.md, the NEXT SESSION section of HANDOFF.md (including all four
 > integration increments), and TODO.md. Continue the authorized implementation of
 > proof-producing Maude unification for the actual Bakery model, step by step.
 > The universal modulo exactness contract, shared theory-generic semantics and
@@ -294,15 +352,22 @@ patching around it. No unrelated work, caching, existential tactics or dm-check.
 > generates Bakery's four sorts/nine constructors and syntactic round trips.
 > Actual Bakery two-family replay and three-field Conf decomposition now check
 > without admissions, using a manually instantiated signature interpretation.
-> Next automate that interpretation from syntax metadata using general fragment
-> metatheorems, then add explicit Maude certificate output/parsing for the proved
-> ground-payload fragment. Sorted payload-variable unification is still missing.
+> Maude.Certification now dumps native signature/query packets. The shared
+> conPanna/certification.maude engine returns the whole two-family formula plus
+> explicit fixed-plan certificate data; examples/bakery-certification.maude runs.
+> Next parse the versioned reply as untrusted data, validate the EXACT echoed
+> request/output, and connect kernel replay for the supported ground-idle query.
+> Packet sort/symbol IDs differ from generated Lean indices; atom dictionary IDs
+> differ from BakeryEncoding.code (wait(3) is dictionary 0 but native code 7).
+> Validate/remap these boundaries before claiming native exactness. Semantic
+> interpretation generation and sorted payload-variable unification remain missing.
 > Preserve native constructors and the named-post/subsumption interface. The
 > old EqMod reverse bridge is unproved; report any semantic migration explicitly.
 > Rebuild the Bakery import artifact as recorded in HANDOFF.md before checking
-> the prototype. Maude still has a scripted trace, without certificate output/parser
-> or general search. Keep library code simple and readable, general rules
-> separate from examples, and one Lean prototype (certification2.lean). No
+> the prototype. Maude still uses a scripted strategy/fixed certificate plan,
+> without a reply parser, automatic trace accumulator or general search. Keep
+> library code simple and readable, general rules separate from examples, and
+> one Lean prototype (certification2.lean). No
 > model-specific tactics, hidden axioms/sorries, existential narrowing or dm-check.
 > Use lean-lsp-mcp and verify each increment. Inspect the current diff first;
 > briefly state the next step, then implement. Recommend a plain-text one-line

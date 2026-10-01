@@ -4,9 +4,10 @@ import examples.bakery
 /-!
 # ACU certification experiment — start here
 
-This is the ONE active Lean prototype. The companion certification2.maude
-manually runs the same primitive derivation; no generated model/trace importer
-is implemented yet. Run: lake env lean certification2.lean
+This is the ONE active Lean prototype. The companion certification2.maude loads
+the shared calculus in conPanna/certification.maude and runs the primitive trace.
+Maude.Certification now exports native signature/query packets; a reply parser
+and automatic kernel replay are not integrated yet. Run: lake env lean certification2.lean
 
 Reading order:
 1. For the actual Bakery result, jump to BakeryCertificate.two_families at the
@@ -17,6 +18,8 @@ Reading order:
 3. The earlier sections contain LIBRARY PROTOTYPE code: ACU proof rules,
    generic transport and ACU/wrapper metatheorems. Indexed constructor semantics and
    registration generation now live in conPanna.Structural, not duplicated here.
+4. BakeryDump checks the generated query's external DATA result and rejects
+   unsupported shapes. It does not use that reply to prove the native theorem.
 
 Scope/status:
 * Primitive certificate replay, wrapper inversion and the native example are
@@ -1654,3 +1657,59 @@ theorem configuration_two_families (n s : Nat) (P Q R : ProcSet) :
 #print axioms BakeryEncoding.configuration_iff
 
 end Certification2.BakeryCertificate
+
+/-! Certification exporter regressions use the actual native Bakery signature.
+These check the Maude DATA path, independently of the native replay above. -/
+namespace Certification2.BakeryDump
+
+open Lean Meta Elab
+
+-- Compare the complete returned proof DATA to the previously checked plan.
+private def certificateData : Certificate → String
+  | .rule tag => s!"rule({(reprStr tag).splitOn "." |>.getLast!})"
+  | .seq a b => s!"seq({certificateData a},{certificateData b})"
+  | .left c => s!"left({certificateData c})"
+  | .right c => s!"right({certificateData c})"
+  | .under c => s!"under({certificateData c})"
+
+run_cmd
+  Command.liftTermElabM do
+    let lhs ← Term.elabTerm (← `(fun P Q : ProcSet => Conf.mk 0 0 (.union P Q))) none
+    let rhs ← Term.elabTerm (← `(fun R : ProcSet => Conf.mk 0 0 (.union (.singleton .idle) R))) none
+    let problem : Unification.Problem.Input := {
+      lhs := ← Unification.Problem.saturatePattern lhs
+      rhs := ← Unification.Problem.saturatePattern rhs }
+    let script ← Maude.Certification.exportQuery (mkConst ``Conf) (mkConst ``BakeryTheory) problem
+    let output ← Maude.runMaude script ""
+    let compact := String.mk (output.toList.filter (! ·.isWhitespace))
+    let includes (s : String) := !(compact.splitOn s).tail.isEmpty
+    let families := "disj(ex(ex(conj(eqn(var(2),add(atom(0),var(1)))," ++
+      "conj(eqn(var(3),var(0)),eqn(var(4),add(var(1),var(0)))))))," ++
+      "ex(ex(conj(eqn(var(2),var(1)),conj(eqn(var(3),add(atom(0),var(0)))," ++
+      "eqn(var(4),add(var(1),var(0))))))))"
+    unless includes "resultReply:proposed(request(1," && includes families &&
+        includes (certificateData Demo.overlapPrimitiveTrace) do
+      throwError "Bakery certification dump did not return both families and certificate data"
+
+/-- error: certification payload variables are not supported yet -/
+#guard_msgs in
+#dump_maude_query certification
+  (fun P Q : ProcSet => Conf.mk 0 0 (.union P Q)) =?
+  (fun n (R : ProcSet) => Conf.mk 0 0 (.union (.singleton (.wait n)) R))
+  from Conf mod BakeryTheory
+
+/-- error: certification projection requires exactly one non-ground or changing field -/
+#guard_msgs in
+#dump_maude_query certification
+  (fun P Q : ProcSet => Conf.mk 0 0 (.union P Q)) =?
+  (fun R : ProcSet => Conf.mk 1 0 (.union (.singleton .idle) R))
+  from Conf mod BakeryTheory
+
+/-- error: certification search currently supports only X+Y = ground-atom+Z -/
+#guard_msgs in
+#dump_maude_query certification
+  (fun P : ProcSet => Conf.mk 0 0 (.union P P)) =?
+  (fun R : ProcSet => Conf.mk 0 0 (.union (.singleton .idle) R))
+  from Conf mod BakeryTheory
+
+end Certification2.BakeryDump

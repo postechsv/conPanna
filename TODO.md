@@ -43,6 +43,14 @@ an infeasible residual constraint denotes an empty successor.
   may contain any Mode/Nat payloads. Three-field Conf decomposition and the same
   certificate at the root also check. Dependencies: only propext and Quot.sound.
   Semantic interpretation generation and payload-variable solving remain gaps.
+- Fourth increment: existing dumps now have a `certification` mode and native
+  query exporter. Version-1 packets retain full sorted signature, native input,
+  variable scopes, atom dictionary and projection path. The shared Maude engine
+  returns both families plus explicit fixed-plan certificate DATA. A generated
+  Bakery script runs; unsupported payload variables/counters/repeated variables
+  fail explicitly. Nat literals now translate to zero/succ constructors.
+  No reply parser or checked external solver result is integrated yet. Packet
+  IDs are independent of generated Lean indices and native payload codes.
 - ONE active Lean experiment: `certification2.lean`. Start with
   `BakeryCertificate.two_families` at the bottom.
 - General library code, automatic registration, and the single main
@@ -61,8 +69,10 @@ an infeasible residual constraint denotes an empty successor.
   equivalence with all old derivations. Indexed signatures, native registration,
   and the forward bridge now live in conPanna.Structural. `=[T.certified]` opts
   into indexed equality; `=[T]` and existing narrowing retain their semantics.
-- `certification2.maude` is unchanged: a scripted object-level derivation with
-  both unifiers in one result. No complete search strategy/trace importer yet.
+- `certification2.maude` loads the shared `conPanna/certification.maude` engine
+  and remains the original trace regression. `examples/bakery-certification.maude`
+  demonstrates the new packet/proposal path. No general search, automatic trace
+  accumulator, reply parser or automatic native replay yet.
 - `Certification2.BakeryExamples` checks three simple exact unit/variable-solving
   examples against the real old BakeryTheory. It does not test Bakery ACU
   splitting, reflection or the external certificate pipeline.
@@ -70,11 +80,14 @@ an infeasible residual constraint denotes an empty successor.
   obligation is named `literalCompletenessType` and remains in existing lifting.
   Integrate `witnessPost_exact` into materialization/lifting before claiming
   automatic structural completeness; changing the proposition alone is insufficient.
-- Next: automate the semantic interpretation from generated metadata using
-  general free-constructor/ACU fragment proofs. Add an explicit Maude certificate
-  protocol/parser for the proved ground-payload fragment; extend the calculus to
-  sorted payload variables before integrating Bakery's actual overlaps. Migrate
-  structural rule/pattern semantics and narrowing to certified theories. The explicit indexed
+- Next: parse/check the new versioned Maude reply against its exact native
+  request, then connect kernel replay for the supported ground-idle query.
+  Automate semantic interpretation using general free-constructor/ACU fragment
+  proofs before broadening the profile. Validate packet-to-native sort/atom
+  mappings: wait(3) has dictionary ID 0, but BakeryEncoding.code is 7.
+  Extend the calculus to sorted payload variables before integrating Bakery's
+  actual overlaps. Migrate structural rule/pattern semantics and narrowing to
+  certified theories. The explicit indexed
   path is transitional, not a reason to build two independent narrowing engines.
   Core changes were authorized; keep reporting semantic migration boundaries.
 - Repeated-variable search/termination and checking complexity remain research
@@ -82,8 +95,9 @@ an infeasible residual constraint denotes an empty successor.
 
 ### Active integration stages (after settling the semantic contract)
 
-- Automatic Lean-to-Maude model translation/module dumping for certification.
-- Automatic trace parsing, certificate transport, and proof-interface integration.
+- Certification model/query dumping implemented for the restricted overlap shape;
+  broaden only as the calculus and native proofs support new problems.
+- Untrusted reply parsing, certificate transport, and proof-interface integration.
 - Native registration/faithfulness automation and constrained-narrowing lifting.
 - Bind the certificate to the exact signature, input equation, and decoded
   unifier family. Reject partial results and malformed/captured/wrong-sort traces.
