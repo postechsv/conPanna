@@ -5,8 +5,17 @@ This document records the design decisions and current implementation state need
 ## NEXT SESSION: proof-producing Maude unification (2026-10-02)
 
 Read this section FIRST. The long historical notes below are not the active plan.
-Baseline commit: `50fabd2`. The first three integration increments are committed;
-the fourth increment below is uncommitted.
+Baseline commit: `20b1b7a` (Add Bakery certification dumps and explicit Maude
+proof proposals). All four integration increments below are committed. The
+working tree was clean when this handoff refresh started; this refresh changes
+only HANDOFF.md. No code changes or new verification runs in the handoff turn.
+
+Immediate milestone: parse the actual version-1 Maude reply, validate its exact
+request/output, and kernel-replay its certificate for Bakery's ground-idle
+overlap. The resulting native iff must USE the fetched/parsed certificate, rather
+than reuse the existing manually mirrored theorem as evidence of integration.
+Reject an omitted branch and a changed request in that same path. Keep the
+current fixed strategy; general search and narrowing integration come later.
 
 ### First integration increment: exactness and constraint witnesses
 
@@ -154,6 +163,38 @@ profile; extend sorted payload-variable rules before claiming coverage of Bakery
 actual atomic overlaps. No-result, timeout or truncated stdout must not mean a
 complete empty unifier family. Production proof-carrying results and constrained
 lifting remain future increments; Bakery still has its three hcomplete holes.
+
+### Fifth integration increment: fetched reply parsing and kernel replay
+
+Implemented on top of 20b1b7a (uncommitted at time of writing).
+
+- `Maude.Certification.exportQuery` now returns `Query {request, script}`;
+  `request` is the exact request text with the schema expanded, as Maude echoes it.
+  `Node`, `parseNode` and `parseReply` parse untrusted first-order reply DATA:
+  exactly one `result Reply:` term, fully consumed, then `Bye.`. No result,
+  trailing text or truncation is an error, never an empty family.
+- `Certification2.Reply` (generic, before the Bakery sections): `decode` requires
+  `proposed(...)`, the version-1 request EQUAL to the parsed sent request,
+  sequential sort/constructor/variable/atom IDs, ACU-sorted variables, atoms in the
+  dictionary, and `check input output certificate` on the WHOLE output. `emit`
+  adds `<prefix>.input/output/certificate/atoms` constants; atoms are rebuilt with
+  the packet schema's qualified native constructors and sort-checked. Also
+  `Formula.mapAtoms`. Parsing is not trusted: kernel proofs re-run `check`.
+- `Certification2.BakeryReply` runs Maude for the idle and wait(3) overlaps.
+  `fetched_two_families`, `fetched_configuration_two_families` and
+  `fetched_wait_families` use ONLY the emitted constants; packet atom IDs are
+  renamed in the kernel via `remap` (decoded native tree -> BakeryEncoding code;
+  wait(3) is packet 0, code 7). Axioms: propext, Quot.sound.
+- Regressions: a changed echo (native sides swapped), an omitted branch, "No
+  solution." and truncated output are each rejected with the expected message.
+- Verified: `lake build`, Bakery artifact rebuilt (three existing sorries only),
+  full `certification2.lean` with no warnings, theory_examples, narrowing_examples
+  and both Maude drivers. lean-lsp-mcp was NOT available in that session.
+- Gaps: native theorem statements are still written by hand (the checked output
+  is not yet decoded into a native proposition or `SolutionSet`); the echoed
+  native inputs/projection path are compared syntactically, not proved to denote
+  the stated native equation; fixed strategy only; no payload variables; not wired
+  into narrowing; Bakery's three hcomplete holes remain.
 
 ### User's requested outcome
 
@@ -343,35 +384,24 @@ patching around it. No unrelated work, caching, existential tactics or dm-check.
 
 ### Copy-paste prompt for the new session
 
-> Read AGENTS.md, the NEXT SESSION section of HANDOFF.md (including all four
-> integration increments), and TODO.md. Continue the authorized implementation of
-> proof-producing Maude unification for the actual Bakery model, step by step.
-> The universal modulo exactness contract, shared theory-generic semantics and
-> witnessPost_exact theorem are implemented; production materialization and
-> lifting still use the legacy literal obligation. Native registration now
-> generates Bakery's four sorts/nine constructors and syntactic round trips.
-> Actual Bakery two-family replay and three-field Conf decomposition now check
-> without admissions, using a manually instantiated signature interpretation.
-> Maude.Certification now dumps native signature/query packets. The shared
-> conPanna/certification.maude engine returns the whole two-family formula plus
-> explicit fixed-plan certificate data; examples/bakery-certification.maude runs.
-> Next parse the versioned reply as untrusted data, validate the EXACT echoed
-> request/output, and connect kernel replay for the supported ground-idle query.
-> Packet sort/symbol IDs differ from generated Lean indices; atom dictionary IDs
-> differ from BakeryEncoding.code (wait(3) is dictionary 0 but native code 7).
-> Validate/remap these boundaries before claiming native exactness. Semantic
-> interpretation generation and sorted payload-variable unification remain missing.
-> Preserve native constructors and the named-post/subsumption interface. The
-> old EqMod reverse bridge is unproved; report any semantic migration explicitly.
-> Rebuild the Bakery import artifact as recorded in HANDOFF.md before checking
-> the prototype. Maude still uses a scripted strategy/fixed certificate plan,
-> without a reply parser, automatic trace accumulator or general search. Keep
-> library code simple and readable, general rules separate from examples, and
-> one Lean prototype (certification2.lean). No
-> model-specific tactics, hidden axioms/sorries, existential narrowing or dm-check.
-> Use lean-lsp-mcp and verify each increment. Inspect the current diff first;
-> briefly state the next step, then implement. Recommend a plain-text one-line
-> commit message after edits; do not commit unless asked.
+> Read AGENTS.md, the NEXT SESSION section of HANDOFF.md (including its restart
+> prompt), and TODO.md. Baseline: 20b1b7a; all four implementation increments are
+> committed. Continue the authorized Bakery work in small verified steps.
+> Inspect Maude.Certification in conPanna/Maude.lean, conPanna/certification.maude,
+> examples/bakery-certification.maude, and the Bridge/BakeryEncoding/BakeryCertificate/
+> BakeryDump sections of certification2.lean. Propose a compact plan, then implement
+> the untrusted version-1 reply parser and kernel replay for the ground-idle overlap.
+> Validate the exact echoed schema/native inputs/variables/atom dictionary/projection,
+> and bind the whole returned output to the parsed certificate. Prove the native
+> two-family iff USING fetched certificate data; reject omitted branches and changed
+> requests. Packet sort/symbol IDs and atom IDs are not Lean indices/native codes.
+> The indexed-to-old-EqMod map is only forward; Bakery's three hcomplete holes remain.
+> Keep native constructors and named-post/subsumption interfaces. Keep library code
+> simple, general rules separate from examples, and one Lean prototype. No new
+> axioms/sorries, model-specific certification tactics, existential narrowing or
+> dm-check. Use lean-lsp-mcp; rebuild Bakery's import artifact as recorded before
+> checking the prototype. Report demonstrated capabilities and remaining gaps.
+> Recommend a plain-text one-line commit message after code edits; do not commit.
 
 ## Previous verified certification milestone (2026-10-01)
 

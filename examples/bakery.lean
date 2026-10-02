@@ -403,7 +403,8 @@ certify_structural BakeryTheory for Conf
   from Conf mod BakeryTheory
 
 The saved script is examples/bakery-certification.maude. Its proposal contains
-both families and certificate data; parsing/kernel replay is not integrated yet.
+both families and certificate data. certification2.lean (BakeryReply) parses
+fetched replies and kernel-replays them for this ground-payload query shape.
 The current strategy requires ground payloads and matching ground Nat fields.
 -/
 

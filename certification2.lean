@@ -6,8 +6,8 @@ import examples.bakery
 
 This is the ONE active Lean prototype. The companion certification2.maude loads
 the shared calculus in conPanna/certification.maude and runs the primitive trace.
-Maude.Certification now exports native signature/query packets; a reply parser
-and automatic kernel replay are not integrated yet. Run: lake env lean certification2.lean
+Maude.Certification exports native query packets and parses replies as untrusted
+DATA. BakeryReply kernel-replays FETCHED replies. Run: lake env lean certification2.lean
 
 Reading order:
 1. For the actual Bakery result, jump to BakeryCertificate.two_families at the
@@ -19,7 +19,9 @@ Reading order:
    generic transport and ACU/wrapper metatheorems. Indexed constructor semantics and
    registration generation now live in conPanna.Structural, not duplicated here.
 4. BakeryDump checks the generated query's external DATA result and rejects
-   unsupported shapes. It does not use that reply to prove the native theorem.
+   unsupported shapes. BakeryReply (last) runs Maude, validates the exact echo
+   and whole family, emits the reply as constants and proves the native iff
+   from them. Changed echoes, omitted branches and truncation are rejected.
 
 Scope/status:
 * Primitive certificate replay, wrapper inversion and the native example are
@@ -832,6 +834,187 @@ theorem Bridge.check_exact [DecidableEq Sorts] {α : Type} {m : Semantics α}
     p.sat m ρ ↔ q.sat m ρ :=
   let equiv := Certification2.check_exact p q cert accepted
   ⟨b.transport hp equiv ρ, b.transport hq (fun σ => (equiv σ).symm) ρ⟩
+
+end Certification2
+
+/-! ## Untrusted Maude replies: decoding only, no proof rules
+
+The reply is DATA. Decoding checks the protocol version, compares the echoed
+request with the exact exported request, replays the certificate against the
+WHOLE returned family, and emits Lean constants. Correctness never depends on
+this code: kernel proofs replay the emitted constants with `check` again.
+Packet atom IDs are dictionary positions; `Formula.mapAtoms` renames them to a
+signature's own atom codes inside the kernel proof.
+-/
+
+namespace Certification2
+
+variable {Sorts : Type} {s : Sorts}
+
+def Term.mapAtoms (f : Nat → Nat) : Term s → Term s
+  | .var n => .var n
+  | .atom k => .atom (f k)
+  | .zero => .zero
+  | .add a b => .add (a.mapAtoms f) (b.mapAtoms f)
+
+def Formula.mapAtoms (f : Nat → Nat) : Formula s → Formula s
+  | .truth => .truth
+  | .falsity => .falsity
+  | .eqn a b => .eqn (a.mapAtoms f) (b.mapAtoms f)
+  | .conj p q => .conj (p.mapAtoms f) (q.mapAtoms f)
+  | .disj p q => .disj (p.mapAtoms f) (q.mapAtoms f)
+  | .ex p => .ex (p.mapAtoms f)
+
+def Term.atomIds : Term s → List Nat
+  | .atom k => [k]
+  | .add a b => a.atomIds ++ b.atomIds
+  | _ => []
+
+def Formula.atomIds : Formula s → List Nat
+  | .eqn a b => a.atomIds ++ b.atomIds
+  | .conj p q | .disj p q => p.atomIds ++ q.atomIds
+  | .ex p => p.atomIds
+  | _ => []
+
+namespace Reply
+
+open Lean Meta Maude.Certification
+
+private def spine (nil cons : String) : Node → Except String (List Node)
+  | .app h #[] => if h == nil then return [] else throw s!"expected {nil}"
+  | .app h #[x, xs] => if h == cons then return x :: (← spine nil cons xs)
+      else throw s!"expected {cons}"
+  | _ => throw s!"malformed {cons} list"
+
+private partial def term : Node → Except String (Term s)
+  | .app "var" #[.num n] => return .var n
+  | .app "atom" #[.num k] => return .atom k
+  | .app "zero" #[] => return .zero
+  | .app "add" #[a, b] => return .add (← term a) (← term b)
+  | _ => throw "malformed portable term"
+
+private partial def formula : Node → Except String (Formula s)
+  | .app "truth" #[] => return .truth
+  | .app "eqn" #[a, b] => return .eqn (← term a) (← term b)
+  | .app "conj" #[p, q] => return .conj (← formula p) (← formula q)
+  | .app "disj" #[p, q] => return .disj (← formula p) (← formula q)
+  | .app "ex" #[p] => return .ex (← formula p)
+  | _ => throw "malformed portable formula"
+
+def ruleName (r : Rule) : String := (reprStr r).splitOn "." |>.getLast!
+
+private def rules : List Rule := [.mutate, .splitAtom, .splitZero, .cancel, .symmetry,
+  .commLeft, .assocLeft, .padRight, .reflexive, .clash, .distributeLeft,
+  .distributeRight, .eliminate, .exchangeExists, .distributeExists, .cleanup, .swapBranches]
+
+private partial def certificate : Node → Except String Certificate
+  | .app "rule" #[.app r #[]] => match rules.find? (ruleName · == r) with
+      | some r => return .rule r
+      | none => throw s!"unknown certificate rule {r}"
+  | .app "seq" #[a, b] => return .seq (← certificate a) (← certificate b)
+  | .app "left" #[c] => return .left (← certificate c)
+  | .app "right" #[c] => return .right (← certificate c)
+  | .app "under" #[c] => return .under (← certificate c)
+  | _ => throw "malformed certificate"
+
+/-- Data decoded from an accepted reply. `atoms[k]` is packet atom `k`'s native
+tree; `ctors[i]` is packet constructor `i`'s qualified Lean name. -/
+structure Fetched (s : Sorts) where
+  input : Formula s
+  output : Formula s
+  certificate : Certificate
+  atoms : List Node
+  ctors : Array Name
+  bag : Name
+
+/-- Reject unless the reply echoes `sent` exactly and replays to its WHOLE output. -/
+def decode [DecidableEq Sorts] (sent reply : Node) : Except String (Fetched s) := do
+  let .app "proposed" #[request, output, cert] := reply
+    | throw "expected a proposed(request, output, certificate) reply"
+  unless request == sent do throw "echoed request differs from the exported request"
+  let .app "request" #[.num 1, .app "schema" #[sorts, ctors, .num bag, _, _],
+      vars, atoms, _, _, _, input] := request
+    | throw "unsupported request version or shape"
+  let sorts ← (← spine "sNil" "sCons" sorts).toArray.mapIdxM fun i node =>
+    match node with
+    | .app "nativeSort" #[.num j, .str name] => if i == j then return name.toName
+        else throw "non-sequential sort IDs"
+    | _ => throw "malformed sort declaration"
+  let ctors ← (← spine "cNil" "cCons" ctors).toArray.mapIdxM fun i node =>
+    match node with
+    | .app "nativeCtor" #[.num j, .str name, _, _] => if i == j then return name.toName
+        else throw "non-sequential constructor IDs"
+    | _ => throw "malformed constructor declaration"
+  let vars ← spine "vNil" "vCons" vars
+  let sequential : Node × Nat → Bool
+    | (.app "nativeVar" #[.num j, .num t, .str _], i) => i == j && t == bag
+    | _ => false
+  unless vars.zipIdx.all sequential do
+    throw "variables must be sequential and at the ACU sort"
+  let atoms ← (← spine "aNil" "aCons" atoms).zipIdx.mapM fun
+    | (.app "nativeAtom" #[.num j, tree], i) => if i == j then return tree
+        else throw "non-sequential atom IDs"
+    | _ => throw "malformed atom dictionary"
+  let some bag := sorts[bag]? | throw "unknown ACU sort"
+  let input : Formula s ← formula input
+  let output : Formula s ← formula output
+  let certificate ← certificate cert
+  unless (input.atomIds ++ output.atomIds).all (· < atoms.length) do
+    throw "formula mentions an atom outside the dictionary"
+  unless check input output certificate do
+    throw "certificate does not replay to the returned family"
+  return { input, output, certificate, atoms, ctors, bag }
+
+/-- Rebuild a ground native dictionary tree with the user's own constructors. -/
+partial def native (ctors : Array Name) : Node → MetaM Expr
+  | .app "node" #[.num i, args] => do
+      let some ctor := ctors[i]? | throwError "unknown packet constructor {i}"
+      unless (← getEnv).isConstructor ctor do throwError "{ctor} is not a constructor"
+      let args ← ofExcept (spine "tNil" "tCons" args)
+      mkAppM ctor (← args.toArray.mapM (native ctors))
+  | _ => throwError "dictionary atoms must be ground native trees"
+
+def termExpr (σ t : Expr) : Term s → Expr
+  | .var n => mkApp3 (mkConst ``Term.var) σ t (mkNatLit n)
+  | .atom k => mkApp3 (mkConst ``Term.atom) σ t (mkNatLit k)
+  | .zero => mkApp2 (mkConst ``Term.zero) σ t
+  | .add a b => mkApp4 (mkConst ``Term.add) σ t (termExpr σ t a) (termExpr σ t b)
+
+def formulaExpr (σ t : Expr) : Formula s → Expr
+  | .truth => mkApp2 (mkConst ``Formula.truth) σ t
+  | .falsity => mkApp2 (mkConst ``Formula.falsity) σ t
+  | .eqn a b => mkApp4 (mkConst ``Formula.eqn) σ t (termExpr σ t a) (termExpr σ t b)
+  | .conj p q => mkApp4 (mkConst ``Formula.conj) σ t (formulaExpr σ t p) (formulaExpr σ t q)
+  | .disj p q => mkApp4 (mkConst ``Formula.disj) σ t (formulaExpr σ t p) (formulaExpr σ t q)
+  | .ex p => mkApp3 (mkConst ``Formula.ex) σ t (formulaExpr σ t p)
+
+def certificateExpr : Certificate → Expr
+  | .rule r => mkApp (mkConst ``Certificate.rule) (mkConst (.str ``Rule (ruleName r)))
+  | .seq a b => mkApp2 (mkConst ``Certificate.seq) (certificateExpr a) (certificateExpr b)
+  | .left c => mkApp (mkConst ``Certificate.left) (certificateExpr c)
+  | .right c => mkApp (mkConst ``Certificate.right) (certificateExpr c)
+  | .under c => mkApp (mkConst ``Certificate.under) (certificateExpr c)
+
+def define (name : Name) (type value : Expr) : MetaM Unit := do
+  addDecl <| .defnDecl {
+    name, levelParams := [], type, value, hints := .regular 0, safety := .safe }
+  enableRealizationsForConst name
+
+/-- Emit `pre.input/output/certificate/atoms` from an accepted reply. `σ`/`t`
+are the Expr forms of the portable sort type and of `s`; atoms are ground native
+values of the ACU sort, in packet ID order. -/
+def emit (pre : Name) (σ t : Expr) (fetched : Fetched s) : MetaM Unit := do
+  let formulaType := mkApp2 (mkConst ``Formula) σ t
+  define (pre ++ `input) formulaType (formulaExpr σ t fetched.input)
+  define (pre ++ `output) formulaType (formulaExpr σ t fetched.output)
+  define (pre ++ `certificate) (mkConst ``Certificate) (certificateExpr fetched.certificate)
+  let bag := mkConst fetched.bag
+  let atoms ← fetched.atoms.mapM (native fetched.ctors)
+  for atom in atoms do
+    unless ← isDefEq (← inferType atom) bag do throwError "dictionary atom has the wrong sort"
+  define (pre ++ `atoms) (mkApp (mkConst ``List [0]) bag) (← mkListLit bag atoms)
+
+end Reply
 
 end Certification2
 
@@ -1679,8 +1862,8 @@ run_cmd
     let problem : Unification.Problem.Input := {
       lhs := ← Unification.Problem.saturatePattern lhs
       rhs := ← Unification.Problem.saturatePattern rhs }
-    let script ← Maude.Certification.exportQuery (mkConst ``Conf) (mkConst ``BakeryTheory) problem
-    let output ← Maude.runMaude script ""
+    let query ← Maude.Certification.exportQuery (mkConst ``Conf) (mkConst ``BakeryTheory) problem
+    let output ← Maude.runMaude query.script ""
     let compact := String.mk (output.toList.filter (! ·.isWhitespace))
     let includes (s : String) := !(compact.splitOn s).tail.isEmpty
     let families := "disj(ex(ex(conj(eqn(var(2),add(atom(0),var(1)))," ++
@@ -1713,3 +1896,121 @@ run_cmd
   from Conf mod BakeryTheory
 
 end Certification2.BakeryDump
+
+/-! Kernel replay of FETCHED Maude replies for Bakery's ground-payload overlap.
+Each `run_cmd` exports the request, runs Maude, rejects a reply whose echo or
+whole family differs, and emits `<prefix>.input/output/certificate/atoms`.
+The theorems below use only those emitted constants, not `Demo.overlapPrimitiveTrace`.
+Packet atom IDs are renamed in the kernel through the decoded native trees. -/
+namespace Certification2.BakeryReply
+
+open Lean Meta Elab BakeryEncoding BakeryTheory.Generated
+
+def overlapQuery (payload : TSyntax `term) : TermElabM Maude.Certification.Query := do
+  let lhs ← Term.elabTerm (← `(fun P Q : ProcSet => Conf.mk 0 0 (.union P Q))) none
+  let rhs ← Term.elabTerm
+    (← `(fun R : ProcSet => Conf.mk 0 0 (.union (.singleton $payload) R))) none
+  Maude.Certification.exportQuery (mkConst ``Conf) (mkConst ``BakeryTheory) {
+    lhs := ← Unification.Problem.saturatePattern lhs
+    rhs := ← Unification.Problem.saturatePattern rhs }
+
+def fetch (query : Maude.Certification.Query) (stdout : String) :
+    Except String (Reply.Fetched Tag.s2) := do
+  Reply.decode (← Maude.Certification.parseNode query.request)
+    (← Maude.Certification.parseReply stdout)
+
+def certify (pre : Name) (payload : TSyntax `term) : TermElabM Unit := do
+  let query ← overlapQuery payload
+  let fetched ← ofExcept (fetch query (← Maude.runMaude query.script ""))
+  Reply.emit pre (mkConst ``Tag) (mkConst ``Tag.s2) fetched
+
+run_cmd Command.liftTermElabM do certify `Certification2.BakeryReply.idleReply (← `(.idle))
+run_cmd Command.liftTermElabM do certify `Certification2.BakeryReply.waitReply (← `(.wait 3))
+
+/-- Rename a packet atom ID to BakeryEncoding's code for its native dictionary
+tree. Non-atomic entries map to 0; the final statement would then not match. -/
+def remap (atoms : List ProcSet) (k : Nat) : Nat :=
+  match encode (atoms.getD k .empty) with
+  | .atom c => c
+  | _ => 0
+
+-- Packet IDs are not native codes: wait(3) is packet atom 0 but encodes as 7.
+example : waitReply.atoms = [.singleton (.wait 3)] ∧ remap waitReply.atoms 0 = 7 := ⟨rfl, rfl⟩
+
+theorem fetched_two_families (P Q R : ProcSet) :
+    ProcSet.union P Q =[BakeryTheory.certified] ProcSet.union (.singleton .idle) R ↔
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] ProcSet.union (.singleton .idle) A ∧
+        Q =[BakeryTheory.certified] B ∧ R =[BakeryTheory.certified] ProcSet.union A B) ∨
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] A ∧
+        Q =[BakeryTheory.certified] ProcSet.union (.singleton .idle) B ∧
+        R =[BakeryTheory.certified] ProcSet.union A B) := by
+  have certified := bridge.check_exact (idleReply.input.mapAtoms (remap idleReply.atoms))
+    (idleReply.output.mapAtoms (remap idleReply.atoms)) idleReply.certificate (by decide)
+    (by simp [idleReply.input, idleReply.atoms, remap, Formula.mapAtoms, Term.mapAtoms, Formula.uses,
+      Term.uses, bridge, Structural.Indexed.ACU.checker, encode, code, BakeryEncoding.read])
+    (by simp [idleReply.output, idleReply.atoms, remap, Formula.mapAtoms, Term.mapAtoms, Formula.uses,
+      Term.uses, bridge, Structural.Indexed.ACU.checker, encode, code, BakeryEncoding.read])
+    (fun n => match n with | 0 => P | 1 => Q | _ => R)
+  simpa only [idleReply.input, idleReply.output, idleReply.atoms, remap, List.getD_cons_zero, encode, code,
+    Formula.mapAtoms, Term.mapAtoms, Formula.sat, Term.denote,
+    Structural.Indexed.ACU.nativeSemantics, BakeryEncoding.atoms,
+    registration.eval_quote, BakeryEncoding.read] using certified
+
+theorem fetched_configuration_two_families (n s : Nat) (P Q R : ProcSet) :
+    Conf.mk n s (ProcSet.union P Q) =[BakeryTheory.certified]
+      Conf.mk n s (ProcSet.union (.singleton .idle) R) ↔
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] ProcSet.union (.singleton .idle) A ∧
+        Q =[BakeryTheory.certified] B ∧ R =[BakeryTheory.certified] ProcSet.union A B) ∨
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] A ∧
+        Q =[BakeryTheory.certified] ProcSet.union (.singleton .idle) B ∧
+        R =[BakeryTheory.certified] ProcSet.union A B) := by
+  rw [configuration_iff]
+  simpa only [true_and, eq_self] using fetched_two_families P Q R
+
+-- The same pipeline with a payload whose packet ID differs from its native code.
+theorem fetched_wait_families (P Q R : ProcSet) :
+    ProcSet.union P Q =[BakeryTheory.certified] ProcSet.union (.singleton (.wait 3)) R ↔
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] ProcSet.union (.singleton (.wait 3)) A ∧
+        Q =[BakeryTheory.certified] B ∧ R =[BakeryTheory.certified] ProcSet.union A B) ∨
+      (∃ A B : ProcSet, P =[BakeryTheory.certified] A ∧
+        Q =[BakeryTheory.certified] ProcSet.union (.singleton (.wait 3)) B ∧
+        R =[BakeryTheory.certified] ProcSet.union A B) := by
+  have certified := bridge.check_exact (waitReply.input.mapAtoms (remap waitReply.atoms))
+    (waitReply.output.mapAtoms (remap waitReply.atoms)) waitReply.certificate (by decide)
+    (by simp [waitReply.input, waitReply.atoms, remap, Formula.mapAtoms, Term.mapAtoms, Formula.uses,
+      Term.uses, bridge, Structural.Indexed.ACU.checker, encode, code, BakeryEncoding.read])
+    (by simp [waitReply.output, waitReply.atoms, remap, Formula.mapAtoms, Term.mapAtoms, Formula.uses,
+      Term.uses, bridge, Structural.Indexed.ACU.checker, encode, code, BakeryEncoding.read])
+    (fun n => match n with | 0 => P | 1 => Q | _ => R)
+  simpa only [waitReply.input, waitReply.output, waitReply.atoms, remap, List.getD_cons_zero, encode, code,
+    Formula.mapAtoms, Term.mapAtoms, Formula.sat, Term.denote,
+    Structural.Indexed.ACU.nativeSemantics, BakeryEncoding.atoms,
+    registration.eval_quote, BakeryEncoding.read] using certified
+
+#print axioms fetched_two_families
+#print axioms fetched_configuration_two_families
+#print axioms fetched_wait_families
+
+-- Rejections: a changed echo, an omitted branch, and missing/truncated output.
+run_cmd Command.liftTermElabM do
+  let query ← overlapQuery (← `(.idle))
+  let stdout ← Maude.runMaude query.script ""
+  let .ok (.app "proposed" #[request@(.app "request" fields), output@(.app "disj" #[first, _]),
+      cert]) := Maude.Certification.parseReply stdout
+    | throwError "unexpected Maude reply shape"
+  let expect (reply : Except String Maude.Certification.Node) (message : String) := do
+    let sent ← ofExcept (Maude.Certification.parseNode query.request)
+    match reply >>= Reply.decode (s := Tag.s2) sent with
+    | .ok _ => throwError "accepted a bad reply; expected: {message}"
+    | .error e => unless e == message do throwError "wrong rejection: {e}"
+  let swapped := (fields.set! 4 fields[5]!).set! 5 fields[4]!
+  expect (.ok (.app "proposed" #[.app "request" swapped, output, cert]))
+    "echoed request differs from the exported request"
+  expect (.ok (.app "proposed" #[request, first, cert]))
+    "certificate does not replay to the returned family"
+  expect (Maude.Certification.parseReply "No solution.\nBye.")
+    "expected exactly one Maude Reply result"
+  expect (Maude.Certification.parseReply ((stdout.splitOn "seq(rule(swapBranches)")[0]! ++ "\nBye."))
+    "malformed or truncated Maude reply"
+
+end Certification2.BakeryReply

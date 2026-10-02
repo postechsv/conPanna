@@ -51,6 +51,12 @@ an infeasible residual constraint denotes an empty successor.
   fail explicitly. Nat literals now translate to zero/succ constructors.
   No reply parser or checked external solver result is integrated yet. Packet
   IDs are independent of generated Lean indices and native payload codes.
+- Fifth increment: untrusted reply parser plus `Certification2.Reply.decode/emit`
+  validate the exact echo and whole family, then emit constants. `BakeryReply`
+  proves the idle and wait(3) native iff theorems FROM fetched data, with packet
+  atom IDs renamed in the kernel. Changed echo, omitted branch, no result and
+  truncation are rejected. Next: generate the native statement/SolutionSet from
+  the checked output instead of writing it by hand.
 - ONE active Lean experiment: `certification2.lean`. Start with
   `BakeryCertificate.two_families` at the bottom.
 - General library code, automatic registration, and the single main

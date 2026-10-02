@@ -815,19 +815,21 @@ private def list (nil cons : String) (items : Array String) : String :=
 
 /-- Qualified identities and argument sorts bind later replies to the exact
 native signature. IDs are local to this packet, not generated Lean Tag indices. -/
-def renderModule (sig : Signature) : MetaM String := do
+def renderSchema (sig : Signature) : MetaM String := do
   let sorts := sig.sorts.mapIdx fun i sort =>
     s!"nativeSort({i}, {sort.leanName.toString.quote})"
   let ctors ← (constructors sig).mapIdxM fun i ctor => do
     let fields ← ctor.fields.mapM (fun s => return toString (← sortId sig s))
     return s!"nativeCtor({i}, {ctor.leanName.toString.quote}, " ++
       s!"{← sortId sig ctor.result}, {list "nNil" "nCons" fields})"
+  return s!"schema({list "sNil" "sCons" sorts}, {list "cNil" "cCons" ctors}, " ++
+    s!"{← sortId sig sig.bag}, {← constructorId sig sig.add}, " ++
+    s!"{← constructorId sig sig.zero})"
+
+def renderModule (sig : Signature) : MetaM String := do
   return "load conPanna/certification.maude\n\n" ++
     "mod LEAN-CERTIFICATION-MODEL is\n  protecting CERT2-PROTOCOL .\n" ++
-    "  op nativeSignature : -> Schema .\n  eq nativeSignature = schema(" ++
-    s!"{list "sNil" "sCons" sorts}, {list "cNil" "cCons" ctors}, " ++
-    s!"{← sortId sig sig.bag}, {← constructorId sig sig.add}, " ++
-    s!"{← constructorId sig sig.zero}) .\nendm"
+    s!"  op nativeSignature : -> Schema .\n  eq nativeSignature = {← renderSchema sig} .\nendm"
 
 private partial def ground : MaudeTerm → Bool
   | .variable .. => false
@@ -897,9 +899,15 @@ private def isOverlap (sig : Signature) (a b : MaudeTerm) : Bool :=
         ground atom && x != y && x != z && y != z
   | _, _ => false
 
+/-- `request` is the exact request text, with the schema expanded, that a reply
+must echo. `script` is the runnable Maude input containing that request. -/
+structure Query where
+  request : String
+  script : String
+
 /-- Native input, sorted variables, ground-atom dictionary and projection path
 remain in the request. The portable formula alone is not its identity. -/
-def renderQuery (sig : Signature) (problem : Unification.Problem.Input) : MetaM String := do
+def renderQuery (sig : Signature) (problem : Unification.Problem.Input) : MetaM Query := do
   let lhs ← translatePattern sig.sorts "L" problem.lhs
   let rhs ← translatePattern sig.sorts "R" problem.rhs
   let variables := lhs.variables ++ rhs.variables
@@ -913,18 +921,80 @@ def renderQuery (sig : Signature) (problem : Unification.Problem.Input) : MetaM 
     return s!"nativeVar({i}, {← sortId sig v.sort}, {v.maudeName.quote})"
   let dictionary ← atoms.mapIdxM fun i atom => do
     return s!"nativeAtom({i}, {← nativeTerm sig variables atom})"
-  let request := "request(1, nativeSignature, " ++
-    s!"{list "vNil" "vCons" declarations}, {list "aNil" "aCons" dictionary}, " ++
+  let fields := s!"{list "vNil" "vCons" declarations}, {list "aNil" "aCons" dictionary}, " ++
     s!"{← nativeTerm sig variables lhs.term}, {← nativeTerm sig variables rhs.term}, " ++
     s!"{list "nNil" "nCons" (path.map toString)}, eqn({a}, {b}))"
-  return (← renderModule sig) ++
-    "\n\nsmod LEAN-CERTIFICATION-QUERY is\n" ++
-    "  protecting LEAN-CERTIFICATION-MODEL .\n  protecting CERT2-SEARCH .\n" ++
-    "  op nativeQuery : -> Request .\n" ++ s!"  eq nativeQuery = {request} .\nendsm\n\n" ++
-    "srew [1] in LEAN-CERTIFICATION-QUERY : query(nativeQuery) using certifyOverlap .\nquit\n"
+  return {
+    request := s!"request(1, {← renderSchema sig}, " ++ fields
+    script := (← renderModule sig) ++
+      "\n\nsmod LEAN-CERTIFICATION-QUERY is\n" ++
+      "  protecting LEAN-CERTIFICATION-MODEL .\n  protecting CERT2-SEARCH .\n" ++
+      "  op nativeQuery : -> Request .\n" ++
+      s!"  eq nativeQuery = request(1, nativeSignature, {fields} .\nendsm\n\n" ++
+      "srew [1] in LEAN-CERTIFICATION-QUERY : query(nativeQuery) using certifyOverlap .\nquit\n" }
 
-def exportQuery (root theory : Expr) (problem : Unification.Problem.Input) : MetaM String := do
+def exportQuery (root theory : Expr) (problem : Unification.Problem.Input) : MetaM Query := do
   renderQuery (← inspect root theory) problem
+
+/-! Untrusted reply syntax. Parsing only recovers first-order DATA; it proves
+nothing. Callers must compare the echoed request and replay the certificate. -/
+
+inductive Node where
+  | num (value : Nat)
+  | str (value : String)
+  | app (head : String) (args : Array Node)
+  deriving Repr, BEq, Inhabited
+
+private partial def parseNodeAt (s : Array Char) (i : Nat) : Except String (Node × Nat) := do
+  let skip (i : Nat) := Id.run do
+    let mut i := i
+    while s.getD i 'x' |>.isWhitespace do i := i + 1
+    return i
+  let span (p : Char → Bool) (i : Nat) := Id.run do
+    let mut j := i
+    while j < s.size && p s[j]! do j := j + 1
+    return (String.mk (s.extract i j).toList, j)
+  let i := skip i
+  if i ≥ s.size then throw "malformed or truncated Maude reply"
+  let c := s[i]!
+  if c.isDigit then
+    let (digits, j) := span Char.isDigit i
+    return (.num digits.toNat!, j)
+  if c == '"' then
+    let (body, j) := span (fun c => c != '"' && c != '\\') (i + 1)
+    unless s.getD j ' ' == '"' do throw "unsupported or unterminated string in Maude reply"
+    return (.str body, j + 1)
+  let (head, j) := span Char.isAlphanum i
+  if head.isEmpty then throw s!"unexpected character in Maude reply: {c}"
+  let mut j := skip j
+  unless s.getD j ' ' == '(' do return (.app head #[], j)
+  let mut args := #[]
+  repeat
+    let (arg, k) ← parseNodeAt s (j + 1)
+    args := args.push arg
+    j := skip k
+    if s.getD j ' ' == ',' then continue
+    unless s.getD j ' ' == ')' do throw "malformed or truncated Maude reply"
+    break
+  return (.app head args, j + 1)
+
+/-- Parse one complete term; trailing text is rejected. -/
+def parseNode (text : String) : Except String Node := do
+  let chars := text.toList.toArray
+  let (node, i) ← parseNodeAt chars 0
+  unless chars.extract i chars.size |>.all Char.isWhitespace do
+    throw "trailing text after Maude term"
+  return node
+
+/-- Exactly one `result Reply:` term, followed only by Maude's exit message.
+No result, a different sort or truncation is an error, never an empty family. -/
+def parseReply (stdout : String) : Except String Node := do
+  let [_, after] := stdout.splitOn "result Reply:"
+    | throw "expected exactly one Maude Reply result"
+  let [term, rest] := after.splitOn "Bye."
+    | throw "Maude reply is not followed by its exit message"
+  unless rest.trim.isEmpty do throw "unexpected text after Maude exit"
+  parseNode term
 
 private def elaborateSignature (rootSyntax theorySyntax : Syntax) : TermElabM Signature := do
   let root ← elabType rootSyntax
@@ -939,7 +1009,7 @@ def dumpQueryCommand (lhs rhs root theory : Syntax) : TermElabM Unit := do
   let sig ← elaborateSignature root theory
   let left ← Unification.Problem.saturatePattern (← elabTerm lhs none)
   let right ← Unification.Problem.saturatePattern (← elabTerm rhs none)
-  logInfo (← renderQuery sig { lhs := left, rhs := right })
+  logInfo (← renderQuery sig { lhs := left, rhs := right }).script
 
 end Certification
 
