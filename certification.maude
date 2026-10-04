@@ -35,10 +35,13 @@ mod DIRECT-CERTIFICATION is
   op plug : Frame HeadCertificate -> HeadCertificate .
   op emit : Family -> Certificate [ctor] .
   op coverage : HeadCertificate Certificate Certificate -> Certificate [ctor] .
-  op request : Context Families -> Request [ctor] .
+  op cancellation : Certificate -> Certificate [ctor] .
+  op frameCancel : HeadCertificate HeadCertificate Certificate -> Certificate [ctor] .
+  ops request frameRequest : Context Families -> Request [ctor] .
   op start : Request -> State [ctor] .
   op head : Request Context Frame -> State [ctor] .
   ops equalCase unequalCase : Request HeadCertificate -> State [ctor] .
+  op frameCase : Request -> State [ctor] .
   op proposed : Request Certificate -> Reply [ctor] .
 
   vars C : Context .
@@ -63,4 +66,13 @@ mod DIRECT-CERTIFICATION is
   crl [cover-unequal] : unequalCase(request(C, FS), H) =>
     proposed(request(C, FS), coverage(H, emit(matched), emit(crossed)))
     if contains(FS, crossed) = true .
+
+  --- Decompose the free frame and eliminate its two rigid-field equations.
+  --- The second equality identifies the TWO occurrences in the atom heads.
+  --- Their bags now share exactly the same head: cancellation suffices.
+  --- Native crossed answers remain in FS and are checked for soundness in Lean.
+  rl [frame-decompose] : start(frameRequest(C, FS)) => frameCase(frameRequest(C, FS)) .
+  crl [frame-cancel] : frameCase(frameRequest(C, FS)) =>
+    proposed(frameRequest(C, FS), frameCancel(rigid, rigid, cancellation(emit(matched))))
+    if contains(FS, matched) = true .
 endm

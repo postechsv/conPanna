@@ -10,10 +10,12 @@ This file contains four clearly separated parts:
 4. CERTIFICATES: ordinary, tactic-free proof terms over Bakery's own datatypes.
 
 The current milestone is answer-directed certification of ONE explicit atom
-and ONE bag tail per side. The generic coverage theorem below reduces an
+and ONE bag tail per side, including a free frame that identifies head parameters.
+The generic coverage theorem below reduces an
 unbounded bag obligation to two head-equality guards. It does not recompute a
 complete set of ACU unifiers. Finite dump/replay now supports the one-hole
-atom-context fragment. Native Maude answers now guide object-level certificate
+atom-context fragment. FrameCancel additionally handles two rigid fields and a
+bag field with a repeated field/payload variable. Native Maude answers guide object-level certificate
 search in certification.maude. General multi-head coverage remains future work;
 no native Maude answer is trusted as a completeness proof.
 Free-constructor decomposition/clash are now proved for arbitrary arities.
@@ -1153,9 +1155,10 @@ theorem exact_of_coverage (profile : Profile sig) (reg : Registration sig) {s}
 
 /-! ## Finite certificates and native kernel replay
 
-Scope of this first replay format: C(a)+X =B C(b)+Y, where C is a one-hole
+Scope of this replay format: C(a)+X =B C(b)+Y, where C is a one-hole
 constructor context with a rigid parameter sort. C supports arbitrary arities;
 other arguments are fixed registered trees. There are no Bakery names here.
+The FrameCancel extension below supports correlated parameters in a free frame.
 
 This is NOT another user term language or equality. Contexts describe positions
 in the EXISTING registered signature and evaluate directly with its native
@@ -1220,6 +1223,8 @@ proposed substitution template that covers its case. Swapped/wrong leaves are
 rejected, rather than assuming a sound family is also complete. -/
 inductive Certificate where
   | coverage (head : HeadCertificate) (equalCase unequalCase : Family)
+  | cancellation (family : Family)
+  | frameCancel (first second : HeadCertificate) (tail : Certificate)
   deriving Repr, DecidableEq
 
 /-- Small first-order dump grammar, mirrored by certification.maude constructors.
@@ -1236,6 +1241,9 @@ def Certificate.dump : Certificate → String
   | .coverage head equalCase unequalCase =>
       "coverage(" ++ head.dump ++ ",emit(" ++ equalCase.dump ++ "),emit(" ++
         unequalCase.dump ++ "))"
+  | .cancellation family => "cancellation(emit(" ++ family.dump ++ "))"
+  | .frameCancel first second tail =>
+      "frameCancel(" ++ first.dump ++ "," ++ second.dump ++ "," ++ tail.dump ++ ")"
 
 private theorem args_refl (reg : Registration sig) {ss} (args : Args reg.Carrier ss) :
     ArgsRel (fun s => NativeEq sig reg (s := s)) ss args args := by
@@ -1381,11 +1389,155 @@ theorem replay_exact (profile : Profile sig) (reg : Registration sig) {r s}
   | none => simp [accepts, result] at accepted
   | some proof => exact proof.down
 
+/-! ### Cancellation under a free frame (general rules, not Bakery lemmas)
+
+  C(a)+X =B C(a)+Y
+  ============================== Cancel
+  X =B Y
+
+Matched is a complete family here; Crossed may still be emitted by native Maude
+and is sound but redundant. This differs from independent head parameters,
+where BOTH families are needed. We retain the WHOLE proposed answer list.
+
+  f(n,a,C(a)+X) =B f(m,b,C(b)+Y)
+  ==================================================== FrameCancel
+  n=m AND a=b AND Cancel(C(a)+X =B C(a)+Y)
+
+This frame schema supports ANY free constructor with two rigid fields and a
+bag field, not Conf by name. It makes repeated payload/field variables explicit.
+This is a supported rule schema, not an arity limit on general decomposition.
+-/
+
+theorem same_families_exact (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (matched : Family.matched ∈ proposed) (a : reg.Carrier r) (x y : reg.Carrier s) :
+    NativeEq sig reg (reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit))
+      (reg.apply (sig.add op) (context.eval reg a, y, PUnit.unit)) ↔
+      Solutions reg context op proposed a a x y := by
+  apply (cancel_native profile reg op (context.eval reg a) x y).trans
+  constructor
+  · intro tails
+    exact ⟨.matched, matched, a, x, rfl, rfl, .refl _, .symm tails⟩
+  · rintro ⟨family, _, images⟩
+    cases family with
+    | matched =>
+        rcases images with ⟨_, _, _, _, hx, hy⟩
+        exact .trans hx (.symm hy)
+    | crossed =>
+        rcases images with ⟨_, hx, hy⟩
+        exact .trans hx (.symm hy)
+
+def replaySame (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (cert : Certificate) : Option (PLift (∀ a x y,
+      NativeEq sig reg (reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit))
+        (reg.apply (sig.add op) (context.eval reg a, y, PUnit.unit)) ↔
+      Solutions reg context op proposed a a x y)) :=
+  match cert with
+  | .cancellation .matched =>
+      if hm : Family.matched ∈ proposed then
+        some ⟨same_families_exact profile reg context op proposed hm⟩
+      else none
+  | _ => none
+
+def FrameSolutions (reg : Registration sig) {u r s} (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family)
+    (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) : Prop :=
+  n = m ∧ a = b ∧ Solutions reg context op proposed a a x y
+
+theorem framed_same_exact (profile : Profile sig) (reg : Registration sig) {u r s v}
+    (f : sig.Symbol [u, r, s] v)
+    (free : profile.view f = .atom f)
+    (rigidFirst : profile.rigid u = true) (rigidSecond : profile.rigid r = true)
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (tail : ∀ a x y,
+      NativeEq sig reg (reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit))
+        (reg.apply (sig.add op) (context.eval reg a, y, PUnit.unit)) ↔
+      Solutions reg context op proposed a a x y)
+    (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) :
+    NativeEq sig reg
+      (reg.apply f (n, a, reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit), PUnit.unit))
+      (reg.apply f (m, b, reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit), PUnit.unit)) ↔
+      FrameSolutions reg context op proposed n m a b x y := by
+  apply (decompose_native profile reg f free _ _).trans
+  constructor
+  · rintro ⟨hn, ha, bags, _⟩
+    have first := (rigid_native profile reg rigidFirst n m).mp hn
+    have second := (rigid_native profile reg rigidSecond a b).mp ha
+    cases second
+    exact ⟨first, rfl, (tail a x y).mp bags⟩
+  · rintro ⟨first, second, output⟩
+    cases first; cases second
+    exact ⟨.refl _, .refl _, (tail a x y).mpr output, True.intro⟩
+
+def replayFrame (profile : Profile sig) (reg : Registration sig) {u r s v}
+    (f : sig.Symbol [u, r, s] v) (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family) (cert : Certificate) :
+    Option (PLift (∀ n m a b x y,
+      NativeEq sig reg
+        (reg.apply f (n, a, reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit), PUnit.unit))
+        (reg.apply f (m, b, reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit), PUnit.unit)) ↔
+      FrameSolutions reg context op proposed n m a b x y)) :=
+  match cert with
+  | .frameCancel .rigid .rigid tail => match free : profile.view f with
+    | .atom _ =>
+        if first : profile.rigid u = true then
+          if second : profile.rigid r = true then do
+            let tailProof ← replaySame profile reg context op proposed tail
+            return ⟨framed_same_exact profile reg f free first second context op proposed tailProof.down⟩
+          else none
+        else none
+  | _ => none
+
+def acceptsFrame (profile : Profile sig) (reg : Registration sig) {u r s v}
+    (f : sig.Symbol [u, r, s] v) (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family) (cert : Certificate) : Bool :=
+  (replayFrame profile reg f context op proposed cert).isSome
+
+theorem replay_frame_exact (profile : Profile sig) (reg : Registration sig) {u r s v}
+    (f : sig.Symbol [u, r, s] v) (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family) (cert : Certificate)
+    (accepted : acceptsFrame profile reg f context op proposed cert = true) :
+    ∀ n m a b x y,
+      NativeEq sig reg
+        (reg.apply f (n, a, reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit), PUnit.unit))
+        (reg.apply f (m, b, reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit), PUnit.unit)) ↔
+      FrameSolutions reg context op proposed n m a b x y := by
+  cases result : replayFrame profile reg f context op proposed cert with
+  | none => simp [acceptsFrame, result] at accepted
+  | some proof => exact proof.down
+
+/-- Presentation of the ENTIRE accepted framed answer set with its actual
+shared substitution parameters. This is a generic logical presentation rule. -/
+theorem frame_solutions_iff (reg : Registration sig) {u r s} (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family)
+    (matched : Family.matched ∈ proposed) (crossed : Family.crossed ∈ proposed)
+    (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) :
+    FrameSolutions reg context op proposed n m a b x y ↔
+      (∃ k : reg.Carrier u, ∃ l : reg.Carrier r, ∃ z : reg.Carrier s,
+        n = k ∧ m = k ∧ a = l ∧ b = l ∧ NativeEq sig reg x z ∧ NativeEq sig reg y z) ∨
+      (∃ k : reg.Carrier u, ∃ l : reg.Carrier r, ∃ rest : reg.Carrier s,
+        n = k ∧ m = k ∧ a = l ∧ b = l ∧
+          NativeEq sig reg x (reg.apply (sig.add op) (context.eval reg l, rest, PUnit.unit)) ∧
+          NativeEq sig reg y (reg.apply (sig.add op) (context.eval reg l, rest, PUnit.unit))) := by
+  constructor
+  · rintro ⟨hn, ha, solutions⟩
+    rcases (solutions_iff reg context op proposed matched crossed a a x y).mp solutions with
+      ⟨l, z, hl, _, hx, hy⟩ | ⟨rest, hx, hy⟩
+    · exact .inl ⟨n, l, z, rfl, hn.symm, hl, ha.symm.trans hl, hx, hy⟩
+    · exact .inr ⟨n, a, rest, rfl, hn.symm, rfl, ha.symm, hx, hy⟩
+  · rintro (⟨k, l, z, hn, hm, ha, hb, hx, hy⟩ | ⟨k, l, rest, hn, hm, ha, hb, hx, hy⟩)
+    · exact ⟨hn.trans hm.symm, ha.trans hb.symm,
+        .matched, matched, l, z, ha, ha, hx, hy⟩
+    · cases ha
+      exact ⟨hn.trans hm.symm, hb.symm, .crossed, crossed, rest, hx, hy⟩
+
 /-! ## External data boundary — no semantic proofs or search in Lean
 
 Native Maude proposes actual substitutions. We recognize EVERY image, including
 the shared fresh parameters, before compacting a family to its complete template.
-The object-level rules then try to cover BOTH cases with the proposed templates.
+The object-level rules cover both head cases, or apply cancellation when the
+frame's field equations identify the heads. Redundant answers are not discarded.
 The returned trace is decoded, not replaced by oneTailTrace or a local solver.
 Only replay_exact supplies a proof; all parsing/export code is untrusted.
 Unsupported native answers fail explicitly rather than being dropped.
@@ -1404,6 +1556,8 @@ structure Input where
   head : MaudeTerm
   add : Name
   bag : Name
+  sameParameters : Bool := false
+  counterPair? : Option (MaudeTerm × MaudeTerm) := none
 
 private partial def replace (term source target : MaudeTerm) : MaudeTerm :=
   if term == source then target else match term with
@@ -1434,6 +1588,24 @@ def input (left right : TranslatedPattern) : Except String Input := do
     variables := left.variables ++ right.variables, a := av, b := bv
     x := xv, y := yv, head := ha, add := add, bag := bag }
 
+/-- Infer a free three-field frame with a repeated second-field/head parameter.
+No constructor name is special. Counter images must be independent of the head
+parameter; forgetting that test would silently widen an overrestricted answer. -/
+def framedInput (left right : TranslatedPattern) : Except String Input := do
+  let [n, a, x] := left.variables.toList | throw "expected three variables on the left"
+  let [m, b, y] := right.variables.toList | throw "expected three variables on the right"
+  let .application f s #[nv, av, bags] := left.term | throw "expected a three-field frame"
+  let .application g t #[mv, bv, bags'] := right.term | throw "expected a three-field frame"
+  unless f == g && s == t && n.sort == m.sort &&
+      nv == .variable n.maudeName n.sort && mv == .variable m.maudeName m.sort &&
+      av == .variable a.maudeName a.sort && bv == .variable b.maudeName b.sort do
+    throw "unsupported framed query"
+  let spec ← input { term := bags, variables := #[a, x] }
+    { term := bags', variables := #[b, y] }
+  return { spec with
+    variables := left.variables ++ right.variables
+    sameParameters := true, counterPair? := some (nv, mv) }
+
 private def image (candidate : MaudeUnifier) (inputVariable : MaudeTerm) : MaudeTerm :=
   match inputVariable with
   | .variable name _ => match candidate.bindings.find? (·.domain.maudeName == name) with
@@ -1463,11 +1635,18 @@ def recognize (spec : Input) (candidate : MaudeUnifier) : Except String Family :
   let .variable an sa := a | throw "unsupported constrained parameter image"
   let .variable bn sb := b | throw "unsupported constrained parameter image"
   unless sa == parameterSort && sb == parameterSort do throw "parameter sort changed"
+  if spec.sameParameters && a != b then throw "framed serving images must be shared"
+  if let some (n, m) := spec.counterPair? then
+    let counter := image candidate n
+    let .variable _ cs := counter | throw "counter image is not a free parameter"
+    let .variable _ ns := n | throw "invalid counter input"
+    unless counter == image candidate m && cs == ns && counter != a && counter != b do
+      throw "counter images must be shared and independent of serving"
   if a == b && x == y then
-    let .variable _ s := x | throw "matched bag image is not a free parameter"
-    unless s == spec.bag do throw "matched remainder sort changed"
-    return .matched
-  unless an != bn do throw "crossed parameters must be independent"
+    if let .variable _ s := x then
+      unless s == spec.bag && x != a do throw "matched remainder sort or independence changed"
+      return .matched
+  unless spec.sameParameters || an != bn do throw "crossed parameters must be independent"
   let .application f s #[first, second] := x | throw "unsupported crossed bag image"
   unless f == spec.add && s == spec.bag do throw "crossed image uses another operator"
   let headB := replace spec.head spec.a b
@@ -1531,6 +1710,14 @@ private def decodeFamily : Maude.Certification.Node → Except String Family
   | .app "emit" #[.app "crossed" #[]] => pure .crossed
   | _ => throw "unsupported coverage leaf"
 
+private partial def decodeCertificate : Maude.Certification.Node → Except String Certificate
+  | .app "coverage" #[head, equal, unequal] =>
+      return .coverage (← decodeHead head) (← decodeFamily equal) (← decodeFamily unequal)
+  | .app "cancellation" #[family] => return .cancellation (← decodeFamily family)
+  | .app "frameCancel" #[first, second, tail] =>
+      return .frameCancel (← decodeHead first) (← decodeHead second) (← decodeCertificate tail)
+  | _ => throw "unsupported certificate reply"
+
 /-- One bounded search result, echoing the WHOLE request. No solution and a
 malformed/truncated certificate are failures, not empty successful certificates. -/
 def searchReply (request stdout : String) : Except String Certificate := do
@@ -1540,11 +1727,11 @@ def searchReply (request stdout : String) : Except String Certificate := do
     throw "missing search solution heading"
   let [term, exit] := after.splitOn "Bye." | throw "truncated certificate search output"
   unless exit.trim.isEmpty do throw "trailing certificate search output"
-  let .app "proposed" #[echo, .app "coverage" #[head, equal, unequal]] ←
+  let .app "proposed" #[echo, certificate] ←
       Maude.Certification.parseNode term | throw "unsupported certificate reply"
   unless echo == (← Maude.Certification.parseNode request) do
     throw "certificate request echo changed"
-  return .coverage (← decodeHead head) (← decodeFamily equal) (← decodeFamily unequal)
+  decodeCertificate certificate
 
 structure Fetched where
   families : List Family
@@ -1558,12 +1745,13 @@ structure Fetched where
 There is no scripted strategy or preselected certificate term. Search depth is
 bounded, so failure is reported rather than hanging or inserting sorry. -/
 def fetch (model engine : String) (sorts : Array SortDecl)
-    (left right : TranslatedPattern) (context : String) : IO Fetched := do
-  let spec ← IO.ofExcept (input left right)
+    (left right : TranslatedPattern) (context : String) (framed : Bool := false) : IO Fetched := do
+  let spec ← IO.ofExcept (if framed then framedInput left right else input left right)
   let stdout ← Maude.runMaude model
     s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
   let families ← IO.ofExcept (nativeAnswers sorts spec stdout)
-  let request := s!"request({context},{familiesDump families})"
+  let kind := if framed then "frameRequest" else "request"
+  let request := s!"{kind}({context},{familiesDump families})"
   let result ← Maude.runMaude engine
     s!"search [1, 64] in DIRECT-CERTIFICATION : start({request}) =>! R:Reply ."
   let trace ← IO.ofExcept (searchReply request result)
@@ -1577,12 +1765,17 @@ private def headExpr : HeadCertificate → Expr
   | .rigid => mkConst ``HeadCertificate.rigid
   | .decompose n rest => mkApp2 (mkConst ``HeadCertificate.decompose) (mkNatLit n) (headExpr rest)
 
+private def certificateExpr : Certificate → Expr
+  | .coverage head equal unequal => mkApp3 (mkConst ``Certificate.coverage) (headExpr head)
+      (familyExpr equal) (familyExpr unequal)
+  | .cancellation family => mkApp (mkConst ``Certificate.cancellation) (familyExpr family)
+  | .frameCancel first second tail => mkApp3 (mkConst ``Certificate.frameCancel)
+      (headExpr first) (headExpr second) (certificateExpr tail)
+
 /-- Emit proofless constants ONLY. The theorem below must still kernel-check
 acceptance against its typed context, with ordinary rfl, not native_decide. -/
 def emit (pre : Name) (fetched : Fetched) : Lean.MetaM Unit := do
-  let .coverage head equal unequal := fetched.trace
-  let trace := mkApp3 (mkConst ``Certificate.coverage) (headExpr head)
-    (familyExpr equal) (familyExpr unequal)
+  let trace := certificateExpr fetched.trace
   for (name, value) in [(pre ++ `families, ← Lean.Meta.mkListLit (mkConst ``Family)
       (fetched.families.map familyExpr)), (pre ++ `trace, trace)] do
     Lean.addAndCompile <| .defnDecl {
@@ -1690,6 +1883,84 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 #eval fetched.trace.dump
 #guard fetched.families.length == 2
 #guard Replay.accepts profile registration oneTailContext Operator.acu fetched.families fetched.trace
+
+/- A REAL Bakery narrowing equation, not just a residual bag equation:
+
+   examples/bakery.lean: (exit next serving rest).lhs against
+                        (critical next' serving' rest').term.
+
+   Conf(next, serving, singleton(crit(serving))+P)
+      =B Conf(next', serving', singleton(crit(serving'))+Q)
+
+   We use the identical term shapes over the lightweight BakeryACU declarations
+   already imported by this prototype; we do not import the safety proofs or
+   their sorries. Constraints are deliberately absent: they are attached by
+   narrowing, while this certificate is for the unconstrained term equation.
+
+   Native Maude returns TWO families, not just the residual matched one:
+   * next=next'=N, serving=serving'=M, P=Q=Z;
+   * same counter equations, P=Q=singleton(crit(M))+R (redundant but sound).
+
+   The payload M is shared with the second Conf field, not an independently
+   quantified ticket. Both frames and ALL SIX input-variable images are checked.
+-/
+def criticalHeadContext : Replay.Context Sig Tag.s0 Tag.s2 :=
+  .app Symbol.c6 (.focus (.app Symbol.c4 (.focus .hole .nil)) .nil)
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let sorts ← Maude.collectSignature (Lean.mkConst ``Conf)
+  let model := Maude.renderModule sorts (← Maude.inspectTheory (Lean.mkConst ``BakeryTheory))
+  let lhs ← Lean.Elab.Term.elabTerm
+    (← `(fun (next serving : Nat) (P : ProcSet) =>
+      Conf.mk next serving (ProcSet.union (ProcSet.singleton (.crit serving)) P))) none
+  let rhs ← Lean.Elab.Term.elabTerm
+    (← `(fun (next' serving' : Nat) (Q : ProcSet) =>
+      Conf.mk next' serving' (ProcSet.union (ProcSet.singleton (.crit serving')) Q))) none
+  let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
+  let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  let context := Replay.External.contextDump profile criticalHeadContext
+  let result ← Replay.External.fetch model engine sorts left right context true
+  Replay.External.emit `DirectCertification.Bakery.fetchedExitCritical result
+  Lean.logInfo s!"Exit/critical native query: {left.term.render} =? {right.term.render}"
+  Lean.logInfo s!"Native families: {result.families.map Replay.Family.dump}; fetched trace: {result.trace.dump}"
+
+  -- Tamper tests on the REAL six-variable native answer, not toy data.
+  let spec ← Lean.ofExcept (Replay.External.framedInput left right)
+  let answers ← Lean.ofExcept (Maude.parseUnifiers sorts spec.variables result.nativeOutput)
+  let some answer := answers.toList.head? | throwError "no native framed answer"
+  let some (next, _) := spec.counterPair? | throwError "no framed counter pair"
+  let .variable nextName _ := next | throwError "invalid framed counter variable"
+  let .variable servingName _ := spec.a | throwError "invalid framed serving variable"
+  let some servingBinding := answer.bindings.toList.find? (·.domain.maudeName == servingName)
+    | throwError "no native serving image"
+  let collapsed := { answer with bindings := answer.bindings.map fun binding =>
+    if binding.domain.maudeName == nextName then { binding with image := servingBinding.image }
+    else binding }
+  unless !(Replay.External.recognize spec collapsed).isOk do
+    throwError "accepted a next/serving correlation absent from the query"
+  let .variable rightServingName _ := spec.b | throwError "invalid right serving variable"
+  let broken := { answer with bindings := answer.bindings.map fun binding =>
+    if binding.domain.maudeName == rightServingName then
+      { binding with image := .variable "#unshared" binding.domain.sort }
+    else binding }
+  unless !(Replay.External.recognize spec broken).isOk do
+    throwError "accepted unshared serving-field/payload images"
+
+#eval fetchedExitCritical.trace.dump
+#guard fetchedExitCritical.families.length == 2
+#guard Replay.acceptsFrame profile registration Symbol.c8 criticalHeadContext Operator.acu
+  fetchedExitCritical.families fetchedExitCritical.trace
+
+-- Unlike the independent-head problem, the redundant crossed family may be
+-- omitted here. Cancellation covers ALL shared-head solutions by matched alone.
+#guard Replay.acceptsFrame profile registration Symbol.c8 criticalHeadContext Operator.acu
+  [.matched] fetchedExitCritical.trace
+#guard !(Replay.acceptsFrame profile registration Symbol.c8 criticalHeadContext Operator.acu
+  [.crossed] fetchedExitCritical.trace)
+#guard !(Replay.acceptsFrame profile registration Symbol.c8 criticalHeadContext Operator.acu
+  fetchedExitCritical.families (.frameCancel (.decompose 0 .rigid) .rigid (.cancellation .matched)))
 
 /- Checker regression tests, not helper lemmas for the certification proof.
    None of these checks is relied on as an oracle: replay_exact is proved above
@@ -1801,6 +2072,27 @@ theorem one_tail_certificate (i j : Nat) (P Q : ProcSet) :
       (Replay.solutions_iff registration oneTailContext Operator.acu fetched.families
         (of_decide_eq_true rfl) (of_decide_eq_true rfl) i j P Q)
 
+/- Full exit/critical unification certificate. This one proof term is the replay
+   of the fetched FrameCancel rule followed by the GENERAL presentation rule.
+   .mp is completeness; .mpr is soundness. No local helper lemma, tactic,
+   feasibility reasoning or narrowing modification is involved. -/
+theorem exit_critical_certificate (next serving next' serving' : Nat) (P Q : ProcSet) :
+    Conf.mk next serving (ProcSet.union (ProcSet.singleton (.crit serving)) P)
+      =[BakeryTheory.certified]
+    Conf.mk next' serving' (ProcSet.union (ProcSet.singleton (.crit serving')) Q) ↔
+      (∃ N M : Nat, ∃ Z : ProcSet,
+        next = N ∧ next' = N ∧ serving = M ∧ serving' = M ∧
+        P =[BakeryTheory.certified] Z ∧ Q =[BakeryTheory.certified] Z) ∨
+      (∃ N M : Nat, ∃ R : ProcSet,
+        next = N ∧ next' = N ∧ serving = M ∧ serving' = M ∧
+        P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.crit M)) R ∧
+        Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.crit M)) R) :=
+  (Replay.replay_frame_exact profile registration Symbol.c8 criticalHeadContext Operator.acu
+    fetchedExitCritical.families fetchedExitCritical.trace rfl next next' serving serving' P Q).trans
+      (Replay.frame_solutions_iff registration (u := Tag.s0) criticalHeadContext Operator.acu
+        fetchedExitCritical.families (of_decide_eq_true rfl) (of_decide_eq_true rfl)
+        next next' serving serving' P Q)
+
 /- Decompose also works when a free constructor contains NON-rigid payloads.
    Conf is not rigid: its process-field equality must stay modulo ACU.
    This is a regression against incorrectly replacing every free-head equality
@@ -1849,10 +2141,12 @@ theorem missing_matched_rejected (n : Nat) :
 #print axioms atomic_certificate
 #print axioms refinement_certificate
 #print axioms one_tail_certificate
+#print axioms exit_critical_certificate
 #print axioms acu_payload_certificate
 #print axioms head_clash_certificate
 #print axioms missing_matched_rejected
 #print axioms coverage_iff
 #print axioms Replay.replay_exact
+#print axioms Replay.replay_frame_exact
 
 end DirectCertification.Bakery
