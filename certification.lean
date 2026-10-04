@@ -8,6 +8,12 @@ This file contains three clearly separated parts:
 2. SYNTACTIC METADATA: constructor classification, generated without user proofs.
 3. CERTIFICATES: ordinary, tactic-free proof terms over Bakery's own datatypes.
 
+The current milestone is answer-directed certification of ONE explicit atom
+and ONE bag tail per side. The generic coverage theorem below reduces an
+unbounded bag obligation to two head-equality guards. It does not recompute a
+complete set of ACU unifiers. General multi-head coverage and finite dump/replay
+remain future work; no native Maude answer is trusted as a completeness proof.
+
 The equality is the existing Structural.Indexed.NativeEq, written
 `=[BakeryTheory.certified]`. We introduce no second equality or user-model
 encoding. Lists/quotients appear only inside proofs of the general metatheorems.
@@ -21,9 +27,10 @@ References:
 * Comon–Lescanne, Equational Problems and Disunification (1989), §§3–4:
   https://doi.org/10.1016/S0747-7171(89)80017-3
   Separation of rules from control, and preservation of the WHOLE solution set.
-* Fernández, AC Complement Problems (1996), §3:
-  transformation rules and their semantic correctness. This prototype does NOT
-  implement that paper's complement procedure or import its AC decision results.
+* Fernández, AC Complement Problems (1996), §§3.3 and 4:
+  finite symbolic coverage tests, and preservation of shared-variable
+  correlations. The ACU reduction here is proved independently: the paper's
+  linear AC theorem is NOT silently applied to nonlinear shared remainders.
 
 This is a small ACU rule fragment, NOT a complete ACU unification algorithm.
 The existing production narrowing and legacy EqMod certificates are unchanged.
@@ -330,6 +337,143 @@ theorem qfold_flatten {s} (op : sig.ACUOp s) (a : Tree sig s) :
     · intro s ss first rest hfirst hrest; exact ⟨hfirst, hrest⟩
   exact all op
 
+/-! ### Cancellation and atom exchange
+
+All quotients here identify exactly the EXISTING indexed structural relation:
+`qtree a = qtree b` iff `Structural.Indexed.Eq sig a b`. They are internal proof
+tools, not a different equality exposed to model authors.
+-/
+
+theorem qtree_eq_iff {s} (a b : Tree sig s) :
+    qtree a = qtree b ↔ Structural.Indexed.Eq sig a b :=
+  ⟨fun h => Quotient.exact h, fun h => Quotient.sound (s := treeSetoid) h⟩
+
+theorem eq_of_flatten_perm {s} (op : sig.ACUOp s) {x y : Tree sig s}
+    (h : (flatten profile x).Perm (flatten profile y)) :
+    Structural.Indexed.Eq sig x y :=
+  Quotient.exact ((qfold_flatten profile op x).symm.trans
+    ((qfold_perm op h).trans (qfold_flatten profile op y)))
+
+private theorem perm_cancel_prefix {α : Type} (front : List α) {xs ys : List α}
+    (h : (front ++ xs).Perm (front ++ ys)) : xs.Perm ys := by
+  induction front with
+  | nil => exact h
+  | cons a rest ih => exact ih h.cons_inv
+
+/-- Cancel an arbitrary COMMON bag, including bags with repeated atoms. -/
+theorem cancel (profile : Profile sig) {s} (op : sig.ACUOp s) (a x y : Tree sig s) :
+    Structural.Indexed.Eq sig (add sig op a x) (add sig op a y) ↔
+      Structural.Indexed.Eq sig x y :=
+  ⟨fun h => eq_of_flatten_perm profile op (perm_cancel_prefix _
+      (by simpa only [flatten_add] using flatten_congr profile h)),
+    fun h => .congr (sig.add op) (.cons (.refl a) (.cons h .nil))⟩
+
+theorem flatten_length {s} (a : Tree sig s) :
+    (flatten profile a).length = mass profile a := by
+  let P := fun s (a : Tree sig s) => (flatten profile a).length = mass profile a
+  refine Tree.rec (motive_1 := fun {s} a => P s a)
+    (motive_2 := fun {ss} args => AllTrees P args) ?_ ?_ ?_ a
+  · intro ss s f args ih
+    cases hv : profile.view f with
+    | zero op => simp [P, flatten, flatHead, mass, Tree.eval, measure, hv]
+    | add op =>
+        cases args with
+        | cons left rest =>
+          cases rest with
+          | cons right tail =>
+            cases tail
+            simp only [P] at ih
+            simp only [P, flatten, flattenArgs, flatHead, mass, Tree.eval,
+              Trees.eval, measure, hv, List.length_append]
+            rw [ih.1, ih.2.1]
+            rfl
+    | atom f => simp [P, flatten, flatHead, mass, Tree.eval, measure, hv]
+  · trivial
+  · intro s ss first rest hf hr; exact ⟨hf, hr⟩
+
+theorem flatten_atom {s} (op : sig.ACUOp s) (a : Tree sig s)
+    (ha : mass profile a = 1) : flatten profile a = [qtree a] := by
+  have length : (flatten profile a).length = 1 := (flatten_length profile a).trans ha
+  cases hs : flatten profile a with
+  | nil => simp [hs] at length
+  | cons first rest =>
+      have empty : rest = [] := by
+        have hr : rest.length + 1 = 1 := by simpa only [hs, List.length_cons] using length
+        have hz : rest.length = 0 := by omega
+        exact List.eq_nil_of_length_eq_zero hz
+      have folded := qfold_flatten profile op a
+      rw [hs, empty] at folded
+      change qadd op first (qtree (zero sig op)) = qtree a at folded
+      have same : first = qtree a := (qadd_unit_right op first).symm.trans folded
+      simp only [empty, same]
+
+/-- The one-head exchange rule, with two possibly overlapping families.
+
+  a+X =B b+Y
+  ---------------------------------------------------------------- Exchange
+  (a=B b AND X=B Y) OR EXISTS N, X=B b+N AND Y=B a+N
+
+Atoms can have arbitrary payloads, even payloads with structural theories.
+The second family does NOT require a !=B b. The proof never loses correlations
+between the two occurrences of N. No independent unification search is used.
+-/
+theorem exchange {s} (op : sig.ACUOp s) (a b x y : Tree sig s)
+    (ha : mass profile a = 1) (hb : mass profile b = 1) :
+    Structural.Indexed.Eq sig (add sig op a x) (add sig op b y) ↔
+      (Structural.Indexed.Eq sig a b ∧ Structural.Indexed.Eq sig x y) ∨
+      ∃ n, Structural.Indexed.Eq sig x (add sig op b n) ∧
+        Structural.Indexed.Eq sig y (add sig op a n) := by
+  constructor
+  · intro h
+    classical
+    by_cases hab : Structural.Indexed.Eq sig a b
+    · exact .inl ⟨hab, (cancel profile op b x y).mp
+        (.trans (.congr (sig.add op) (.cons (.symm hab) (.cons (.refl x) .nil))) h)⟩
+    · have hp := flatten_congr profile h
+      simp only [flatten_add, flatten_atom profile op a ha,
+        flatten_atom profile op b hb, List.singleton_append] at hp
+      have member : qtree a ∈ flatten profile y := by
+        have hm := hp.mem_iff.mp List.mem_cons_self
+        rcases List.mem_cons.mp hm with equal | member
+        · exact False.elim (hab (Quotient.exact equal))
+        · exact member
+      obtain ⟨before, after, hy⟩ := List.mem_iff_append.mp member
+      obtain ⟨n, hn⟩ := Quotient.exists_rep (qfold op (before ++ after))
+      have tailPerm : (flatten profile x).Perm (qtree b :: (before ++ after)) := by
+        rw [hy] at hp
+        exact (hp.trans ((List.perm_middle.cons (qtree b)).trans
+          (List.Perm.swap _ _ _))).cons_inv
+      have hxq : qtree x = qadd op (qtree b) (qtree n) := by
+        rw [← qfold_flatten profile op x, qfold_perm op tailPerm]
+        change qadd op (qtree b) (qfold op (before ++ after)) = _
+        rw [← hn]
+        rfl
+      have hyq : qtree y = qadd op (qtree a) (qtree n) := by
+        rw [← qfold_flatten profile op y, hy, qfold_perm op List.perm_middle]
+        change qadd op (qtree a) (qfold op (before ++ after)) = _
+        rw [← hn]
+        rfl
+      exact .inr ⟨n, Quotient.exact hxq, Quotient.exact hyq⟩
+  · rintro (⟨hab, hxy⟩ | ⟨n, hx, hy⟩)
+    · exact .congr (sig.add op) (.cons hab (.cons hxy .nil))
+    · apply Quotient.exact (s := treeSetoid (sig := sig))
+      change qadd op (qtree a) (qtree x) = qadd op (qtree b) (qtree y)
+      have ex := Quotient.sound (s := treeSetoid) hx
+      have ey := Quotient.sound (s := treeSetoid) hy
+      change qtree x = qadd op (qtree b) (qtree n) at ex
+      change qtree y = qadd op (qtree a) (qtree n) at ey
+      rw [ex, ey, ← qadd_assoc, qadd_comm op (qtree a) (qtree b), qadd_assoc]
+
+/-- A sound ACU occurs rule: a bag cannot equal itself PLUS a nonempty atom.
+Do NOT reject X=B X+Y: that equation has the solutions Y=B 0. -/
+theorem occurs_atom {s} (op : sig.ACUOp s) (a x : Tree sig s)
+    (ha : mass profile a = 1) :
+    ¬ Structural.Indexed.Eq sig x (add sig op a x) := by
+  intro h
+  have count := mass_congr profile h
+  rw [mass_add, ha] at count
+  omega
+
 /-- Finite bag refinement, used only to prove the semantic Mutate rule. -/
 theorem perm_refine {α : Type} (a b c d : List α)
     (h : (a ++ b).Perm (c ++ d)) :
@@ -585,6 +729,151 @@ theorem mutate_native (profile : Profile sig) (reg : Registration sig) {s}
     · simpa only [NativeEq, reg.quote_apply, Args.quote] using ha
     · simpa only [NativeEq, reg.quote_apply, Args.quote] using hr
 
+/-! ### Answer-directed one-tail coverage
+
+These are GENERAL metatheorems, not extra user registration obligations.
+The two proposed families are kept fixed. Their guards may include payload
+bindings/restrictions; those must not be thrown away when reading an answer.
+Only the two head cases are checked, not the infinitely many possible tails.
+-/
+
+theorem cancel_native (profile : Profile sig) (reg : Registration sig) {s}
+    (op : sig.ACUOp s) (a x y : reg.Carrier s) :
+    NativeEq sig reg (reg.apply (sig.add op) (a, x, PUnit.unit))
+      (reg.apply (sig.add op) (a, y, PUnit.unit)) ↔ NativeEq sig reg x y := by
+  unfold NativeEq
+  rw [reg.quote_apply, reg.quote_apply]
+  exact cancel profile op _ _ _
+
+/-- Lift Exchange without exposing the internal quotient or tree syntax. -/
+theorem exchange_native (profile : Profile sig) (reg : Registration sig) {s}
+    (op : sig.ACUOp s) (a b x y : reg.Carrier s)
+    (ha : mass profile (reg.quote s a) = 1)
+    (hb : mass profile (reg.quote s b) = 1) :
+    NativeEq sig reg (reg.apply (sig.add op) (a, x, PUnit.unit))
+      (reg.apply (sig.add op) (b, y, PUnit.unit)) ↔
+      (NativeEq sig reg a b ∧ NativeEq sig reg x y) ∨
+      ∃ n : reg.Carrier s,
+        NativeEq sig reg x (reg.apply (sig.add op) (b, n, PUnit.unit)) ∧
+        NativeEq sig reg y (reg.apply (sig.add op) (a, n, PUnit.unit)) := by
+  have rule := exchange profile op (reg.quote s a) (reg.quote s b)
+    (reg.quote s x) (reg.quote s y) ha hb
+  constructor
+  · intro input
+    unfold NativeEq at input
+    rw [reg.quote_apply, reg.quote_apply] at input
+    rcases rule.mp input with matched | ⟨n, hx, hy⟩
+    · exact .inl matched
+    · refine .inr ⟨n.eval reg.toAlgebra, ?_, ?_⟩
+      · simpa only [NativeEq, reg.quote_apply, Args.quote, reg.quote_eval] using hx
+      · simpa only [NativeEq, reg.quote_apply, Args.quote, reg.quote_eval] using hy
+  · intro output
+    unfold NativeEq
+    rw [reg.quote_apply, reg.quote_apply]
+    rcases output with matched | ⟨n, hx, hy⟩
+    · exact rule.mpr (.inl matched)
+    · apply rule.mpr (.inr ⟨reg.quote s n, ?_, ?_⟩)
+      · simpa only [NativeEq, reg.quote_apply, Args.quote] using hx
+      · simpa only [NativeEq, reg.quote_apply, Args.quote] using hy
+
+/-- The proposed answer set. The parameters of the crossed family include ONE
+shared native bag N, not two independently chosen bags. G/H record any extra
+candidate restrictions. This is just a proposition, not a second term language.
+
+For the matched family, a=B b is still a head equation. Decomposing a free head
+into payload bindings is a separate rule, NOT assumed or silently certified.
+-/
+def answers (reg : Registration sig) {s} (op : sig.ACUOp s)
+    (a b : reg.Carrier s) (G H : Prop) (x y : reg.Carrier s) : Prop :=
+  (G ∧ NativeEq sig reg a b ∧ NativeEq sig reg x y) ∨
+  (H ∧ ∃ n : reg.Carrier s,
+    NativeEq sig reg x (reg.apply (sig.add op) (b, n, PUnit.unit)) ∧
+    NativeEq sig reg y (reg.apply (sig.add op) (a, n, PUnit.unit)))
+
+/-- Arbitrary guards can restrict a sound family but never introduce junk. -/
+theorem answers_sound (profile : Profile sig) (reg : Registration sig) {s}
+    (op : sig.ACUOp s) (a b : reg.Carrier s) (G H : Prop)
+    (ha : mass profile (reg.quote s a) = 1)
+    (hb : mass profile (reg.quote s b) = 1) :
+    ∀ x y, answers reg op a b G H x y →
+      NativeEq sig reg (reg.apply (sig.add op) (a, x, PUnit.unit))
+        (reg.apply (sig.add op) (b, y, PUnit.unit)) :=
+  fun x y proposed => (exchange_native profile reg op a b x y ha hb).mpr
+    (Or.elim proposed (fun matched => .inl matched.2)
+      (fun crossed => .inr crossed.2))
+
+/-- MAIN COVERAGE REDUCTION: an iff, not just a sufficient heuristic.
+
+  fixed answers = [matched family with guard G; crossed family with guard H]
+
+  ALL bag solutions are covered by these answers
+  ================================================================= Coverage
+  (a=B b -> G) AND (a!=B b -> H)
+
+Necessity tests two minimal solutions:
+* a=B b: X=Y=0. The crossed family cannot cover an empty tail because b is
+  nonempty. Thus the matched guard MUST hold.
+* a!=B b: X=b, Y=a. The matched family is impossible, so H MUST hold.
+Sufficiency uses Exchange and cancellation, carrying an arbitrary shared N.
+
+This is the ACU-specific step eliminating the infinite tails from a negative
+"no missed solution" obligation. Future replay need only certify the RHS
+guards, plus the syntactic shape of the proposed families. The guard H is NOT
+the condition a!=B b: the crossed family can also solve equal-head instances.
+-/
+theorem coverage_iff (profile : Profile sig) (reg : Registration sig) {s}
+    (op : sig.ACUOp s) (a b : reg.Carrier s) (G H : Prop)
+    (ha : mass profile (reg.quote s a) = 1)
+    (hb : mass profile (reg.quote s b) = 1) :
+    (∀ x y, NativeEq sig reg (reg.apply (sig.add op) (a, x, PUnit.unit))
+        (reg.apply (sig.add op) (b, y, PUnit.unit)) →
+      answers reg op a b G H x y) ↔
+      ((NativeEq sig reg a b → G) ∧ (¬ NativeEq sig reg a b → H)) := by
+  let z := reg.apply (sig.zero op) PUnit.unit
+  constructor
+  · intro complete
+    constructor
+    · intro hab
+      have input : NativeEq sig reg (reg.apply (sig.add op) (a, z, PUnit.unit))
+          (reg.apply (sig.add op) (b, z, PUnit.unit)) :=
+        native_add_congr reg op hab (native_refl reg z)
+      rcases complete z z input with ⟨g, _⟩ | ⟨_, n, hx, _⟩
+      · exact g
+      · simp only [z, NativeEq, reg.quote_apply, Args.quote] at hx
+        have count := mass_congr profile hx
+        change mass profile (zero sig op) =
+          mass profile (add sig op (reg.quote s b) (reg.quote s n)) at count
+        rw [mass_zero, mass_add, hb] at count
+        omega
+    · intro different
+      have input := native_comm reg op a b
+      rcases complete b a input with ⟨_, hab, _⟩ | ⟨h, _⟩
+      · exact False.elim (different hab)
+      · exact h
+  · rintro ⟨matchedGuard, crossedGuard⟩ x y input
+    classical
+    by_cases hab : NativeEq sig reg a b
+    · have tails : NativeEq sig reg x y := (cancel_native profile reg op b x y).mp
+        (native_trans reg (native_add_congr reg op (native_symm reg hab)
+          (native_refl reg x)) input)
+      exact .inl ⟨matchedGuard hab, hab, tails⟩
+    · rcases (exchange_native profile reg op a b x y ha hb).mp input with matched | crossed
+      · exact False.elim (hab matched.1)
+      · exact .inr ⟨crossedGuard hab, crossed⟩
+
+/-- Aggregate the two INDEPENDENT certificates. No correctness claim about
+Maude, no hidden user proof, and no feasibility test is used in aggregation. -/
+theorem exact_of_coverage (profile : Profile sig) (reg : Registration sig) {s}
+    (op : sig.ACUOp s) (a b : reg.Carrier s) (G H : Prop)
+    (ha : mass profile (reg.quote s a) = 1)
+    (hb : mass profile (reg.quote s b) = 1)
+    (guards : (NativeEq sig reg a b → G) ∧ (¬ NativeEq sig reg a b → H)) :
+    ∀ x y, NativeEq sig reg (reg.apply (sig.add op) (a, x, PUnit.unit))
+        (reg.apply (sig.add op) (b, y, PUnit.unit)) ↔
+      answers reg op a b G H x y :=
+  fun x y => ⟨(coverage_iff profile reg op a b G H ha hb).mpr guards x y,
+    answers_sound profile reg op a b G H ha hb x y⟩
+
 end DirectCertification
 
 /-! ## Certification examples — no tactics, no problem-specific helper lemmas
@@ -639,95 +928,74 @@ theorem refinement_certificate (P Q A R : ProcSet) :
         R =[BakeryTheory.certified] ProcSet.union V Z :=
   mutate_native profile registration Operator.acu P Q A R
 
-/- Trace:
-     MutateACU(P, Q, singleton(wait(n)), R; fresh p q r t)
-     Orient(singleton(wait(n)) =B p+r)
-     SplitAtom(p, r, singleton(wait(n)))
-     ├─ p=B 0, r=B atom: Congruence; Unit; Transitivity
-     │  Emit { P ↦ q,      Q ↦ atom+t, R ↦ q+t }
-     └─ p=B atom, r=B 0: Congruence; Unit; Transitivity
-        Emit { P ↦ atom+q, Q ↦ t,      R ↦ q+t }
+/- Proposed families for ONE equation:
 
-   The proof below mirrors this trace explicitly. Exists.elim opens the fresh
-   pieces; Or.elim checks BOTH SplitAtom branches. Packing the remaining q,t
-   with Exists.intro emits the substitutions. No search or hidden macro rule.
+     singleton(wait(i)) + P =B singleton(wait(j)) + Q
 
-   Completeness does NOT require deciding whether individual instances are
-   feasible. Here there are no constraints; every structural solution is covered.
+   matched: the heads are equal, P=Q
+   crossed: P=singleton(wait(j))+N, Q=singleton(wait(i))+N
+
+   Schematic future dump/replay:
+     CheckAtomicHeads
+     Coverage(matchedGuard=True, crossedGuard=True)
+       ├─ heads equal     -> matched guard holds
+       └─ heads unequal   -> crossed guard holds
+     ExactOfCoverage
+
+   The certificate below only applies general rules and logical constructors;
+   it does NOT replay Mutate/Split to rediscover the supplied families.
+   The arbitrary shared remainder is already handled by the general theorem.
+
+   Boundary: this certifies the bag-level reduction. The matched head equation
+   is retained explicitly. Turning it into i=j (and a native substitution
+   i↦k,j↦k) needs the generic free-constructor decomposition rule, the NEXT
+   milestone. We do not silently assume injectivity modulo structural axioms.
 -/
-theorem remainder_certificate (n : Nat) (P Q R : ProcSet) :
-    ProcSet.union P Q =[BakeryTheory.certified]
-      ProcSet.union (ProcSet.singleton (.wait n)) R ↔
-      (∃ U V : ProcSet,
-        P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait n)) U ∧
-        Q =[BakeryTheory.certified] V ∧
-        R =[BakeryTheory.certified] ProcSet.union U V) ∨
-      (∃ U V : ProcSet,
-        P =[BakeryTheory.certified] U ∧
-        Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait n)) V ∧
-        R =[BakeryTheory.certified] ProcSet.union U V) :=
-  let atom := ProcSet.singleton (.wait n)
-  let mutation := mutate_native profile registration Operator.acu P Q atom R
-  let split := fun p r => split_native profile registration Operator.acu p r atom rfl
+theorem one_tail_certificate (i j : Nat) (P Q : ProcSet) :
+    ProcSet.union (ProcSet.singleton (.wait i)) P =[BakeryTheory.certified]
+      ProcSet.union (ProcSet.singleton (.wait j)) Q ↔
+      (ProcSet.singleton (.wait i) =[BakeryTheory.certified]
+          ProcSet.singleton (.wait j) ∧ P =[BakeryTheory.certified] Q) ∨
+      (∃ N : ProcSet,
+        P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait j)) N ∧
+        Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait i)) N) :=
+  let certificate := exact_of_coverage profile registration Operator.acu
+    (ProcSet.singleton (.wait i)) (ProcSet.singleton (.wait j)) True True rfl rfl
+    -- Completeness is reduced to TWO FINITE GUARDS, independent of P,Q,N.
+    ⟨fun _ => True.intro, fun _ => True.intro⟩ P Q
   Iff.intro
-    -- COMPLETENESS: Mutate → Orient → Split → both branches → Emit.
-    (fun input =>
-      Exists.elim (mutation.mp input) (fun p hp =>
-      Exists.elim hp (fun q hq =>
-      Exists.elim hq (fun r hr =>
-      Exists.elim hr (fun t pieces =>
-        Or.elim ((split p r).mp (native_symm registration pieces.2.2.1))
-          -- p=B 0, r=B atom. Eliminate the zero piece from P.
-          (fun zeroAtom =>
-            Or.inr ⟨q, t,
-              native_trans registration pieces.1
-                (native_trans registration
-                  (native_add_congr registration Operator.acu
-                    zeroAtom.1 (native_refl registration q))
-                  (native_unit registration Operator.acu q)),
-              native_trans registration pieces.2.1
-                (native_add_congr registration Operator.acu
-                  zeroAtom.2 (native_refl registration t)),
-              pieces.2.2.2⟩)
-          -- p=B atom, r=B 0. Eliminate the zero piece from Q.
-          (fun atomZero =>
-            Or.inl ⟨q, t,
-              native_trans registration pieces.1
-                (native_add_congr registration Operator.acu
-                  atomZero.1 (native_refl registration q)),
-              native_trans registration pieces.2.1
-                (native_trans registration
-                  (native_add_congr registration Operator.acu
-                    atomZero.2 (native_refl registration t))
-                  (native_unit registration Operator.acu t)),
-              pieces.2.2.2⟩))))))
-    -- SOUNDNESS: instantiate Mutate with the displayed substitution pieces.
-    (fun output =>
-      Or.elim output
-        (fun first =>
-          Exists.elim first (fun u hu =>
-          Exists.elim hu (fun v images =>
-            mutation.mpr ⟨atom, u, ProcSet.empty, v,
-              images.1,
-              native_trans registration images.2.1
-                (native_symm registration (native_unit registration Operator.acu v)),
-              native_trans registration
-                (native_symm registration (native_unit registration Operator.acu atom))
-                (native_comm registration Operator.acu ProcSet.empty atom),
-              images.2.2⟩)))
-        (fun second =>
-          Exists.elim second (fun u hu =>
-          Exists.elim hu (fun v images =>
-            mutation.mpr ⟨ProcSet.empty, u, atom, v,
-              native_trans registration images.1
-                (native_symm registration (native_unit registration Operator.acu u)),
-              images.2.1,
-              native_symm registration (native_unit registration Operator.acu atom),
-              images.2.2⟩))))
+    -- Erase trivial guard annotations from the semantic answer proposition.
+    (fun input => Or.elim (certificate.mp input)
+      (fun matched => Or.inl matched.2) (fun crossed => Or.inr crossed.2))
+    (fun output => certificate.mpr (Or.elim output
+      (fun matched => Or.inl ⟨True.intro, matched⟩)
+      (fun crossed => Or.inr ⟨True.intro, crossed⟩)))
+
+/- Negative test: omitting the matched family is genuinely INCOMPLETE.
+   The crossed family is sound, but misses the minimal solution P=Q=empty.
+   Even though it has an arbitrary N, it cannot absorb the absent head.
+   This proof uses the NECESSITY direction of Coverage, not a special-case
+   analysis of Bakery constructors or a hand-written counterexample lemma.
+-/
+theorem missing_matched_rejected (n : Nat) :
+    ¬ (∀ P Q : ProcSet,
+      ProcSet.union (ProcSet.singleton (.wait n)) P =[BakeryTheory.certified]
+        ProcSet.union (ProcSet.singleton (.wait n)) Q →
+      ∃ N : ProcSet,
+        P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait n)) N ∧
+        Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait n)) N) :=
+  fun proposed =>
+    ((coverage_iff profile registration Operator.acu
+      (ProcSet.singleton (.wait n)) (ProcSet.singleton (.wait n))
+      False True rfl rfl).mp
+        (fun P Q input => Or.inr ⟨True.intro, proposed P Q input⟩)).1
+      (.refl _)
 
 -- Axiom audits should report only propext / Quot.sound, never sorryAx.
 #print axioms atomic_certificate
 #print axioms refinement_certificate
-#print axioms remainder_certificate
+#print axioms one_tail_certificate
+#print axioms missing_matched_rejected
+#print axioms coverage_iff
 
 end DirectCertification.Bakery
