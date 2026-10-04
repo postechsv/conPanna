@@ -13,8 +13,9 @@ The current milestone is answer-directed certification of ONE explicit atom
 and ONE bag tail per side. The generic coverage theorem below reduces an
 unbounded bag obligation to two head-equality guards. It does not recompute a
 complete set of ACU unifiers. Finite dump/replay now supports the one-hole
-atom-context fragment. General multi-head coverage and Maude I/O remain future
-work; no native Maude answer is trusted as a completeness proof.
+atom-context fragment. Native Maude answers now guide object-level certificate
+search in certification.maude. General multi-head coverage remains future work;
+no native Maude answer is trusted as a completeness proof.
 Free-constructor decomposition/clash are now proved for arbitrary arities.
 Rigid-sort reflection is generated from the constructor dependency graph,
 allowing ordinary equality only when no ACU operation is reachable.
@@ -25,8 +26,12 @@ encoding. Lists/quotients appear only inside proofs of the general metatheorems.
 
 A future Maude dump can name each general rule and its arguments. Reconstruction
 then builds the corresponding Lean application; it does not run a Lean tactic.
-The trace below is actual replayable DATA, but is NOT fetched from Maude.
-There is no Maude invocation, parser, custom proof tactic, or proof search here.
+The Bakery example fetches actual native answers and an accumulated Maude trace.
+The external boundary accepts ONLY the two exact canonical substitution shapes,
+up to parameter renaming and the order of the two ACU summands. It rejects all
+other bindings. This is a restricted experiment, not production narrowing.
+The only trusted proof step is the kernel's replay_exact, applied to fetched DATA.
+There is no custom proof tactic; object-level Maude rules do the trace search.
 
 References:
 * Comon–Lescanne, Equational Problems and Disunification (1989), §§3–4:
@@ -1158,8 +1163,8 @@ registration. There is no encode/decode adequacy obligation for the user.
 
 Both input and candidate families are data. Families below encode ENTIRE fixed
 substitution templates, not labels attached to unchecked arbitrary bindings.
-Future Maude I/O must recognize/validate those templates exactly, including
-shared parameters; additional bindings must be rejected, not discarded.
+The external boundary below recognizes these templates exactly, including
+shared parameters; additional bindings are rejected, not discarded.
 -/
 
 namespace Replay
@@ -1217,8 +1222,8 @@ inductive Certificate where
   | coverage (head : HeadCertificate) (equalCase unequalCase : Family)
   deriving Repr, DecidableEq
 
-/-- Small first-order dump grammar, ready to mirror as Maude constructors.
-These printers serialize DATA only; they do not generate or run Maude code. -/
+/-- Small first-order dump grammar, mirrored by certification.maude constructors.
+These printers serialize DATA only; external I/O is kept in its own section. -/
 def HeadCertificate.dump : HeadCertificate → String
   | .rigid => "rigid"
   | .decompose position next => "decompose(" ++ toString position ++ "," ++ next.dump ++ ")"
@@ -1376,6 +1381,217 @@ theorem replay_exact (profile : Profile sig) (reg : Registration sig) {r s}
   | none => simp [accepts, result] at accepted
   | some proof => exact proof.down
 
+/-! ## External data boundary — no semantic proofs or search in Lean
+
+Native Maude proposes actual substitutions. We recognize EVERY image, including
+the shared fresh parameters, before compacting a family to its complete template.
+The object-level rules then try to cover BOTH cases with the proposed templates.
+The returned trace is decoded, not replaced by oneTailTrace or a local solver.
+Only replay_exact supplies a proof; all parsing/export code is untrusted.
+Unsupported native answers fail explicitly rather than being dropped.
+-/
+namespace External
+
+open Lean Maude
+
+/-- A native one-tail query, inferred from the two translated input terms. -/
+structure Input where
+  variables : Array MaudeVariable
+  a : MaudeTerm
+  b : MaudeTerm
+  x : MaudeTerm
+  y : MaudeTerm
+  head : MaudeTerm
+  add : Name
+  bag : Name
+
+private partial def replace (term source target : MaudeTerm) : MaudeTerm :=
+  if term == source then target else match term with
+    | .variable _ _ => term
+    | .application f s args => .application f s (args.map (replace · source target))
+
+private partial def oneHole (head parameter : MaudeTerm) : Bool × Nat :=
+  match head with
+  | .variable _ _ => (head == parameter, 1)
+  | .application _ _ args => args.foldl (fun (valid, count) arg =>
+      let (ok, n) := oneHole arg parameter
+      (valid && ok, count + n)) (true, 0)
+
+def input (left right : TranslatedPattern) : Except String Input := do
+  let [a, x] := left.variables.toList | throw "expected two variables on the left"
+  let [b, y] := right.variables.toList | throw "expected two variables on the right"
+  let av := MaudeTerm.variable a.maudeName a.sort
+  let bv := MaudeTerm.variable b.maudeName b.sort
+  let xv := MaudeTerm.variable x.maudeName x.sort
+  let yv := MaudeTerm.variable y.maudeName y.sort
+  let .application add bag #[ha, tail] := left.term | throw "expected C(a)+X"
+  let .application add' bag' #[hb, tail'] := right.term | throw "expected C(b)+Y"
+  unless add == add' && bag == bag' && x.sort == bag && y.sort == bag &&
+      a.sort == b.sort && tail == xv && tail' == yv &&
+      oneHole ha av == (true, 1) && replace ha av bv == hb do
+    throw "unsupported one-tail query or different head contexts"
+  return {
+    variables := left.variables ++ right.variables, a := av, b := bv
+    x := xv, y := yv, head := ha, add := add, bag := bag }
+
+private def image (candidate : MaudeUnifier) (inputVariable : MaudeTerm) : MaudeTerm :=
+  match inputVariable with
+  | .variable name _ => match candidate.bindings.find? (·.domain.maudeName == name) with
+    | some binding => binding.image
+    | none => inputVariable
+  | _ => inputVariable
+
+private def sumIs (spec : Input) (actual first second : MaudeTerm) : Bool :=
+  actual == .application spec.add spec.bag #[first, second] ||
+    actual == .application spec.add spec.bag #[second, first]
+
+/-- Full template recognition, not classification by one convenient binding.
+Alpha-renaming is allowed; crossed parameters must remain independent, and its
+remainder must be the SAME variable in both bag images. No binding is ignored. -/
+def recognize (spec : Input) (candidate : MaudeUnifier) : Except String Family := do
+  let mut domains : List String := []
+  for binding in candidate.bindings do
+    unless spec.variables.any (fun v => v.maudeName == binding.domain.maudeName &&
+        v.sort == binding.domain.sort) && !domains.contains binding.domain.maudeName do
+      throw "unknown or repeated substitution domain"
+    domains := binding.domain.maudeName :: domains
+  let a := image candidate spec.a
+  let b := image candidate spec.b
+  let x := image candidate spec.x
+  let y := image candidate spec.y
+  let .variable _ parameterSort := spec.a | throw "invalid input parameter"
+  let .variable an sa := a | throw "unsupported constrained parameter image"
+  let .variable bn sb := b | throw "unsupported constrained parameter image"
+  unless sa == parameterSort && sb == parameterSort do throw "parameter sort changed"
+  if a == b && x == y then
+    let .variable _ s := x | throw "matched bag image is not a free parameter"
+    unless s == spec.bag do throw "matched remainder sort changed"
+    return .matched
+  unless an != bn do throw "crossed parameters must be independent"
+  let .application f s #[first, second] := x | throw "unsupported crossed bag image"
+  unless f == spec.add && s == spec.bag do throw "crossed image uses another operator"
+  let headB := replace spec.head spec.a b
+  let headA := replace spec.head spec.a a
+  let rest ← if first == headB then pure second else if second == headB then pure first
+    else throw "crossed X image does not contain C(b)"
+  let .variable _ rs := rest | throw "crossed remainder is not a free parameter"
+  unless rs == spec.bag && sumIs spec y headA rest do
+    throw "crossed images do not share the same remainder"
+  return .crossed
+
+/-- The existing native parser supplies typed constructor identities. This
+wrapper additionally rejects unexplained text INSIDE any substitution block,
+duplicate domains/indices, and output without a final process-exit marker. -/
+def nativeAnswers (sorts : Array SortDecl) (spec : Input) (stdout : String) :
+    Except String (List Family) := do
+  let [_, exit] := stdout.splitOn "Bye." | throw "native output is truncated"
+  unless exit.trim.isEmpty do throw "trailing native output"
+  let mut inBlock := false
+  for raw in stdout.splitOn "\n" do
+    let line := raw.trim
+    if line.startsWith "Unifier " then inBlock := true
+    else if inBlock && !line.isEmpty && line != "Bye." &&
+        (line.splitOn " --> ").length != 2 then
+      throw "unrecognized text in native substitution block"
+  let candidates ← Maude.parseUnifiers sorts spec.variables stdout
+  let mut indices : List Nat := []
+  let mut families := []
+  for candidate in candidates do
+    if indices.contains candidate.index then throw "repeated native unifier index"
+    indices := candidate.index :: indices
+    families := families ++ [← recognize spec candidate]
+  return families
+
+mutual
+  /-- Export only search metadata. Replay rechecks it against the actual typed
+  context; a dishonest 'free' or 'rigidHole' annotation cannot prove anything. -/
+  def contextDump (profile : Profile sig) {r s} (context : Context sig r s) : String :=
+    match context with
+    | .hole => if profile.rigid r then "rigidHole" else "blocked"
+    | .app f args => match profile.view f with
+      | .atom _ => argumentsDump profile args 0
+      | _ => "blocked"
+  def argumentsDump (profile : Profile sig) {r ss} (args : ArgumentContext sig r ss)
+      (position : Nat) : String := match args with
+    | .focus context _ => s!"free({position},{contextDump profile context})"
+    | .before _ rest => argumentsDump profile rest (position + 1)
+end
+
+private def familiesDump : List Family → String
+  | [] => "nil"
+  | first :: rest => s!"cons({first.dump},{familiesDump rest})"
+
+private partial def decodeHead : Maude.Certification.Node → Except String HeadCertificate
+  | .app "rigid" #[] => pure .rigid
+  | .app "decompose" #[.num n, rest] => return .decompose n (← decodeHead rest)
+  | _ => throw "unsupported head certificate"
+
+private def decodeFamily : Maude.Certification.Node → Except String Family
+  | .app "emit" #[.app "matched" #[]] => pure .matched
+  | .app "emit" #[.app "crossed" #[]] => pure .crossed
+  | _ => throw "unsupported coverage leaf"
+
+/-- One bounded search result, echoing the WHOLE request. No solution and a
+malformed/truncated certificate are failures, not empty successful certificates. -/
+def searchReply (request stdout : String) : Except String Certificate := do
+  let [before, after] := stdout.splitOn "R:Reply --> "
+    | throw "expected exactly one certificate search result"
+  unless (before.splitOn "Solution 1 (state ").length == 2 do
+    throw "missing search solution heading"
+  let [term, exit] := after.splitOn "Bye." | throw "truncated certificate search output"
+  unless exit.trim.isEmpty do throw "trailing certificate search output"
+  let .app "proposed" #[echo, .app "coverage" #[head, equal, unequal]] ←
+      Maude.Certification.parseNode term | throw "unsupported certificate reply"
+  unless echo == (← Maude.Certification.parseNode request) do
+    throw "certificate request echo changed"
+  return .coverage (← decodeHead head) (← decodeFamily equal) (← decodeFamily unequal)
+
+structure Fetched where
+  families : List Family
+  trace : Certificate
+  -- Kept only for diagnostics/tamper tests; emit does not persist these strings.
+  request : String
+  nativeOutput : String
+  searchOutput : String
+
+/-- TWO engines: native unify proposes; object-level rewrite search certifies.
+There is no scripted strategy or preselected certificate term. Search depth is
+bounded, so failure is reported rather than hanging or inserting sorry. -/
+def fetch (model engine : String) (sorts : Array SortDecl)
+    (left right : TranslatedPattern) (context : String) : IO Fetched := do
+  let spec ← IO.ofExcept (input left right)
+  let stdout ← Maude.runMaude model
+    s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
+  let families ← IO.ofExcept (nativeAnswers sorts spec stdout)
+  let request := s!"request({context},{familiesDump families})"
+  let result ← Maude.runMaude engine
+    s!"search [1, 64] in DIRECT-CERTIFICATION : start({request}) =>! R:Reply ."
+  let trace ← IO.ofExcept (searchReply request result)
+  return { families, trace, request, nativeOutput := stdout, searchOutput := result }
+
+private def familyExpr : Family → Expr
+  | .matched => mkConst ``Family.matched
+  | .crossed => mkConst ``Family.crossed
+
+private def headExpr : HeadCertificate → Expr
+  | .rigid => mkConst ``HeadCertificate.rigid
+  | .decompose n rest => mkApp2 (mkConst ``HeadCertificate.decompose) (mkNatLit n) (headExpr rest)
+
+/-- Emit proofless constants ONLY. The theorem below must still kernel-check
+acceptance against its typed context, with ordinary rfl, not native_decide. -/
+def emit (pre : Name) (fetched : Fetched) : Lean.MetaM Unit := do
+  let .coverage head equal unequal := fetched.trace
+  let trace := mkApp3 (mkConst ``Certificate.coverage) (headExpr head)
+    (familyExpr equal) (familyExpr unequal)
+  for (name, value) in [(pre ++ `families, ← Lean.Meta.mkListLit (mkConst ``Family)
+      (fetched.families.map familyExpr)), (pre ++ `trace, trace)] do
+    Lean.addAndCompile <| .defnDecl {
+      name, levelParams := []
+      type := ← Lean.Meta.inferType value, value, hints := .regular 0, safety := .safe }
+    Lean.enableRealizationsForConst name
+
+end External
+
 end Replay
 
 end DirectCertification
@@ -1399,9 +1615,9 @@ open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
 
 derive_direct_profile profile for BakeryTheory.certified
 
-/- These are ordinary DATA definitions, not proof lemmas or macros.
-   They will eventually be supplied by the dump/parser boundary. The context
-   identifies singleton(wait(_)) in the generated registered signature. -/
+/- Ordinary DATA, not proof lemmas or macros. The context identifies
+   singleton(wait(_)) in the generated registered signature. The manual family
+   list/trace are regression fixtures; the main theorem uses FETCHED data. -/
 def oneTailContext : Replay.Context Sig Tag.s0 Tag.s2 :=
   .app Symbol.c6 (.focus (.app Symbol.c3 (.focus .hole .nil)) .nil)
 
@@ -1412,6 +1628,68 @@ def oneTailTrace : Replay.Certificate :=
 
 -- Actual finite dump: coverage(decompose(0,decompose(0,rigid)),emit(matched),emit(crossed))
 #eval oneTailTrace.dump
+
+/- Actual TWO-engine experiment. Native unify receives the ordinary automatically
+   exported Bakery signature. The certification engine receives validated native
+   answers, not a predefined list or trace. Emitted declarations contain data,
+   never a proof. The theorem below kernel-replays that fetched data with rfl.
+   The source query explicitly uses the SAME singleton(wait(_)) context as the
+   theorem. General query/context reification is not exposed as a user command.
+   No production narrowing or core library code is changed by this experiment. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let sorts ← Maude.collectSignature (Lean.mkConst ``Conf)
+  let model := Maude.renderModule sorts (← Maude.inspectTheory (Lean.mkConst ``BakeryTheory))
+  let lhs ← Lean.Elab.Term.elabTerm
+    (← `(fun (i : Nat) (P : ProcSet) => ProcSet.union (ProcSet.singleton (.wait i)) P)) none
+  let rhs ← Lean.Elab.Term.elabTerm
+    (← `(fun (j : Nat) (Q : ProcSet) => ProcSet.union (ProcSet.singleton (.wait j)) Q)) none
+  let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
+  let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  let context := Replay.External.contextDump profile oneTailContext
+  let fetched ← Replay.External.fetch model engine sorts left right context
+  Replay.External.emit `DirectCertification.Bakery.fetched fetched
+  Lean.logInfo s!"Native families: {fetched.families.map Replay.Family.dump}; fetched trace: {fetched.trace.dump}"
+
+  -- Tamper with actual native bindings, not a toy mock parser input.
+  let spec ← Lean.ofExcept (Replay.External.input left right)
+  let answers ← Lean.ofExcept (Maude.parseUnifiers sorts spec.variables fetched.nativeOutput)
+  let some crossed := answers.toList.find? (fun answer =>
+      match Replay.External.recognize spec answer with
+      | .ok .crossed => true
+      | _ => false) | throwError "native answer did not include the crossed template"
+  let some firstBinding := crossed.bindings.toList.head? | throwError "empty native substitution"
+  let duplicate := { crossed with bindings := crossed.bindings.push firstBinding }
+  unless !(Replay.External.recognize spec duplicate).isOk do
+    throwError "accepted a duplicate substitution domain"
+  let .variable yName _ := spec.y | throwError "invalid tail variable"
+  let altered := { crossed with bindings := crossed.bindings.map fun binding =>
+    if binding.domain.maudeName == yName then
+      { binding with image := match binding.image with
+          | .application f s args => .application f s (args.map fun arg => match arg with
+              | .variable _ sort => .variable "#different" sort
+              | _ => arg)
+          | term => term }
+    else binding }
+  unless !(Replay.External.recognize spec altered).isOk do
+    throwError "accepted crossed images with different remainders"
+  unless !(Replay.External.searchReply fetched.request
+      (fetched.searchOutput.replace "free(0" "free(1")).isOk do
+    throwError "accepted a changed request echo"
+  unless !(Replay.External.searchReply fetched.request
+      (fetched.searchOutput.replace "Bye." "")).isOk do
+    throwError "accepted a truncated certificate reply"
+  -- Search must FAIL when a sound but incomplete answer list is supplied.
+  let missing := s!"request({context},cons(crossed,nil))"
+  let failed ← Maude.runMaude engine
+    s!"search [1, 64] in DIRECT-CERTIFICATION : start({missing}) =>! R:Reply ."
+  unless !(Replay.External.searchReply missing failed).isOk do
+    throwError "certification search regenerated the omitted matched family"
+
+#eval fetched.trace.dump
+#guard fetched.families.length == 2
+#guard Replay.accepts profile registration oneTailContext Operator.acu fetched.families fetched.trace
 
 /- Checker regression tests, not helper lemmas for the certification proof.
    None of these checks is relied on as an oracle: replay_exact is proved above
@@ -1496,7 +1774,7 @@ theorem refinement_certificate (P Q A R : ProcSet) :
    matched: i=K, j=K, P=B Z, Q=B Z
    crossed: P=singleton(wait(j))+N, Q=singleton(wait(i))+N
 
-   The DATA trace above says:
+   The fetched DATA trace says:
      decompose argument 0 of singleton
      decompose argument 0 of wait
      rigid equality on the resulting Nat hole
@@ -1504,7 +1782,7 @@ theorem refinement_certificate (P Q A R : ProcSet) :
      cover unequal heads by the crossed template
 
    Kernel replay checks these steps against oneTailContext, the generated
-   profile, and the ENTIRE independently proposed oneTailFamilies list. It
+   profile, and the ENTIRE independently proposed fetched.families list. It
    checks root atomicity and shared-variable correlations too. No rule runs
    Mutate/Split to rediscover the families. All semantic reasoning is in the
    GENERAL metatheorems, not Bakery-specific helpers or user registration.
@@ -1518,9 +1796,9 @@ theorem one_tail_certificate (i j : Nat) (P Q : ProcSet) :
         P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait j)) N ∧
         Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait i)) N) :=
   (Replay.replay_exact profile registration oneTailContext Operator.acu
-    oneTailFamilies oneTailTrace rfl i j P Q).trans
+    fetched.families fetched.trace rfl i j P Q).trans
       -- Present the entire accepted answer list as its named disjunction.
-      (Replay.solutions_iff registration oneTailContext Operator.acu oneTailFamilies
+      (Replay.solutions_iff registration oneTailContext Operator.acu fetched.families
         (of_decide_eq_true rfl) (of_decide_eq_true rfl) i j P Q)
 
 /- Decompose also works when a free constructor contains NON-rigid payloads.

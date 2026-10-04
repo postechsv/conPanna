@@ -1,0 +1,66 @@
+--- Answer-directed, OBJECT-LEVEL search for certification.lean's one-tail rule.
+--- This file contains no user model, META-LEVEL calls, or unification algorithm.
+--- Lean exports the native model and calls native unify FIRST. It validates all
+--- bindings against the two canonical templates before sending this request.
+--- Neither model metadata nor a successful search is trusted by Lean replay.
+---
+--- Rule states mirror the proved Lean rules:
+---   Head(free(position,C)) -> Head(C), recording Decompose(position).
+---   Head(rigidHole)        -> EqualCase, recording Rigid.
+---   EqualCase              -> UnequalCase, using a proposed matched family.
+---   UnequalCase            -> Reply, using a proposed crossed family.
+--- An absent family leaves an unsolved state: it is NOT regenerated.
+--- The trace is accumulated by the rules, not a constant scripted certificate.
+--- Contexts have one hole; fixed arguments are retained in Lean's typed context.
+--- 'blocked' represents nonfree heads/nonrigid holes; they have no search rule.
+---
+--- Reference for object-level breadth-first search (not metaSearch):
+--- https://maude.lcc.uma.es/maude30-manual-html/maude-manualch23.html
+
+mod DIRECT-CERTIFICATION is
+  protecting NAT .
+  protecting BOOL .
+  sorts Context Family Families HeadCertificate Frame Certificate Request State Reply .
+  subsort Reply < State .
+  ops rigidHole blocked : -> Context [ctor] .
+  op free : Nat Context -> Context [ctor] .
+  ops matched crossed : -> Family [ctor] .
+  op nil : -> Families [ctor] .
+  op cons : Family Families -> Families [ctor] .
+  op contains : Families Family -> Bool .
+  op rigid : -> HeadCertificate [ctor] .
+  op decompose : Nat HeadCertificate -> HeadCertificate [ctor] .
+  op done : -> Frame [ctor] .
+  op wrap : Nat Frame -> Frame [ctor] .
+  op plug : Frame HeadCertificate -> HeadCertificate .
+  op emit : Family -> Certificate [ctor] .
+  op coverage : HeadCertificate Certificate Certificate -> Certificate [ctor] .
+  op request : Context Families -> Request [ctor] .
+  op start : Request -> State [ctor] .
+  op head : Request Context Frame -> State [ctor] .
+  ops equalCase unequalCase : Request HeadCertificate -> State [ctor] .
+  op proposed : Request Certificate -> Reply [ctor] .
+
+  vars C : Context .
+  vars F G : Family .
+  var FS : Families .
+  var N : Nat .
+  var K : Frame .
+  var H : HeadCertificate .
+  var R : Request .
+
+  eq contains(nil, F) = false .
+  eq contains(cons(F, FS), F) = true .
+  eq contains(cons(G, FS), F) = contains(FS, F) [owise] .
+  eq plug(done, H) = H .
+  eq plug(wrap(N, K), H) = plug(K, decompose(N, H)) .
+
+  rl [begin] : start(request(C, FS)) => head(request(C, FS), C, done) .
+  rl [decompose] : head(R, free(N, C), K) => head(R, C, wrap(N, K)) .
+  rl [rigid] : head(R, rigidHole, K) => equalCase(R, plug(K, rigid)) .
+  crl [cover-equal] : equalCase(request(C, FS), H) => unequalCase(request(C, FS), H)
+    if contains(FS, matched) = true .
+  crl [cover-unequal] : unequalCase(request(C, FS), H) =>
+    proposed(request(C, FS), coverage(H, emit(matched), emit(crossed)))
+    if contains(FS, crossed) = true .
+endm
