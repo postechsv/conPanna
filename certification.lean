@@ -3,16 +3,18 @@ import examples.bakery_acu
 /-!
 # Direct, rule-based unification certificates
 
-This file contains three clearly separated parts:
+This file contains four clearly separated parts:
 1. GENERAL METATHEOREMS: correctness of the rules for any registered signature.
 2. SYNTACTIC METADATA: constructor classification, generated without user proofs.
-3. CERTIFICATES: ordinary, tactic-free proof terms over Bakery's own datatypes.
+3. REPLAY: finite certificate data, dump format, and kernel-checked acceptance.
+4. CERTIFICATES: ordinary, tactic-free proof terms over Bakery's own datatypes.
 
 The current milestone is answer-directed certification of ONE explicit atom
 and ONE bag tail per side. The generic coverage theorem below reduces an
 unbounded bag obligation to two head-equality guards. It does not recompute a
-complete set of ACU unifiers. General multi-head coverage and finite dump/replay
-remain future work; no native Maude answer is trusted as a completeness proof.
+complete set of ACU unifiers. Finite dump/replay now supports the one-hole
+atom-context fragment. General multi-head coverage and Maude I/O remain future
+work; no native Maude answer is trusted as a completeness proof.
 Free-constructor decomposition/clash are now proved for arbitrary arities.
 Rigid-sort reflection is generated from the constructor dependency graph,
 allowing ordinary equality only when no ACU operation is reachable.
@@ -23,7 +25,7 @@ encoding. Lists/quotients appear only inside proofs of the general metatheorems.
 
 A future Maude dump can name each general rule and its arguments. Reconstruction
 then builds the corresponding Lean application; it does not run a Lean tactic.
-The commented traces below are schematic, NOT dumps fetched from Maude.
+The trace below is actual replayable DATA, but is NOT fetched from Maude.
 There is no Maude invocation, parser, custom proof tactic, or proof search here.
 
 References:
@@ -1144,6 +1146,238 @@ theorem exact_of_coverage (profile : Profile sig) (reg : Registration sig) {s}
   fun x y => ⟨(coverage_iff profile reg op a b G H ha hb).mpr guards x y,
     answers_sound profile reg op a b G H ha hb x y⟩
 
+/-! ## Finite certificates and native kernel replay
+
+Scope of this first replay format: C(a)+X =B C(b)+Y, where C is a one-hole
+constructor context with a rigid parameter sort. C supports arbitrary arities;
+other arguments are fixed registered trees. There are no Bakery names here.
+
+This is NOT another user term language or equality. Contexts describe positions
+in the EXISTING registered signature and evaluate directly with its native
+registration. There is no encode/decode adequacy obligation for the user.
+
+Both input and candidate families are data. Families below encode ENTIRE fixed
+substitution templates, not labels attached to unchecked arbitrary bindings.
+Future Maude I/O must recognize/validate those templates exactly, including
+shared parameters; additional bindings must be rejected, not discarded.
+-/
+
+namespace Replay
+
+mutual
+  /-- A typed one-hole context. The hole's native sort is r. -/
+  inductive Context (sig : Signature Sorts) (r : Sorts) : Sorts → Type where
+    | hole : Context sig r r
+    | app {ss s} (f : sig.Symbol ss s) (args : ArgumentContext sig r ss) : Context sig r s
+  /-- Exactly one argument contains the hole; all others are fixed native syntax.
+  This zipper has no constructor-arity bound or problem-specific carrier map. -/
+  inductive ArgumentContext (sig : Signature Sorts) (r : Sorts) : List Sorts → Type where
+    | focus {s ss} (context : Context sig r s) (rest : Trees sig ss) :
+        ArgumentContext sig r (s :: ss)
+    | before {s ss} (first : Tree sig s) (rest : ArgumentContext sig r ss) :
+        ArgumentContext sig r (s :: ss)
+end
+
+mutual
+  def Context.eval (reg : Registration sig) {r s} (context : Context sig r s)
+      (parameter : reg.Carrier r) : reg.Carrier s :=
+    match context with
+    | .hole => parameter
+    | .app f args => reg.apply f (args.eval reg parameter)
+  def ArgumentContext.eval (reg : Registration sig) {r ss}
+      (args : ArgumentContext sig r ss) (parameter : reg.Carrier r) : Args reg.Carrier ss :=
+    match args with
+    | .focus context rest => (context.eval reg parameter, rest.eval reg.toAlgebra)
+    | .before first rest => (first.eval reg.toAlgebra, rest.eval reg parameter)
+end
+
+/-- External head trace: rule tags and argument positions ONLY.
+No fields contain Lean proofs, functions, expressions, or theorem names. -/
+inductive HeadCertificate where
+  | rigid
+  | decompose (argument : Nat) (next : HeadCertificate)
+  deriving Repr, DecidableEq
+
+/-- COMPLETE canonical substitution templates for the four input variables:
+
+matched: { a -> K, b -> K, X -> Z, Y -> Z }, fresh K,Z
+crossed: { a -> a, b -> b, X -> C(b)+N, Y -> C(a)+N }, fresh N
+
+In particular the two occurrences of each fresh parameter are shared.
+This milestone does not accept arbitrary Maude substitutions by tagging them.
+-/
+inductive Family where
+  | matched | crossed
+  deriving Repr, DecidableEq
+
+/-- The coverage trace has TWO mandatory leaves. Each leaf identifies the
+proposed substitution template that covers its case. Swapped/wrong leaves are
+rejected, rather than assuming a sound family is also complete. -/
+inductive Certificate where
+  | coverage (head : HeadCertificate) (equalCase unequalCase : Family)
+  deriving Repr, DecidableEq
+
+/-- Small first-order dump grammar, ready to mirror as Maude constructors.
+These printers serialize DATA only; they do not generate or run Maude code. -/
+def HeadCertificate.dump : HeadCertificate → String
+  | .rigid => "rigid"
+  | .decompose position next => "decompose(" ++ toString position ++ "," ++ next.dump ++ ")"
+
+def Family.dump : Family → String
+  | .matched => "matched"
+  | .crossed => "crossed"
+
+def Certificate.dump : Certificate → String
+  | .coverage head equalCase unequalCase =>
+      "coverage(" ++ head.dump ++ ",emit(" ++ equalCase.dump ++ "),emit(" ++
+        unequalCase.dump ++ "))"
+
+private theorem args_refl (reg : Registration sig) {ss} (args : Args reg.Carrier ss) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) ss args args := by
+  induction ss with
+  | nil => trivial
+  | cons s ss ih => exact ⟨.refl _, ih args.2⟩
+
+mutual
+  /-- Proof-producing replay, NOT proof search. Every step must fit the actual
+  constructor metadata and the explicitly supplied argument position. -/
+  def replayHead (profile : Profile sig) (reg : Registration sig) {r s}
+      (context : Context sig r s) (cert : HeadCertificate) :
+      Option (PLift (∀ a b, NativeEq sig reg (context.eval reg a) (context.eval reg b) ↔ a = b)) :=
+    match context, cert with
+    | .hole, .rigid =>
+        if rigid : profile.rigid r = true then
+          some ⟨rigid_native profile reg rigid⟩
+        else none
+    | .app f args, .decompose position next =>
+        match free : profile.view f with
+        | .atom _ => do
+            let children ← replayArguments profile reg args position next
+            return ⟨fun a b => (decompose_native profile reg f free
+              (args.eval reg a) (args.eval reg b)).trans (children.down a b)⟩
+        | _ => none
+    | _, _ => none
+  def replayArguments (profile : Profile sig) (reg : Registration sig) {r ss}
+      (args : ArgumentContext sig r ss) (position : Nat) (cert : HeadCertificate) :
+      Option (PLift (∀ a b, ArgsRel (fun s => NativeEq sig reg (s := s)) ss
+        (args.eval reg a) (args.eval reg b) ↔ a = b)) :=
+    match args, position with
+    | .focus context rest, 0 => do
+        let child ← replayHead profile reg context cert
+        return ⟨fun a b => ⟨fun h => (child.down a b).mp h.1,
+          fun h => ⟨(child.down a b).mpr h, args_refl reg (rest.eval reg.toAlgebra)⟩⟩⟩
+    | .before _first rest, n + 1 => do
+        let tail ← replayArguments profile reg rest n cert
+        return ⟨fun a b => ⟨fun h => (tail.down a b).mp h.2,
+          fun h => ⟨.refl _, (tail.down a b).mpr h⟩⟩⟩
+    | _, _ => none
+end
+
+/-- A hole alone need not be atomic; root atomicity must be checked separately.
+Every non-ACU constructor has mass one, independently of the hole's value. -/
+def atomic (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) :
+    Option (PLift (∀ a, mass profile (reg.quote s (context.eval reg a)) = 1)) :=
+  match context with
+  | .hole => none
+  | .app f args => match free : profile.view f with
+    | .atom _ => some ⟨fun a => by
+        simp only [Context.eval, reg.quote_apply]
+        simp [mass, Tree.eval, measure, free]⟩
+    | _ => none
+
+def Family.Holds (reg : Registration sig) {r s} (context : Context sig r s)
+    (op : sig.ACUOp s) (family : Family)
+    (a b : reg.Carrier r) (x y : reg.Carrier s) : Prop :=
+  match family with
+  | .matched => ∃ k : reg.Carrier r, ∃ z : reg.Carrier s,
+      a = k ∧ b = k ∧ NativeEq sig reg x z ∧ NativeEq sig reg y z
+  | .crossed => ∃ n : reg.Carrier s,
+      NativeEq sig reg x (reg.apply (sig.add op) (context.eval reg b, n, PUnit.unit)) ∧
+      NativeEq sig reg y (reg.apply (sig.add op) (context.eval reg a, n, PUnit.unit))
+
+/-- Semantics of the ENTIRE externally proposed family list. Order and
+duplicates are irrelevant; omitting a family is not. -/
+def Solutions (reg : Registration sig) {r s} (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family)
+    (a b : reg.Carrier r) (x y : reg.Carrier s) : Prop :=
+  ∃ family, family ∈ proposed ∧ family.Holds reg context op a b x y
+
+theorem solutions_iff (reg : Registration sig) {r s} (context : Context sig r s)
+    (op : sig.ACUOp s) (proposed : List Family)
+    (matched : Family.matched ∈ proposed) (crossed : Family.crossed ∈ proposed)
+    (a b : reg.Carrier r) (x y : reg.Carrier s) :
+    Solutions reg context op proposed a b x y ↔
+      Family.Holds reg context op .matched a b x y ∨
+      Family.Holds reg context op .crossed a b x y :=
+  ⟨fun ⟨family, _, images⟩ => match family with
+      | .matched => .inl images
+      | .crossed => .inr images,
+    fun images => Or.elim images
+      (fun h => ⟨.matched, matched, h⟩) (fun h => ⟨.crossed, crossed, h⟩)⟩
+
+/-- Generic aggregation from replayed head equality and finite coverage. This
+is a semantic metatheorem, not an input-specific certificate or a new solver. -/
+theorem families_exact (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (matched : Family.matched ∈ proposed) (crossed : Family.crossed ∈ proposed)
+    (head : ∀ a b, NativeEq sig reg (context.eval reg a) (context.eval reg b) ↔ a = b)
+    (atom : ∀ a, mass profile (reg.quote s (context.eval reg a)) = 1) :
+    ∀ a b x y,
+      NativeEq sig reg (reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit))
+        (reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit)) ↔
+      Solutions reg context op proposed a b x y := by
+  intro a b x y
+  have coverage := exact_of_coverage profile reg op
+    (context.eval reg a) (context.eval reg b) True True (atom a) (atom b)
+    ⟨fun _ => True.intro, fun _ => True.intro⟩ x y
+  apply Iff.trans _ (solutions_iff reg context op proposed matched crossed a b x y).symm
+  refine coverage.trans ⟨?_, ?_⟩
+  · rintro (⟨_, heads, tails⟩ | ⟨_, remainder⟩)
+    · exact .inl ⟨a, x, rfl, ((head a b).mp heads).symm, .refl _, .symm tails⟩
+    · exact .inr remainder
+  · rintro (⟨k, z, ha, hb, hx, hy⟩ | remainder)
+    · exact .inl ⟨True.intro, (head a b).mpr (ha.trans hb.symm), .trans hx (.symm hy)⟩
+    · exact .inr ⟨True.intro, remainder⟩
+
+def replay (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (cert : Certificate) :
+    Option (PLift (∀ a b x y,
+      NativeEq sig reg (reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit))
+        (reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit)) ↔
+      Solutions reg context op proposed a b x y)) :=
+  match cert with
+  | .coverage head .matched .crossed => do
+      let isAtom ← atomic profile reg context
+      let headProof ← replayHead profile reg context head
+      if hm : Family.matched ∈ proposed then
+        if hc : Family.crossed ∈ proposed then
+          some ⟨families_exact profile reg context op proposed hm hc headProof.down isAtom.down⟩
+        else none
+      else none
+  | _ => none
+
+def accepts (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (cert : Certificate) : Bool := (replay profile reg context op proposed cert).isSome
+
+/-- The kernel-checked acceptance theorem. Checking traverses finite data and
+generated metadata; it never calls Maude, searches for unifiers, or trusts a
+reported success flag. `.mp` yields completeness and `.mpr` soundness. -/
+theorem replay_exact (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
+    (cert : Certificate) (accepted : accepts profile reg context op proposed cert = true) :
+    ∀ a b x y,
+      NativeEq sig reg (reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit))
+        (reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit)) ↔
+      Solutions reg context op proposed a b x y := by
+  cases result : replay profile reg context op proposed cert with
+  | none => simp [accepts, result] at accepted
+  | some proof => exact proof.down
+
+end Replay
+
 end DirectCertification
 
 /-! ## Certification examples — no tactics, no problem-specific helper lemmas
@@ -1164,6 +1398,63 @@ namespace DirectCertification.Bakery
 open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
 
 derive_direct_profile profile for BakeryTheory.certified
+
+/- These are ordinary DATA definitions, not proof lemmas or macros.
+   They will eventually be supplied by the dump/parser boundary. The context
+   identifies singleton(wait(_)) in the generated registered signature. -/
+def oneTailContext : Replay.Context Sig Tag.s0 Tag.s2 :=
+  .app Symbol.c6 (.focus (.app Symbol.c3 (.focus .hole .nil)) .nil)
+
+def oneTailFamilies : List Replay.Family := [.matched, .crossed]
+
+def oneTailTrace : Replay.Certificate :=
+  .coverage (.decompose 0 (.decompose 0 .rigid)) .matched .crossed
+
+-- Actual finite dump: coverage(decompose(0,decompose(0,rigid)),emit(matched),emit(crossed))
+#eval oneTailTrace.dump
+
+/- Checker regression tests, not helper lemmas for the certification proof.
+   None of these checks is relied on as an oracle: replay_exact is proved above
+   and the actual certificate below supplies kernel-checked acceptance by rfl.
+-/
+
+-- Correct trace; answer order and duplicate entries do not change the set.
+#guard Replay.accepts profile registration oneTailContext Operator.acu
+  [.crossed, .matched, .crossed] oneTailTrace
+
+-- Reject an omitted family, even though each remaining family is sound.
+#guard !(Replay.accepts profile registration oneTailContext Operator.acu [.crossed] oneTailTrace)
+#guard !(Replay.accepts profile registration oneTailContext Operator.acu [.matched] oneTailTrace)
+
+-- Reject the crossed family as a claimed cover of the equal-head minimal case.
+#guard !(Replay.accepts profile registration oneTailContext Operator.acu oneTailFamilies
+  (.coverage (.decompose 0 (.decompose 0 .rigid)) .crossed .crossed))
+
+-- Reject a wrong argument position or an incomplete decomposition path.
+#guard !(Replay.accepts profile registration oneTailContext Operator.acu oneTailFamilies
+  (.coverage (.decompose 1 (.decompose 0 .rigid)) .matched .crossed))
+#guard !(Replay.accepts profile registration oneTailContext Operator.acu oneTailFamilies
+  (.coverage (.decompose 0 .rigid) .matched .crossed))
+
+-- Positive arbitrary-arity test: the hole is Conf's SECOND field, not a unary
+-- constructor chain or argument 0. The other native fields remain fixed.
+#guard (Replay.replayHead profile registration
+  (.app Symbol.c8 (.before (.app Symbol.c0 .nil)
+    (.focus .hole (.cons (zero Sig Operator.acu) .nil))) : Replay.Context Sig Tag.s0 Tag.s3)
+  (.decompose 1 .rigid)).isSome
+
+-- A bare bag variable is not an explicit atom; its four-piece refinement is
+-- outside this two-template replay format and must not be accepted.
+#guard !(Replay.accepts profile registration
+  (Replay.Context.hole : Replay.Context Sig Tag.s2 Tag.s2) Operator.acu oneTailFamilies
+  (.coverage .rigid .matched .crossed))
+
+-- Decomposing a free Conf head is valid, but reflecting its BAG hole to literal
+-- equality is not. This tests the generated sort boundary inside replay itself.
+#guard !((Replay.replayHead profile registration
+  (.app Symbol.c8 (.before (.app Symbol.c0 .nil)
+    (.before (.app Symbol.c0 .nil) (.focus .hole .nil))) : Replay.Context Sig Tag.s2 Tag.s3)
+  (.decompose 2 .rigid)).isSome)
 
 /- Trace:
      SplitAtom(P, Q, singleton(wait(n)))
@@ -1205,25 +1496,18 @@ theorem refinement_certificate (P Q A R : ProcSet) :
    matched: i=K, j=K, P=B Z, Q=B Z
    crossed: P=singleton(wait(j))+N, Q=singleton(wait(i))+N
 
-   Schematic future dump/replay:
-     CheckAtomicHeads
-     Decompose(ProcSet.singleton)
-     Decompose(Mode.wait)
-     RigidEquality(Nat)                 -- heads equal iff i=j
-     Coverage(matchedGuard=True, crossedGuard=True)
-       ├─ heads equal     -> matched guard holds
-       └─ heads unequal   -> crossed guard holds
-     ExactOfCoverage
-     EmitSharedParameters(K,Z)
+   The DATA trace above says:
+     decompose argument 0 of singleton
+     decompose argument 0 of wait
+     rigid equality on the resulting Nat hole
+     cover equal heads by the matched template
+     cover unequal heads by the crossed template
 
-   The certificate below only applies general rules and logical constructors;
-   it does NOT replay Mutate/Split to rediscover the supplied families.
-   The arbitrary shared remainder is already handled by the general theorem.
-
-   BOTH displayed branches are actual substitution families, with no residual
-   head equation. Native constructor identifiers .c6/.c3 and rigid tag .s0 below
-   are generated metadata for singleton/wait/Nat, not user annotations. Future
-   replay will select these identifiers from the dump; the user model is unchanged.
+   Kernel replay checks these steps against oneTailContext, the generated
+   profile, and the ENTIRE independently proposed oneTailFamilies list. It
+   checks root atomicity and shared-variable correlations too. No rule runs
+   Mutate/Split to rediscover the families. All semantic reasoning is in the
+   GENERAL metatheorems, not Bakery-specific helpers or user registration.
 -/
 theorem one_tail_certificate (i j : Nat) (P Q : ProcSet) :
     ProcSet.union (ProcSet.singleton (.wait i)) P =[BakeryTheory.certified]
@@ -1233,39 +1517,11 @@ theorem one_tail_certificate (i j : Nat) (P Q : ProcSet) :
       (∃ N : ProcSet,
         P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait j)) N ∧
         Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait i)) N) :=
-  -- Decompose each FREE unary constructor; these are generic arbitrary-arity
-  -- rules. The resulting payload equation is still modulo B at this point.
-  let singletonRule := decompose_native profile registration Symbol.c6 rfl
-    (.wait i, PUnit.unit) (.wait j, PUnit.unit)
-  let waitRule := decompose_native profile registration Symbol.c3 rfl
-    (i, PUnit.unit) (j, PUnit.unit)
-  -- Reflect to literal equality ONLY because generated metadata proves Nat rigid.
-  let natRule := rigid_native profile registration (s := Tag.s0) rfl i j
-  let heads := Iff.intro
-    (fun input => natRule.mp (waitRule.mp (singletonRule.mp input).1).1)
-    (fun same => singletonRule.mpr ⟨waitRule.mpr ⟨natRule.mpr same, True.intro⟩, True.intro⟩)
-  let certificate := exact_of_coverage profile registration Operator.acu
-    (ProcSet.singleton (.wait i)) (ProcSet.singleton (.wait j)) True True rfl rfl
-    -- Completeness is reduced to TWO FINITE GUARDS, independent of P,Q,N.
-    ⟨fun _ => True.intro, fun _ => True.intro⟩ P Q
-  Iff.intro
-    -- COMPLETENESS: covered matched heads -> equal payloads -> emit K,Z.
-    -- Crossed heads already have the displayed shared remainder N.
-    (fun input => Or.elim (certificate.mp input)
-      (fun matched =>
-        Exists.elim ((share_literal i j).mp (heads.mp matched.2.1)) (fun K tickets =>
-        Exists.elim ((share_native registration (s := Tag.s2) P Q).mp matched.2.2)
-          (fun Z bags => Or.inl ⟨K, Z, tickets.1, tickets.2, bags.1, bags.2⟩)))
-      (fun crossed => Or.inr crossed.2))
-    -- SOUNDNESS: eliminate emitted parameters, rebuild heads, apply the general
-    -- family-soundness direction. No new search is needed in either direction.
-    (fun output => certificate.mpr (Or.elim output
-      (fun matched => Exists.elim matched (fun K hK =>
-        Exists.elim hK (fun Z images => Or.inl ⟨True.intro,
-          heads.mpr ((share_literal i j).mpr ⟨K, images.1, images.2.1⟩),
-          (share_native registration (s := Tag.s2) P Q).mpr
-            ⟨Z, images.2.2.1, images.2.2.2⟩⟩)))
-      (fun crossed => Or.inr ⟨True.intro, crossed⟩)))
+  (Replay.replay_exact profile registration oneTailContext Operator.acu
+    oneTailFamilies oneTailTrace rfl i j P Q).trans
+      -- Present the entire accepted answer list as its named disjunction.
+      (Replay.solutions_iff registration oneTailContext Operator.acu oneTailFamilies
+        (of_decide_eq_true rfl) (of_decide_eq_true rfl) i j P Q)
 
 /- Decompose also works when a free constructor contains NON-rigid payloads.
    Conf is not rigid: its process-field equality must stay modulo ACU.
@@ -1319,5 +1575,6 @@ theorem missing_matched_rejected (n : Nat) :
 #print axioms head_clash_certificate
 #print axioms missing_matched_rejected
 #print axioms coverage_iff
+#print axioms Replay.replay_exact
 
 end DirectCertification.Bakery
