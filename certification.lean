@@ -13,6 +13,9 @@ and ONE bag tail per side. The generic coverage theorem below reduces an
 unbounded bag obligation to two head-equality guards. It does not recompute a
 complete set of ACU unifiers. General multi-head coverage and finite dump/replay
 remain future work; no native Maude answer is trusted as a completeness proof.
+Free-constructor decomposition/clash are now proved for arbitrary arities.
+Rigid-sort reflection is generated from the constructor dependency graph,
+allowing ordinary equality only when no ACU operation is reachable.
 
 The equality is the existing Structural.Indexed.NativeEq, written
 `=[BakeryTheory.certified]`. We introduce no second equality or user-model
@@ -55,11 +58,19 @@ inductive HeadView (sig : Signature Sorts) : {ss : List Sorts} → {s : Sorts} �
   | add {s} (op : sig.ACUOp s) : HeadView sig (sig.add op)
   | atom {ss s} (f : sig.Symbol ss s) : HeadView sig f
 
+/-- Syntactic closure of a sort under rigid (non-ACU) constructor arguments. -/
+def AllRigid (rigid : Sorts → Bool) : List Sorts → Prop
+  | [] => True
+  | s :: ss => rigid s = true ∧ AllRigid rigid ss
+
 structure Profile (sig : Signature Sorts) where
   view : ∀ {ss s} (f : sig.Symbol ss s), HeadView sig f
   view_zero : ∀ {s} (op : sig.ACUOp s), view (sig.zero op) = .zero op
   view_add : ∀ {s} (op : sig.ACUOp s), view (sig.add op) = .add op
   unique : ∀ {s} (a b : sig.ACUOp s), a = b
+  rigid : Sorts → Bool
+  rigid_args : ∀ {ss s} (_f : sig.Symbol ss s), rigid s = true → AllRigid rigid ss
+  rigid_no_acu : ∀ {s} (_op : sig.ACUOp s), rigid s = false
 
 variable (profile : Profile sig)
 
@@ -474,6 +485,158 @@ theorem occurs_atom {s} (op : sig.ACUOp s) (a x : Tree sig s)
   rw [mass_add, ha] at count
   omega
 
+/-! ### Free constructor decomposition and clash
+
+The earlier bag observation stored whole atom classes. To invert a free
+constructor we need one finer observation: its SORTED head and the equivalence
+classes of its arguments. Argument classes use the existing structural Eqs.
+Nothing below depends on a particular constructor, datatype, or arity.
+-/
+
+namespace ConstructorObservation
+
+private theorem eqs_refl {ss} (args : Trees sig ss) : Eqs sig args args := by
+  induction ss with
+  | nil => cases args; exact .nil
+  | cons s ss ih => cases args with
+    | cons a rest => exact .cons (.refl _) (ih rest)
+
+private theorem eqs_symm {ss} {a b : Trees sig ss} (h : Eqs sig a b) : Eqs sig b a := by
+  induction ss with
+  | nil => cases h; exact .nil
+  | cons s ss ih => cases h with
+    | cons h k => exact .cons (.symm h) (ih k)
+
+private theorem eqs_trans {ss} {a b c : Trees sig ss}
+    (h : Eqs sig a b) (k : Eqs sig b c) : Eqs sig a c := by
+  induction ss with
+  | nil => cases h; cases k; exact .nil
+  | cons s ss ih =>
+      cases h with
+      | cons h tail => cases k with
+        | cons k rest => exact .cons (.trans h k) (ih tail rest)
+
+def argsSetoid (sig : Signature Sorts) (ss : List Sorts) : Setoid (Trees sig ss) where
+  r := Eqs sig
+  iseqv := ⟨eqs_refl, eqs_symm, eqs_trans⟩
+
+abbrev Atom (sig : Signature Sorts) (s : Sorts) :=
+  Σ ss : List Sorts, sig.Symbol ss s × Quotient (argsSetoid sig ss)
+
+def atom {ss s} (f : sig.Symbol ss s) (args : Trees sig ss) : Atom sig s :=
+  ⟨ss, f, Quotient.mk _ args⟩
+
+private def head {ss s} {f : sig.Symbol ss s} (view : HeadView sig f)
+    (args : Trees sig ss) (parts : Args (fun s => List (Atom sig s)) ss) : List (Atom sig s) :=
+  match view with
+  | .zero _ => []
+  | .add _ => parts.1 ++ parts.2.1
+  | .atom f => [atom f args]
+
+mutual
+  def observe (profile : Profile sig) {s} : Tree sig s → List (Atom sig s)
+    | .app f args => head (profile.view f) args (observeArgs profile args)
+  def observeArgs (profile : Profile sig) : {ss : List Sorts} → Trees sig ss →
+      Args (fun s => List (Atom sig s)) ss
+    | _, .nil => PUnit.unit
+    | _, .cons a rest => (observe profile a, observeArgs profile rest)
+end
+
+theorem invariant (profile : Profile sig) {s} {a b : Tree sig s}
+    (h : Structural.Indexed.Eq sig a b) : (observe profile a).Perm (observe profile b) := by
+  refine Structural.Indexed.Eq.rec
+    (motive_1 := fun {s} a b _ => (observe profile a).Perm (observe profile b))
+    (motive_2 := fun {ss} a b _ => ArgsRel (fun _ => List.Perm) ss
+      (observeArgs profile a) (observeArgs profile b))
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
+  · intro s a; exact .refl _
+  · intro s a b h ih; exact ih.symm
+  · intro s a b c h k ih ik; exact ih.trans ik
+  · intro ss s f a b h ih
+    cases hv : profile.view f with
+    | zero => simp [observe, head, hv]
+    | add => simpa only [observe, head, hv] using ih.1.append ih.2.1
+    | atom f =>
+        have same : (atom f a : Atom sig s) = atom f b :=
+          congrArg (fun q => ⟨ss, f, q⟩ : Quotient (argsSetoid sig ss) → Atom sig s)
+            (Quotient.sound (s := argsSetoid sig ss) h)
+        simp [observe, head, hv, same]
+  · intro s op a b
+    simp only [add, observe, head, profile.view_add, observeArgs]
+    exact List.perm_append_comm
+  · intro s op a b c
+    simp only [add, observe, head, profile.view_add, observeArgs, List.append_assoc]
+    exact .refl _
+  · intro s op a
+    simp only [add, zero, observe, head, profile.view_add, profile.view_zero,
+      observeArgs, List.nil_append]
+    exact .refl _
+  · trivial
+  · intro s ss a b rest tail h k ih ik; exact ⟨ih, ik⟩
+
+end ConstructorObservation
+
+/-- Constructor decomposition is valid ONLY for free heads, not ACU add/zero.
+
+  f(a1,...,an) =B f(b1,...,bn)     f is a free constructor
+  ========================================================= Decompose
+  a1=B b1 AND ... AND an=B bn
+
+Argument equality stays modulo B: payloads may themselves contain ACU terms.
+-/
+theorem decompose (profile : Profile sig) {ss s} (f : sig.Symbol ss s)
+    (free : profile.view f = .atom f) (a b : Trees sig ss) :
+    Structural.Indexed.Eq sig (.app f a) (.app f b) ↔ Eqs sig a b := by
+  constructor
+  · intro h
+    have hp := ConstructorObservation.invariant profile h
+    simp only [ConstructorObservation.observe, ConstructorObservation.head, free] at hp
+    have same := (List.cons.inj (List.perm_singleton.mp hp)).1
+    have parts := eq_of_heq (Sigma.mk.inj same).2
+    exact Quotient.exact (congrArg Prod.snd parts)
+  · exact fun h => .congr f h
+
+/-- Head clash retains the argument-sort index: different free constructor
+heads cannot be made equal by equations in their payloads. -/
+theorem clash (profile : Profile sig) {ss tt s}
+    (f : sig.Symbol ss s) (g : sig.Symbol tt s)
+    (hf : profile.view f = .atom f) (hg : profile.view g = .atom g)
+    (different : (⟨ss, f⟩ : Σ us, sig.Symbol us s) ≠ ⟨tt, g⟩)
+    (a : Trees sig ss) (b : Trees sig tt) :
+    ¬ Structural.Indexed.Eq sig (.app f a) (.app g b) := by
+  intro h
+  have hp := ConstructorObservation.invariant profile h
+  simp only [ConstructorObservation.observe, ConstructorObservation.head, hf, hg] at hp
+  have same := (List.cons.inj (List.perm_singleton.mp hp)).1
+  exact different (congrArg (fun x => (⟨x.1, x.2.1⟩ : Σ us, sig.Symbol us s)) same)
+
+/-- On a sort whose constructor dependencies cannot reach any ACU sort,
+structural equality is ordinary equality. The registration generator computes
+this finite graph property; the proof below works for recursive rigid sorts.
+Merely having no ACU operation at the TOP sort would not be sufficient: a free
+wrapper around an ACU bag is not rigid. -/
+theorem eq_of_rigid (profile : Profile sig) {s} {a b : Tree sig s}
+    (hs : profile.rigid s = true) (h : Structural.Indexed.Eq sig a b) : a = b := by
+  have invariant : profile.rigid s = true → a = b := by
+    refine Structural.Indexed.Eq.rec
+      (motive_1 := fun {s} a b _ => profile.rigid s = true → a = b)
+      (motive_2 := fun {ss} a b _ => AllRigid profile.rigid ss → a = b)
+      ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
+    · intro s a hs; rfl
+    · intro s a b h ih hs; exact (ih hs).symm
+    · intro s a b c h k ih ik hs; exact (ih hs).trans (ik hs)
+    · intro ss s f a b h ih hs
+      exact congrArg (Tree.app f) (ih (profile.rigid_args f hs))
+    · intro s op a b hs; simp [profile.rigid_no_acu op] at hs
+    · intro s op a b c hs; simp [profile.rigid_no_acu op] at hs
+    · intro s op a hs; simp [profile.rigid_no_acu op] at hs
+    · intro hs; rfl
+    · intro s ss a b rest tail h k ih ik hs
+      have first := ih hs.1
+      have remaining := ik hs.2
+      cases first; cases remaining; rfl
+  exact invariant hs
+
 /-- Finite bag refinement, used only to prove the semantic Mutate rule. -/
 theorem perm_refine {α : Type} (a b c d : List α)
     (h : (a ++ b).Perm (c ++ d)) :
@@ -562,13 +725,16 @@ end DirectCertification
 /-! ## Automatic syntactic metadata (prototype command, eventually library code)
 
 The registered signature already knows every constructor and which symbols are
-the ACU operation/unit. This command simply enumerates them. There is no
-semantic field to prove and no problem-specific theorem name in the generator.
+the ACU operation/unit. This command enumerates them and computes the finite
+sort-dependency graph. A sort is rigid only if no constructor path reaches an
+ACU sort (cycles such as Nat -> Nat are allowed). All resulting metadata fields
+are checked by constructor cases/reduction. There is no semantic field for the
+user to prove and no problem-specific theorem name in the generator.
 -/
 
 open Lean Meta Elab Command in
 elab "derive_direct_profile " name:ident " for " theory:ident : command => do
-  let (theoryName, symbolNames, zeroHeads, addHeads) ← liftTermElabM do
+  let (theoryName, symbolNames, zeroHeads, addHeads, rigidSorts) ← liftTermElabM do
     let t ← Term.elabTerm theory (some (mkConst ``Structural.CertifiedTheory))
     let some theoryName := t.constName?
       | throwError "expected a named certified theory"
@@ -600,7 +766,40 @@ elab "derive_direct_profile " name:ident " for " theory:ident : command => do
       let some addName := add.constName? | throwError "operation must be a constructor"
       zeros := zeros.push (zeroName, op)
       adds := adds.push (addName, op)
-    return (theoryName, symbolInfo.ctors, zeros, adds)
+    -- Dependency analysis is purely syntactic. Starting with ACU result sorts,
+    -- propagate non-rigidity backwards through ALL constructor arguments.
+    -- In particular a free Conf constructor containing a bag is not rigid.
+    let mut tags : Array Name := #[]
+    let mut dependencies : Array (Expr × Array Expr) := #[]
+    for symbol in symbolInfo.ctors do
+      let info ← getConstInfoCtor symbol
+      unless info.numFields == 0 && info.numParams == 0 do
+        throwError "constructor identifiers must be nullary"
+      let ty ← whnf info.type
+      let args := ty.getAppArgs
+      unless args.size == 2 do throwError "expected argument-sort and result-sort indices"
+      let output ← whnf args[1]!
+      let mut inputs := #[]
+      let mut inputList := args[0]!
+      while true do
+        let cell ← whnf inputList
+        if cell.getAppFn.constName? == some ``List.nil then break
+        unless cell.getAppFn.constName? == some ``List.cons do
+          throwError "expected a finite list of constructor argument sorts"
+        let fields := cell.getAppArgs
+        inputs := inputs.push (← whnf fields[1]!)
+        inputList := fields[2]!
+      dependencies := dependencies.push (output, inputs)
+      for tag in #[output] ++ inputs do
+        let some tagName := tag.constName? | throwError "sort tags must be nullary constructors"
+        unless tags.contains tagName do tags := tags.push tagName
+    let mut blocked := resultSorts
+    for _ in [:tags.size] do
+      for (output, inputs) in dependencies do
+        if inputs.any blocked.contains && !blocked.contains output then
+          blocked := blocked.push output
+    return (theoryName, symbolInfo.ctors, zeros, adds,
+      tags.map fun tag => (tag, !blocked.contains (mkConst tag)))
   let q (n : Name) := "_root_." ++ n.toString
   let signature := "(Structural.CertifiedTheory.signature " ++ q theoryName ++ ")"
   let branches := symbolNames.map fun symbol =>
@@ -610,12 +809,17 @@ elab "derive_direct_profile " name:ident " for " theory:ident : command => do
         | some (_, op) => "DirectCertification.HeadView.add (sig := " ++ signature ++ ") " ++ q op
         | none => "DirectCertification.HeadView.atom (sig := " ++ signature ++ ") _"
     "    | " ++ q symbol ++ " => " ++ rhs
+  let rigidBranches := rigidSorts.map fun (tag, rigid) =>
+    "    | " ++ q tag ++ " => " ++ (if rigid then "true" else "false")
   let source := "def " ++ name.getId.toString ++
     " : DirectCertification.Profile " ++ signature ++ " where\n" ++
     "  view := fun f => match f with\n" ++ String.intercalate "\n" branches ++
     "\n  view_zero := by intro s op; cases op <;> rfl" ++
     "\n  view_add := by intro s op; cases op <;> rfl" ++
-    "\n  unique := by intro s a b; cases a <;> cases b <;> rfl"
+    "\n  unique := by intro s a b; cases a <;> cases b <;> rfl" ++
+    "\n  rigid := fun s => match s with\n" ++ String.intercalate "\n" rigidBranches.toList ++
+    "\n  rigid_args := by intro ss s f h; cases f <;> simp_all [DirectCertification.AllRigid]" ++
+    "\n  rigid_no_acu := by intro s op; cases op <;> rfl"
   match Parser.runParserCategory (← getEnv) `command source with
   | .ok stx => elabCommand stx
   | .error e => throwError "generated profile syntax: {e}"
@@ -684,6 +888,72 @@ theorem native_comm (reg : Registration sig) {s} (op : sig.ACUOp s)
   unfold NativeEq
   rw [reg.quote_apply, reg.quote_apply]
   exact .comm op _ _
+
+/-- Structural argument equality and the ordinary native argument tuple have
+the same components. No constructor-arity bound or hand-written carrier map. -/
+theorem quote_args_iff (reg : Registration sig) {ss}
+    (a b : Args reg.Carrier ss) :
+    Eqs sig (Args.quote sig reg.quote ss a) (Args.quote sig reg.quote ss b) ↔
+      ArgsRel (fun s => NativeEq sig reg (s := s)) ss a b := by
+  induction ss with
+  | nil =>
+      cases a; cases b
+      exact ⟨fun _ => True.intro, fun _ => .nil⟩
+  | cons s ss ih =>
+      rcases a with ⟨x, rest⟩
+      rcases b with ⟨y, tail⟩
+      constructor
+      · intro h
+        cases h with
+        | cons hx ht => exact ⟨hx, (ih rest tail).mp ht⟩
+      · rintro ⟨hx, ht⟩
+        exact .cons hx ((ih rest tail).mpr ht)
+
+/-- Arbitrary-arity native Decompose. The only side condition is syntactic
+free-head classification, checked by reduction of generated metadata. -/
+theorem decompose_native (profile : Profile sig) (reg : Registration sig) {ss s}
+    (f : sig.Symbol ss s) (free : profile.view f = .atom f)
+    (a b : Args reg.Carrier ss) :
+    NativeEq sig reg (reg.apply f a) (reg.apply f b) ↔
+      ArgsRel (fun s => NativeEq sig reg (s := s)) ss a b := by
+  unfold NativeEq
+  rw [reg.quote_apply, reg.quote_apply]
+  exact (decompose profile f free _ _).trans (quote_args_iff reg a b)
+
+theorem clash_native (profile : Profile sig) (reg : Registration sig) {ss tt s}
+    (f : sig.Symbol ss s) (g : sig.Symbol tt s)
+    (hf : profile.view f = .atom f) (hg : profile.view g = .atom g)
+    (different : (⟨ss, f⟩ : Σ us, sig.Symbol us s) ≠ ⟨tt, g⟩)
+    (a : Args reg.Carrier ss) (b : Args reg.Carrier tt) :
+    ¬ NativeEq sig reg (reg.apply f a) (reg.apply g b) := by
+  unfold NativeEq
+  rw [reg.quote_apply, reg.quote_apply]
+  exact clash profile f g hf hg different _ _
+
+/-- Ordinary equality elimination is safe on a rigid native sort, and ONLY
+there. In particular this rule must not be applied to a bag or a bag wrapper. -/
+theorem rigid_native (profile : Profile sig) (reg : Registration sig) {s}
+    (rigid : profile.rigid s = true) (a b : reg.Carrier s) :
+    NativeEq sig reg a b ↔ a = b := by
+  constructor
+  · intro h
+    have same := eq_of_rigid profile rigid h
+    simpa only [reg.eval_quote] using congrArg (fun t => t.eval reg.toAlgebra) same
+  · intro h
+    cases h
+    exact .refl _
+
+/-- Emit a shared parameter for two equal rigid-sort variables. -/
+theorem share_literal {α : Type} (x y : α) : x = y ↔ ∃ u : α, x = u ∧ y = u :=
+  ⟨fun h => ⟨x, rfl, h.symm⟩, fun ⟨_u, hx, hy⟩ => hx.trans hy.symm⟩
+
+/-- Emit a shared parameter for two equal variables on ANY registered sort.
+Bag images remain equal modulo B, not literally equal as raw constructor trees. -/
+theorem share_native (reg : Registration sig) {s} (x y : reg.Carrier s) :
+    NativeEq sig reg x y ↔ ∃ u : reg.Carrier s,
+      NativeEq sig reg x u ∧ NativeEq sig reg y u :=
+  ⟨fun h => ⟨x, .refl _, .symm h⟩,
+    fun ⟨_u, hx, hy⟩ => .trans hx (.symm hy)⟩
 
 /-- Native SplitAtom. Syntactic registration supplies every quote/apply identity. -/
 theorem split_native (profile : Profile sig) (reg : Registration sig) {s}
@@ -932,44 +1202,94 @@ theorem refinement_certificate (P Q A R : ProcSet) :
 
      singleton(wait(i)) + P =B singleton(wait(j)) + Q
 
-   matched: the heads are equal, P=Q
+   matched: i=K, j=K, P=B Z, Q=B Z
    crossed: P=singleton(wait(j))+N, Q=singleton(wait(i))+N
 
    Schematic future dump/replay:
      CheckAtomicHeads
+     Decompose(ProcSet.singleton)
+     Decompose(Mode.wait)
+     RigidEquality(Nat)                 -- heads equal iff i=j
      Coverage(matchedGuard=True, crossedGuard=True)
        ├─ heads equal     -> matched guard holds
        └─ heads unequal   -> crossed guard holds
      ExactOfCoverage
+     EmitSharedParameters(K,Z)
 
    The certificate below only applies general rules and logical constructors;
    it does NOT replay Mutate/Split to rediscover the supplied families.
    The arbitrary shared remainder is already handled by the general theorem.
 
-   Boundary: this certifies the bag-level reduction. The matched head equation
-   is retained explicitly. Turning it into i=j (and a native substitution
-   i↦k,j↦k) needs the generic free-constructor decomposition rule, the NEXT
-   milestone. We do not silently assume injectivity modulo structural axioms.
+   BOTH displayed branches are actual substitution families, with no residual
+   head equation. Native constructor identifiers .c6/.c3 and rigid tag .s0 below
+   are generated metadata for singleton/wait/Nat, not user annotations. Future
+   replay will select these identifiers from the dump; the user model is unchanged.
 -/
 theorem one_tail_certificate (i j : Nat) (P Q : ProcSet) :
     ProcSet.union (ProcSet.singleton (.wait i)) P =[BakeryTheory.certified]
       ProcSet.union (ProcSet.singleton (.wait j)) Q ↔
-      (ProcSet.singleton (.wait i) =[BakeryTheory.certified]
-          ProcSet.singleton (.wait j) ∧ P =[BakeryTheory.certified] Q) ∨
+      (∃ K : Nat, ∃ Z : ProcSet,
+        i = K ∧ j = K ∧ P =[BakeryTheory.certified] Z ∧ Q =[BakeryTheory.certified] Z) ∨
       (∃ N : ProcSet,
         P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait j)) N ∧
         Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait i)) N) :=
+  -- Decompose each FREE unary constructor; these are generic arbitrary-arity
+  -- rules. The resulting payload equation is still modulo B at this point.
+  let singletonRule := decompose_native profile registration Symbol.c6 rfl
+    (.wait i, PUnit.unit) (.wait j, PUnit.unit)
+  let waitRule := decompose_native profile registration Symbol.c3 rfl
+    (i, PUnit.unit) (j, PUnit.unit)
+  -- Reflect to literal equality ONLY because generated metadata proves Nat rigid.
+  let natRule := rigid_native profile registration (s := Tag.s0) rfl i j
+  let heads := Iff.intro
+    (fun input => natRule.mp (waitRule.mp (singletonRule.mp input).1).1)
+    (fun same => singletonRule.mpr ⟨waitRule.mpr ⟨natRule.mpr same, True.intro⟩, True.intro⟩)
   let certificate := exact_of_coverage profile registration Operator.acu
     (ProcSet.singleton (.wait i)) (ProcSet.singleton (.wait j)) True True rfl rfl
     -- Completeness is reduced to TWO FINITE GUARDS, independent of P,Q,N.
     ⟨fun _ => True.intro, fun _ => True.intro⟩ P Q
   Iff.intro
-    -- Erase trivial guard annotations from the semantic answer proposition.
+    -- COMPLETENESS: covered matched heads -> equal payloads -> emit K,Z.
+    -- Crossed heads already have the displayed shared remainder N.
     (fun input => Or.elim (certificate.mp input)
-      (fun matched => Or.inl matched.2) (fun crossed => Or.inr crossed.2))
+      (fun matched =>
+        Exists.elim ((share_literal i j).mp (heads.mp matched.2.1)) (fun K tickets =>
+        Exists.elim ((share_native registration (s := Tag.s2) P Q).mp matched.2.2)
+          (fun Z bags => Or.inl ⟨K, Z, tickets.1, tickets.2, bags.1, bags.2⟩)))
+      (fun crossed => Or.inr crossed.2))
+    -- SOUNDNESS: eliminate emitted parameters, rebuild heads, apply the general
+    -- family-soundness direction. No new search is needed in either direction.
     (fun output => certificate.mpr (Or.elim output
-      (fun matched => Or.inl ⟨True.intro, matched⟩)
+      (fun matched => Exists.elim matched (fun K hK =>
+        Exists.elim hK (fun Z images => Or.inl ⟨True.intro,
+          heads.mpr ((share_literal i j).mpr ⟨K, images.1, images.2.1⟩),
+          (share_native registration (s := Tag.s2) P Q).mpr
+            ⟨Z, images.2.2.1, images.2.2.2⟩⟩)))
       (fun crossed => Or.inr ⟨True.intro, crossed⟩)))
+
+/- Decompose also works when a free constructor contains NON-rigid payloads.
+   Conf is not rigid: its process-field equality must stay modulo ACU.
+   This is a regression against incorrectly replacing every free-head equality
+   by literal Lean equality. All three fields use the SAME generic rule.
+-/
+theorem acu_payload_certificate (n serving : Nat) (P Q : ProcSet) :
+    Conf.mk n serving P =[BakeryTheory.certified] Conf.mk n serving Q ↔
+      P =[BakeryTheory.certified] Q :=
+  let fields := decompose_native profile registration Symbol.c8 rfl
+    (n, serving, P, PUnit.unit) (n, serving, Q, PUnit.unit)
+  Iff.intro (fun input => (fields.mp input).2.2.1)
+    (fun input => fields.mpr ⟨.refl _, .refl _, input, True.intro⟩)
+
+/- Clash certificate: axioms for bags cannot identify distinct Mode heads.
+   The sort-indexed constructor tags distinguish wait/crit independently of
+   their arbitrary ticket payloads. `nomatch` checks distinct generated tags;
+   it is not a Bakery-specific semantic theorem or a search tactic.
+-/
+theorem head_clash_certificate (i j : Nat) :
+    ¬ (Mode.wait i =[BakeryTheory.certified] Mode.crit j) :=
+  clash_native profile registration Symbol.c3 Symbol.c4 rfl rfl
+    (fun same => nomatch (eq_of_heq (Sigma.mk.inj same).2))
+    (i, PUnit.unit) (j, PUnit.unit)
 
 /- Negative test: omitting the matched family is genuinely INCOMPLETE.
    The crossed family is sound, but misses the minimal solution P=Q=empty.
@@ -991,10 +1311,12 @@ theorem missing_matched_rejected (n : Nat) :
         (fun P Q input => Or.inr ⟨True.intro, proposed P Q input⟩)).1
       (.refl _)
 
--- Axiom audits should report only propext / Quot.sound, never sorryAx.
+-- Axiom audits should report only Lean's standard axioms, never sorryAx.
 #print axioms atomic_certificate
 #print axioms refinement_certificate
 #print axioms one_tail_certificate
+#print axioms acu_payload_certificate
+#print axioms head_clash_certificate
 #print axioms missing_matched_rejected
 #print axioms coverage_iff
 
