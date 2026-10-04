@@ -2,6 +2,60 @@
 
 This document records the design decisions and current implementation state needed to continue development in a new conversation. The current repository is `/home/byhoson/workspace/conPanna`.
 
+## Current milestone: direct native certification (2026-10-04)
+
+Read THIS section first; the older NEXT SESSION plan below is historical.
+
+- Active experiment: `certification.lean`, not `certification2.lean`. It imports
+  only `examples/bakery_acu.lean` (model-only, no Mathlib or safety proofs).
+  The older indirect encoding/calculus remains untouched for comparison.
+- `deriving ACU` is now a real deriving handler in `conPanna/Structural.lean`.
+  It accepts exactly a nullary unit, unary singleton of another sort, and binary
+  self-operation. Roles are inferred from types, not constructor names. This is
+  syntactic metadata, not false laws of literal Lean equality on constructors.
+- `structural BakeryTheory for Conf` discovers the one derived ACU fragment
+  reachable from State Conf, registers the laws and generates indexed/native
+  registration automatically. No nontrivial user registration proof. The explicit
+  root excludes unrelated imported State instances. Existing `structural ... where`
+  and `certify_structural` syntax still work.
+- Generic direct metatheorems now include SplitAtom, MutateACU (four-piece
+  refinement), and AtomicRemainder (two solution families for X+Y = atom+R).
+  All are proved against Structural.Indexed.Eq, with automatic native specialization.
+  Lists of quotient classes of those SAME trees are internal proof auxiliaries;
+  there is no independent Value/ACU semantics or per-model bridge.
+- `derive_direct_profile profile for T.certified` mechanically classifies signature
+  heads, supplying cases/rfl metadata. `certify_direct profile` reifies a native
+  exactness iff and checks a finite certificate. No problem-specific supporting
+  lemma, constructor name, admission, or Mathlib automation is used.
+- Prototype `certify_maude name for Conf mod T.certified using profile : lhs with rhs`
+  exports the existing native signature, runs native Maude `unify`, parses ALL
+  answers through the existing parser/SolutionSet, generates the actual proposition
+  with ModCertificate.exactnessType, and reconstructs the direct proof against it.
+  Idle and wait(3) remainder queries both return TWO families and are kernel-checked
+  with only propext and Quot.sound. Native union argument ordering is reconciled
+  through proved commutativity, not trusted comparison or literal equality.
+- Boundaries: certificate instructions are selected locally from supported semantic
+  macro rules, NOT fetched from Maude proof search yet. Family comparison supports
+  logical congruence/branch reordering and binary ACU commutations, not general ACU
+  normalization. Remainder output has a compact specialized finite syntax;
+  generalized binders/elimination are still a checker extension. Multiple ACU
+  fragments, free-constructor inversion, nonlinear problems and general certificate
+  search are not supported. Generated declarations reject unresolved proof holes.
+- Semantic migration boundary is unchanged: =[T.certified] is indexed equality;
+  =[T] and existing Bakery narrowing still use legacy EqMod. Only the forward map
+  indexed -> legacy is proved. Production narrowing's completeness holes were not
+  touched and must not be claimed solved by these prototype examples.
+- Next: use the now-proved direct Mutate/Split rules in answer-guided certificate
+  search, then add general existential substitution/elimination and constructor
+  decomposition for real Bakery overlap queries. Keep one active certification
+  file and use LSP diagnostics/axiom checks. Do not add intermediate Lean files.
+- Verification: lake build, model-only file, direct certification file and existing
+  Bakery pass. LSP axiom checks on direct Mutate and native remainder certificates
+  report only propext/Quot.sound, no source warnings. Existing examples/upair.lean
+  fails its old completeness-to-mapsInto lifting at lines 164/188/203; the SAME
+  errors reproduce with HEAD's unchanged Structural.lean compiled in /tmp, so
+  these are pre-existing, not caused by deriving ACU. Not fixed in this milestone.
+
 ## NEXT SESSION: proof-producing Maude unification (2026-10-02)
 
 Read this section FIRST. The long historical notes below are not the active plan.

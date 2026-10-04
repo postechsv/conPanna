@@ -721,6 +721,18 @@ class NativeSort (theory : CertifiedTheory) (α : Type) where
   tag : theory.Sorts
   carrier_eq : theory.native.Carrier tag = α
 
+/-- Syntactic ACU-fragment metadata, NOT laws of literal Lean equality.
+`deriving ACU` accepts precisely a nullary unit, a unary singleton whose payload
+has another sort, and a binary operation on the fragment sort. Constructors
+remain ordinary Lean constructors; their equations belong to structural equality.
+The root command `structural T for Conf` assembles these declarations and generates
+the indexed semantic registration without user proofs. -/
+class ACU (α : Type) where
+  Atom : Type
+  empty : α
+  singleton : Atom → α
+  union : α → α → α
+
 def CertifiedTheory.Rel (theory : CertifiedTheory) {α : Type}
     [sort : NativeSort theory α] (a b : α) : Prop :=
   Indexed.NativeEq theory.signature theory.native
@@ -852,6 +864,37 @@ private def emitRegistration (source : String) : CommandElabM Unit := do
 
 private def joinLines (lines : Array String) : String :=
   String.intercalate "\n" lines.toList
+
+private def deriveACU (names : Array Name) : CommandElabM Bool := do
+  for name in names do
+    let (unit, atom, operation, payload) ← liftTermElabM do
+      let info ← nativeSortInfo name
+      unless info.ctors.length == 3 do
+        throwError "deriving ACU expects exactly three constructors: unit, singleton, binary operation"
+      let mut units : Array Name := #[]
+      let mut atoms : Array (Name × Name) := #[]
+      let mut operations : Array Name := #[]
+      for ctor in info.ctors do
+        let fields ← nativeFields ctor
+        if fields.isEmpty then
+          units := units.push ctor
+        else if fields == #[name, name] then
+          operations := operations.push ctor
+        else if fields.size == 1 && fields[0]! != name then
+          atoms := atoms.push (ctor, fields[0]!)
+      unless units.size == 1 && atoms.size == 1 && operations.size == 1 do
+        throwError "deriving ACU expects a nullary unit, a singleton of another sort, and a binary constructor on {name}"
+      return (units[0]!, atoms[0]!.1, operations[0]!, atoms[0]!.2)
+    emitRegistration s!"instance : Structural.ACU {qualified name} where
+  Atom := {qualified payload}
+  empty := {qualified unit}
+  singleton := {qualified atom}
+  union := {qualified operation}"
+  return true
+
+initialize registerDerivingHandler ``Structural.ACU deriveACU
+
+export Structural (ACU)
 
 private def wrapperFragment? (spec : NativeRegistration) : Option (Name × Array Name) := Id.run do
   let some root := spec.sorts.find? (·.name == spec.root) | return none
@@ -1073,7 +1116,41 @@ open scoped Structural
 
 /-- Declare a named collection of Maude-style structural equations. -/
 syntax (name := structuralCommand)
-  "structural " ident " where" ppLine structuralLaw* : command
+  "structural " ident (" for " ident)? " where" ppLine structuralLaw* : command
+
+/-- Infer supported ACU fragments reachable from the state sort. The explicit
+root avoids scanning unrelated State instances in imported example modules. -/
+syntax "structural " ident " for " ident : command
+
+elab_rules : command
+  | `(structural $name:ident for $root:ident) => do
+      let (operation, unit) ← liftTermElabM do
+        let rootExpr ← Term.elabType root
+        let some rootName := rootExpr.constName?
+          | throwError "expected a native state datatype"
+        let _ ← synthInstance (← mkAppM ``framework.State #[rootExpr])
+        let sorts ← collectNativeSorts rootName
+        let mut fragments : Array (Name × Name) := #[]
+        for sort in sorts do
+          let type := mkConst sort.name
+          if let some inst ← synthInstance? (← mkAppM ``Structural.ACU #[type]) then
+            let op ← whnf (mkAppN (mkConst ``Structural.ACU.union) #[type, inst])
+            let zero ← whnf (mkAppN (mkConst ``Structural.ACU.empty) #[type, inst])
+            let some operation := op.constName?
+              | throwError "derived ACU operation must be a native constructor"
+            let some unit := zero.constName?
+              | throwError "derived ACU unit must be a native constructor"
+            fragments := fragments.push (operation, unit)
+        unless fragments.size == 1 do
+          throwError "automatic structural registration currently expects exactly one derived ACU fragment; found {fragments.size}"
+        return fragments[0]!
+      let op := mkIdent operation
+      let zero := mkIdent unit
+      elabCommand (← `(command| structural $name for $root where
+        assoc $op
+        comm $op
+        id $op $zero))
+      elabCommand (← `(command| certify_structural $name for $root))
 
 private structure StructuralGroup where
   operation : TSyntax `term
@@ -1153,7 +1230,7 @@ private def stateConstructorNames :
   collectConstructorNames (← stateRootNames).toList #[] #[]
 
 elab_rules : command
-  | `(structural $name:ident where $laws:structuralLaw*) => do
+  | `(structural $name:ident $[for $root:ident]? where $laws:structuralLaw*) => do
       let mut groups : Array StructuralGroup := #[]
       let mut commutativeOperations : Array (TSyntax `term) := #[]
       let mut associativeOperations : Array (TSyntax `term) := #[]
@@ -1199,7 +1276,14 @@ elab_rules : command
 
       let constructorNames ←
         if isConstructorC then pure #[]
-        else Lean.Elab.Command.liftTermElabM stateConstructorNames
+        else Lean.Elab.Command.liftTermElabM do
+          if let some root := root then
+            let rootExpr ← Term.elabType root
+            let some rootName := rootExpr.constName?
+              | throwError "expected a native state datatype"
+            let _ ← synthInstance (← mkAppM ``framework.State #[rootExpr])
+            collectConstructorNames [rootName] #[] #[]
+          else stateConstructorNames
 
       let mut symbols : Array (TSyntax `term) := #[]
       for group in groups do

@@ -2,25 +2,39 @@
 
 ## Short-term goal: certified constrained narrowing
 
-**Active milestone:** proof-producing Maude unification for Bakery, replacing
-candidate-only results and user completeness holes. Read the NEXT SESSION section
-of HANDOFF.md for the precise contract, entry points, blockers and restart prompt.
-The dump/parser are now part of this milestone, not indefinitely deferred work.
+**Active milestone:** direct native certification, with native Maude `unify` as
+candidate producer and answer-guided certificate reconstruction. Read the CURRENT
+MILESTONE section of HANDOFF.md first; older stages below are historical.
 
-Agreed pipeline (2026-10-01):
+- Restricted `deriving ACU` and explicit-root `structural T for Conf` implemented.
+  Model-only example: examples/bakery_acu.lean. No nontrivial user registration.
+- Active prototype: certification.lean. Direct SplitAtom/Mutate/AtomicRemainder
+  rules proved against indexed semantics; actual native idle/wait(3) Maude answers
+  certified exactly with two families, no admissions, no Mathlib.
+- Next: answer-guided rule search; general existential substitution/elimination;
+  free-constructor decomposition; broader family normalization. Then wire checked
+  unifier results into constrained narrowing. Production completeness holes remain.
+- Current checker selects supported macro rules locally; native Maude supplies
+  answers, not derivation traces yet. Do not claim full ACU certification automation.
+- Existing upair.lean has pre-existing completeness-lifting failures at lines
+  164/188/203 (reproduced against unchanged HEAD Structural). Repair separately;
+  the new direct-certification milestone does not change that legacy narrowing.
+
+Revised pipeline (2026-10-04):
 
 1. Encode the user's native constructors and registered structural laws as
    first-order data for Maude. Keep arbitrary Lean constraints in Lean.
-2. Run the certification calculus as object-level Maude rewrite rules to compute
-   unifiers together with a derivation preserving the entire solution set.
-3. Replay the certificate in Lean and transport soundness and completeness back
-   to the user's constructors through a faithful native-semantics bridge.
+2. Run native Maude unification for candidates, then use them to guide a rule-based
+   certification search that accounts for the entire solution set.
+3. Replay the certificate directly against registered indexed structural semantics.
+   Generate metadata mechanically; require no per-model semantic bridge proofs.
 4. Attach substituted rule/pattern constraints to the successors and use generic
    lifting theorems to obtain the post-image and its exactness certificate.
 
 All term wrappers, sort/symbol identifiers, and variable indices are internal.
 Users keep their own constructors, structural declarations, and pattern syntax.
-The native bridge must preserve and reflect EqMod. Transporting constraints along
+Use indexed equality explicitly until legacy EqMod migration is resolved.
+Transporting constraints along
 modulo-equal variable assignments requires congruence of those predicates, or a
 wrapper retaining representative witnesses. Feasibility need not be decided:
 an infeasible residual constraint denotes an empty successor.
@@ -57,8 +71,8 @@ an infeasible residual constraint denotes an empty successor.
   atom IDs renamed in the kernel. Changed echo, omitted branch, no result and
   truncation are rejected. Next: generate the native statement/SolutionSet from
   the checked output instead of writing it by hand.
-- ONE active Lean experiment: `certification2.lean`. Start with
-  `BakeryCertificate.two_families` at the bottom.
+- Historical indirect experiment: `certification2.lean`. Active direct experiment:
+  `certification.lean`; do not extend the indirect BakeryEncoding/Bridge pipeline.
 - General library code, automatic registration, and the single main
   user proof are clearly separated. Superseded experimental Lean files were
   removed; do not add more intermediate files without a concrete need.
