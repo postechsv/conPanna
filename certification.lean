@@ -15,7 +15,9 @@ The generic coverage theorem below reduces an
 unbounded bag obligation to two head-equality guards. It does not recompute a
 complete set of ACU unifiers. Finite dump/replay now supports the one-hole
 atom-context fragment. FrameCancel additionally handles two rigid fields and a
-bag field with a repeated field/payload variable. Native Maude answers guide object-level certificate
+bag field with a repeated field/payload variable. FrameClash handles distinct
+free heads under a common atomic wrapper, eliminating the matched branch.
+Native Maude answers guide object-level certificate
 search in certification.maude. General multi-head coverage remains future work;
 no native Maude answer is trusted as a completeness proof.
 Free-constructor decomposition/clash are now proved for arbitrary arities.
@@ -77,6 +79,9 @@ structure Profile (sig : Signature Sorts) where
   view_zero : ∀ {s} (op : sig.ACUOp s), view (sig.zero op) = .zero op
   view_add : ∀ {s} (op : sig.ACUOp s), view (sig.add op) = .add op
   unique : ∀ {s} (a b : sig.ACUOp s), a = b
+  /-- Purely syntactic head labels. Unequal codes prove unequal constructors;
+  no injectivity assumption or user semantic proof is required. -/
+  code : ∀ {ss s}, sig.Symbol ss s → Nat
   rigid : Sorts → Bool
   rigid_args : ∀ {ss s} (_f : sig.Symbol ss s), rigid s = true → AllRigid rigid ss
   rigid_no_acu : ∀ {s} (_op : sig.ACUOp s), rigid s = false
@@ -820,12 +825,15 @@ elab "derive_direct_profile " name:ident " for " theory:ident : command => do
     "    | " ++ q symbol ++ " => " ++ rhs
   let rigidBranches := rigidSorts.map fun (tag, rigid) =>
     "    | " ++ q tag ++ " => " ++ (if rigid then "true" else "false")
+  let codeBranches := symbolNames.toArray.mapIdx fun i symbol =>
+    "    | " ++ q symbol ++ " => " ++ toString i
   let source := "def " ++ name.getId.toString ++
     " : DirectCertification.Profile " ++ signature ++ " where\n" ++
     "  view := fun f => match f with\n" ++ String.intercalate "\n" branches ++
     "\n  view_zero := by intro s op; cases op <;> rfl" ++
     "\n  view_add := by intro s op; cases op <;> rfl" ++
     "\n  unique := by intro s a b; cases a <;> cases b <;> rfl" ++
+    "\n  code := fun f => match f with\n" ++ String.intercalate "\n" codeBranches.toList ++
     "\n  rigid := fun s => match s with\n" ++ String.intercalate "\n" rigidBranches.toList ++
     "\n  rigid_args := by intro ss s f h; cases f <;> simp_all [DirectCertification.AllRigid]" ++
     "\n  rigid_no_acu := by intro s op; cases op <;> rfl"
@@ -1203,6 +1211,7 @@ end
 No fields contain Lean proofs, functions, expressions, or theorem names. -/
 inductive HeadCertificate where
   | rigid
+  | clash
   | decompose (argument : Nat) (next : HeadCertificate)
   deriving Repr, DecidableEq
 
@@ -1225,12 +1234,14 @@ inductive Certificate where
   | coverage (head : HeadCertificate) (equalCase unequalCase : Family)
   | cancellation (family : Family)
   | frameCancel (first second : HeadCertificate) (tail : Certificate)
+  | frameClash (first second apart : HeadCertificate) (family : Family)
   deriving Repr, DecidableEq
 
 /-- Small first-order dump grammar, mirrored by certification.maude constructors.
 These printers serialize DATA only; external I/O is kept in its own section. -/
 def HeadCertificate.dump : HeadCertificate → String
   | .rigid => "rigid"
+  | .clash => "clash"
   | .decompose position next => "decompose(" ++ toString position ++ "," ++ next.dump ++ ")"
 
 def Family.dump : Family → String
@@ -1244,6 +1255,9 @@ def Certificate.dump : Certificate → String
   | .cancellation family => "cancellation(emit(" ++ family.dump ++ "))"
   | .frameCancel first second tail =>
       "frameCancel(" ++ first.dump ++ "," ++ second.dump ++ "," ++ tail.dump ++ ")"
+  | .frameClash first second apart family =>
+      "frameClash(" ++ first.dump ++ "," ++ second.dump ++ "," ++ apart.dump ++
+        ",emit(" ++ family.dump ++ "))"
 
 private theorem args_refl (reg : Registration sig) {ss} (args : Args reg.Carrier ss) :
     ArgsRel (fun s => NativeEq sig reg (s := s)) ss args args := by
@@ -1445,9 +1459,31 @@ def FrameSolutions (reg : Registration sig) {u r s} (context : Context sig r s)
     (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) : Prop :=
   n = m ∧ a = b ∧ Solutions reg context op proposed a a x y
 
-theorem framed_same_exact (profile : Profile sig) (reg : Registration sig) {u r s v}
+theorem framed_heads_iff (profile : Profile sig) (reg : Registration sig) {u r s v}
     (f : sig.Symbol [u, r, s] v)
     (free : profile.view f = .atom f)
+    (rigidFirst : profile.rigid u = true) (rigidSecond : profile.rigid r = true)
+    (left right : reg.Carrier r → reg.Carrier s) (op : sig.ACUOp s)
+    (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) :
+    NativeEq sig reg
+      (reg.apply f (n, a, reg.apply (sig.add op) (left a, x, PUnit.unit), PUnit.unit))
+      (reg.apply f (m, b, reg.apply (sig.add op) (right b, y, PUnit.unit), PUnit.unit)) ↔
+      n = m ∧ a = b ∧ NativeEq sig reg
+        (reg.apply (sig.add op) (left a, x, PUnit.unit))
+        (reg.apply (sig.add op) (right a, y, PUnit.unit)) := by
+  apply (decompose_native profile reg f free _ _).trans
+  constructor
+  · rintro ⟨hn, ha, bags, _⟩
+    have first := (rigid_native profile reg rigidFirst n m).mp hn
+    have second := (rigid_native profile reg rigidSecond a b).mp ha
+    cases second
+    exact ⟨first, rfl, bags⟩
+  · rintro ⟨first, second, output⟩
+    cases first; cases second
+    exact ⟨.refl _, .refl _, output, True.intro⟩
+
+theorem framed_same_exact (profile : Profile sig) (reg : Registration sig) {u r s v}
+    (f : sig.Symbol [u, r, s] v) (free : profile.view f = .atom f)
     (rigidFirst : profile.rigid u = true) (rigidSecond : profile.rigid r = true)
     (context : Context sig r s) (op : sig.ACUOp s) (proposed : List Family)
     (tail : ∀ a x y,
@@ -1458,17 +1494,11 @@ theorem framed_same_exact (profile : Profile sig) (reg : Registration sig) {u r 
     NativeEq sig reg
       (reg.apply f (n, a, reg.apply (sig.add op) (context.eval reg a, x, PUnit.unit), PUnit.unit))
       (reg.apply f (m, b, reg.apply (sig.add op) (context.eval reg b, y, PUnit.unit), PUnit.unit)) ↔
-      FrameSolutions reg context op proposed n m a b x y := by
-  apply (decompose_native profile reg f free _ _).trans
-  constructor
-  · rintro ⟨hn, ha, bags, _⟩
-    have first := (rigid_native profile reg rigidFirst n m).mp hn
-    have second := (rigid_native profile reg rigidSecond a b).mp ha
-    cases second
-    exact ⟨first, rfl, (tail a x y).mp bags⟩
-  · rintro ⟨first, second, output⟩
-    cases first; cases second
-    exact ⟨.refl _, .refl _, (tail a x y).mpr output, True.intro⟩
+      FrameSolutions reg context op proposed n m a b x y :=
+  (framed_heads_iff profile reg f free rigidFirst rigidSecond
+    (context.eval reg) (context.eval reg) op n m a b x y).trans
+      ⟨fun h => ⟨h.1, h.2.1, (tail a x y).mp h.2.2⟩,
+        fun h => ⟨h.1, h.2.1, (tail a x y).mpr h.2.2⟩⟩
 
 def replayFrame (profile : Profile sig) (reg : Registration sig) {u r s v}
     (f : sig.Symbol [u, r, s] v) (context : Context sig r s)
@@ -1532,6 +1562,158 @@ theorem frame_solutions_iff (reg : Registration sig) {u r s} (context : Context 
     · cases ha
       exact ⟨hn.trans hm.symm, hb.symm, .crossed, crossed, rest, hx, hy⟩
 
+/-! ### Distinct heads and crossed-only coverage
+
+  A(a)+X =B D(a)+Y       A(a) !=B D(a)       both heads atomic
+  ========================================================= Clash + Exchange
+  EXISTS R, X =B D(a)+R AND Y =B A(a)+R
+
+The matched branch is impossible, NOT omitted on Maude's authority. A finite
+Clash trace proves that fact against native registered constructors. The common
+wrapper can have arbitrary arity. This fragment supports a ground or unary inner
+head; extending that pattern grammar is separate from the general Clash theorem.
+-/
+
+inductive InnerHead (sig : Signature Sorts) (r t : Sorts) where
+  | unary (symbol : sig.Symbol [r] t)
+  | fixed (tree : Tree sig t)
+
+private structure NativeHead (reg : Registration sig) (r t : Sorts) where
+  sorts : List Sorts
+  symbol : sig.Symbol sorts t
+  arguments : reg.Carrier r → Args reg.Carrier sorts
+
+private def InnerHead.native (reg : Registration sig) {r t} : InnerHead sig r t → NativeHead reg r t
+  | .unary f => ⟨[r], f, fun a => (a, PUnit.unit)⟩
+  | .fixed (.app f args) => ⟨_, f, fun _ => args.eval reg.toAlgebra⟩
+
+def InnerHead.eval (reg : Registration sig) {r t} (head : InnerHead sig r t)
+    (a : reg.Carrier r) : reg.Carrier t :=
+  let root := head.native reg
+  reg.apply root.symbol (root.arguments a)
+
+def InnerHead.code (profile : Profile sig) {r t} : InnerHead sig r t → Nat
+  | .unary f => profile.code f
+  | .fixed (.app f _) => profile.code f
+
+structure HeadPair (sig : Signature Sorts) (r t s : Sorts) where
+  outer : Context sig t s
+  left : InnerHead sig r t
+  right : InnerHead sig r t
+
+def HeadPair.leftTerm (reg : Registration sig) {r t s} (pair : HeadPair sig r t s)
+    (a : reg.Carrier r) : reg.Carrier s := pair.outer.eval reg (pair.left.eval reg a)
+
+def HeadPair.rightTerm (reg : Registration sig) {r t s} (pair : HeadPair sig r t s)
+    (a : reg.Carrier r) : reg.Carrier s := pair.outer.eval reg (pair.right.eval reg a)
+
+private def reflectionPath : HeadCertificate → Option HeadCertificate
+  | .clash => some .rigid
+  | .decompose position next => return .decompose position (← reflectionPath next)
+  | .rigid => none
+
+private def freeHead? (profile : Profile sig) {ss s} (f : sig.Symbol ss s) :
+    Option (PLift (profile.view f = .atom f)) :=
+  match profile.view f with
+  | .atom _ => some ⟨rfl⟩
+  | _ => none
+
+/-- Recheck free-head metadata and code inequality. Unequal codes imply unequal
+sorted constructors by congruence; the code function needs no adequacy axiom.
+Reflection currently requires the INNER sort to be rigid (Mode in Bakery).
+It does not replace equality of the surrounding bag by literal equality. -/
+def replayApart (profile : Profile sig) (reg : Registration sig) {r t s}
+    (pair : HeadPair sig r t s) (cert : HeadCertificate) :
+    Option (PLift (∀ a b, ¬ NativeEq sig reg (pair.leftTerm reg a) (pair.rightTerm reg b))) := do
+  let path ← reflectionPath cert
+  let reflected ← replayHead profile reg pair.outer path
+  let left := pair.left.native reg
+  let right := pair.right.native reg
+  let hl ← freeHead? profile left.symbol
+  let hr ← freeHead? profile right.symbol
+  if different : profile.code left.symbol ≠ profile.code right.symbol then
+    let apart := clash_native profile reg left.symbol right.symbol hl.down hr.down
+      (fun same => different (congrArg (fun tagged => profile.code tagged.2) same))
+    return ⟨fun a b outerEq => apart (left.arguments a) (right.arguments b) (by
+      have equal := (reflected.down (pair.left.eval reg a) (pair.right.eval reg b)).mp outerEq
+      exact Eq.mp
+        (congrArg (fun v => NativeEq sig reg (pair.left.eval reg a) v) equal) (.refl _))⟩
+  else none
+
+def CrossOutput (reg : Registration sig) {u r t s} (pair : HeadPair sig r t s)
+    (op : sig.ACUOp s) (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) : Prop :=
+  ∃ k : reg.Carrier u, ∃ l : reg.Carrier r, ∃ rest : reg.Carrier s,
+    n = k ∧ m = k ∧ a = l ∧ b = l ∧
+      NativeEq sig reg x (reg.apply (sig.add op) (pair.rightTerm reg l, rest, PUnit.unit)) ∧
+      NativeEq sig reg y (reg.apply (sig.add op) (pair.leftTerm reg l, rest, PUnit.unit))
+
+theorem framed_cross_exact (profile : Profile sig) (reg : Registration sig) {u r t s v}
+    (f : sig.Symbol [u, r, s] v) (free : profile.view f = .atom f)
+    (first : profile.rigid u = true) (second : profile.rigid r = true)
+    (pair : HeadPair sig r t s) (op : sig.ACUOp s)
+    (atom : ∀ p, mass profile (reg.quote s (pair.outer.eval reg p)) = 1)
+    (apart : ∀ a b, ¬ NativeEq sig reg (pair.leftTerm reg a) (pair.rightTerm reg b))
+    (n m : reg.Carrier u) (a b : reg.Carrier r) (x y : reg.Carrier s) :
+    NativeEq sig reg
+      (reg.apply f (n, a, reg.apply (sig.add op) (pair.leftTerm reg a, x, PUnit.unit), PUnit.unit))
+      (reg.apply f (m, b, reg.apply (sig.add op) (pair.rightTerm reg b, y, PUnit.unit), PUnit.unit)) ↔
+      CrossOutput reg pair op n m a b x y := by
+  apply (framed_heads_iff profile reg f free first second
+    (pair.leftTerm reg) (pair.rightTerm reg) op n m a b x y).trans
+  constructor
+  · rintro ⟨hn, ha, input⟩
+    rcases (exchange_native profile reg op (pair.leftTerm reg a) (pair.rightTerm reg a)
+      x y (atom _) (atom _)).mp input with ⟨heads, _⟩ | ⟨rest, hx, hy⟩
+    · exact False.elim (apart a a heads)
+    · exact ⟨n, a, rest, rfl, hn.symm, rfl, ha.symm, hx, hy⟩
+  · rintro ⟨k, l, rest, hn, hm, ha, hb, hx, hy⟩
+    cases ha; cases hb
+    exact ⟨hn.trans hm.symm, rfl,
+      (exchange_native profile reg op (pair.leftTerm reg a) (pair.rightTerm reg a)
+        x y (atom _) (atom _)).mpr (.inr ⟨rest, hx, hy⟩)⟩
+
+/-- The entire supported proposal is one crossed template, possibly repeated.
+Matched entries are rejected, not silently erased/reinterpreted. Empty proposals,
+non-atomic wrappers, equal heads and wrong trace positions all fail. -/
+def replayFrameClash (profile : Profile sig) (reg : Registration sig) {u r t s v}
+    (f : sig.Symbol [u, r, s] v) (pair : HeadPair sig r t s) (op : sig.ACUOp s)
+    (proposed : List Family) (cert : Certificate) : Option (PLift (∀ n m a b x y,
+      NativeEq sig reg
+        (reg.apply f (n, a, reg.apply (sig.add op) (pair.leftTerm reg a, x, PUnit.unit), PUnit.unit))
+        (reg.apply f (m, b, reg.apply (sig.add op) (pair.rightTerm reg b, y, PUnit.unit), PUnit.unit)) ↔
+      CrossOutput reg pair op n m a b x y)) :=
+  match cert with
+  | .frameClash .rigid .rigid head .crossed => match free : profile.view f with
+    | .atom _ =>
+        if first : profile.rigid u = true then
+          if second : profile.rigid r = true then
+            if Family.crossed ∈ proposed && !(Family.matched ∈ proposed) then do
+              let atom ← atomic profile reg pair.outer
+              let apart ← replayApart profile reg pair head
+              return ⟨framed_cross_exact profile reg f free first second pair op atom.down apart.down⟩
+            else none
+          else none
+        else none
+  | _ => none
+
+def acceptsFrameClash (profile : Profile sig) (reg : Registration sig) {u r t s v}
+    (f : sig.Symbol [u, r, s] v) (pair : HeadPair sig r t s) (op : sig.ACUOp s)
+    (proposed : List Family) (cert : Certificate) : Bool :=
+  (replayFrameClash profile reg f pair op proposed cert).isSome
+
+theorem replay_frame_clash_exact (profile : Profile sig) (reg : Registration sig) {u r t s v}
+    (f : sig.Symbol [u, r, s] v) (pair : HeadPair sig r t s) (op : sig.ACUOp s)
+    (proposed : List Family) (cert : Certificate)
+    (accepted : acceptsFrameClash profile reg f pair op proposed cert = true) :
+    ∀ n m a b x y,
+      NativeEq sig reg
+        (reg.apply f (n, a, reg.apply (sig.add op) (pair.leftTerm reg a, x, PUnit.unit), PUnit.unit))
+        (reg.apply f (m, b, reg.apply (sig.add op) (pair.rightTerm reg b, y, PUnit.unit), PUnit.unit)) ↔
+      CrossOutput reg pair op n m a b x y := by
+  cases result : replayFrameClash profile reg f pair op proposed cert with
+  | none => simp [acceptsFrameClash, result] at accepted
+  | some proof => exact proof.down
+
 /-! ## External data boundary — no semantic proofs or search in Lean
 
 Native Maude proposes actual substitutions. We recognize EVERY image, including
@@ -1554,6 +1736,7 @@ structure Input where
   x : MaudeTerm
   y : MaudeTerm
   head : MaudeTerm
+  rightHead? : Option MaudeTerm := none
   add : Name
   bag : Name
   sameParameters : Bool := false
@@ -1571,7 +1754,7 @@ private partial def oneHole (head parameter : MaudeTerm) : Bool × Nat :=
       let (ok, n) := oneHole arg parameter
       (valid && ok, count + n)) (true, 0)
 
-def input (left right : TranslatedPattern) : Except String Input := do
+def input (left right : TranslatedPattern) (different : Bool := false) : Except String Input := do
   let [a, x] := left.variables.toList | throw "expected two variables on the left"
   let [b, y] := right.variables.toList | throw "expected two variables on the right"
   let av := MaudeTerm.variable a.maudeName a.sort
@@ -1581,17 +1764,25 @@ def input (left right : TranslatedPattern) : Except String Input := do
   let .application add bag #[ha, tail] := left.term | throw "expected C(a)+X"
   let .application add' bag' #[hb, tail'] := right.term | throw "expected C(b)+Y"
   unless add == add' && bag == bag' && x.sort == bag && y.sort == bag &&
-      a.sort == b.sort && tail == xv && tail' == yv &&
-      oneHole ha av == (true, 1) && replace ha av bv == hb do
+      a.sort == b.sort && tail == xv && tail' == yv do
     throw "unsupported one-tail query or different head contexts"
+  if different then
+    let (leftOK, leftHoles) := oneHole ha av
+    let (rightOK, rightHoles) := oneHole hb bv
+    unless leftOK && rightOK && leftHoles ≤ 1 && rightHoles ≤ 1 && replace ha av bv != hb do
+      throw "unsupported distinct-head query"
+  else
+    unless oneHole ha av == (true, 1) && replace ha av bv == hb do
+      throw "unsupported one-tail query or different head contexts"
   return {
     variables := left.variables ++ right.variables, a := av, b := bv
-    x := xv, y := yv, head := ha, add := add, bag := bag }
+    x := xv, y := yv, head := ha, rightHead? := if different then some hb else none
+    add := add, bag := bag }
 
 /-- Infer a free three-field frame with a repeated second-field/head parameter.
 No constructor name is special. Counter images must be independent of the head
 parameter; forgetting that test would silently widen an overrestricted answer. -/
-def framedInput (left right : TranslatedPattern) : Except String Input := do
+def framedInput (left right : TranslatedPattern) (different : Bool := false) : Except String Input := do
   let [n, a, x] := left.variables.toList | throw "expected three variables on the left"
   let [m, b, y] := right.variables.toList | throw "expected three variables on the right"
   let .application f s #[nv, av, bags] := left.term | throw "expected a three-field frame"
@@ -1601,7 +1792,7 @@ def framedInput (left right : TranslatedPattern) : Except String Input := do
       av == .variable a.maudeName a.sort && bv == .variable b.maudeName b.sort do
     throw "unsupported framed query"
   let spec ← input { term := bags, variables := #[a, x] }
-    { term := bags', variables := #[b, y] }
+    { term := bags', variables := #[b, y] } different
   return { spec with
     variables := left.variables ++ right.variables
     sameParameters := true, counterPair? := some (nv, mv) }
@@ -1644,12 +1835,15 @@ def recognize (spec : Input) (candidate : MaudeUnifier) : Except String Family :
       throw "counter images must be shared and independent of serving"
   if a == b && x == y then
     if let .variable _ s := x then
+      if spec.rightHead?.isSome then throw "matched answer cannot solve the distinct-head query"
       unless s == spec.bag && x != a do throw "matched remainder sort or independence changed"
       return .matched
   unless spec.sameParameters || an != bn do throw "crossed parameters must be independent"
   let .application f s #[first, second] := x | throw "unsupported crossed bag image"
   unless f == spec.add && s == spec.bag do throw "crossed image uses another operator"
-  let headB := replace spec.head spec.a b
+  let headB := match spec.rightHead? with
+    | some head => replace head spec.b b
+    | none => replace spec.head spec.a b
   let headA := replace spec.head spec.a a
   let rest ← if first == headB then pure second else if second == headB then pure first
     else throw "crossed X image does not contain C(b)"
@@ -1702,6 +1896,7 @@ private def familiesDump : List Family → String
 
 private partial def decodeHead : Maude.Certification.Node → Except String HeadCertificate
   | .app "rigid" #[] => pure .rigid
+  | .app "clash" #[] => pure .clash
   | .app "decompose" #[.num n, rest] => return .decompose n (← decodeHead rest)
   | _ => throw "unsupported head certificate"
 
@@ -1716,6 +1911,9 @@ private partial def decodeCertificate : Maude.Certification.Node → Except Stri
   | .app "cancellation" #[family] => return .cancellation (← decodeFamily family)
   | .app "frameCancel" #[first, second, tail] =>
       return .frameCancel (← decodeHead first) (← decodeHead second) (← decodeCertificate tail)
+  | .app "frameClash" #[first, second, apart, family] =>
+      return .frameClash (← decodeHead first) (← decodeHead second)
+        (← decodeHead apart) (← decodeFamily family)
   | _ => throw "unsupported certificate reply"
 
 /-- One bounded search result, echoing the WHOLE request. No solution and a
@@ -1745,13 +1943,19 @@ structure Fetched where
 There is no scripted strategy or preselected certificate term. Search depth is
 bounded, so failure is reported rather than hanging or inserting sorry. -/
 def fetch (model engine : String) (sorts : Array SortDecl)
-    (left right : TranslatedPattern) (context : String) (framed : Bool := false) : IO Fetched := do
-  let spec ← IO.ofExcept (if framed then framedInput left right else input left right)
+    (left right : TranslatedPattern) (context : String) (framed : Bool := false)
+    (clashCodes? : Option (Nat × Nat) := none) : IO Fetched := do
+  if clashCodes?.isSome && !framed then throw (IO.userError "clash requests require a frame")
+  let spec ← IO.ofExcept
+    (if framed then framedInput left right clashCodes?.isSome else input left right)
   let stdout ← Maude.runMaude model
     s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
   let families ← IO.ofExcept (nativeAnswers sorts spec stdout)
-  let kind := if framed then "frameRequest" else "request"
-  let request := s!"{kind}({context},{familiesDump families})"
+  let request := match clashCodes? with
+    | some (l, r) => s!"clashRequest({context},{l},{r},{familiesDump families})"
+    | none =>
+        let kind := if framed then "frameRequest" else "request"
+        s!"{kind}({context},{familiesDump families})"
   let result ← Maude.runMaude engine
     s!"search [1, 64] in DIRECT-CERTIFICATION : start({request}) =>! R:Reply ."
   let trace ← IO.ofExcept (searchReply request result)
@@ -1763,6 +1967,7 @@ private def familyExpr : Family → Expr
 
 private def headExpr : HeadCertificate → Expr
   | .rigid => mkConst ``HeadCertificate.rigid
+  | .clash => mkConst ``HeadCertificate.clash
   | .decompose n rest => mkApp2 (mkConst ``HeadCertificate.decompose) (mkNatLit n) (headExpr rest)
 
 private def certificateExpr : Certificate → Expr
@@ -1771,6 +1976,8 @@ private def certificateExpr : Certificate → Expr
   | .cancellation family => mkApp (mkConst ``Certificate.cancellation) (familyExpr family)
   | .frameCancel first second tail => mkApp3 (mkConst ``Certificate.frameCancel)
       (headExpr first) (headExpr second) (certificateExpr tail)
+  | .frameClash first second apart family => mkApp4 (mkConst ``Certificate.frameClash)
+      (headExpr first) (headExpr second) (headExpr apart) (familyExpr family)
 
 /-- Emit proofless constants ONLY. The theorem below must still kernel-check
 acceptance against its typed context, with ordinary rfl, not native_decide. -/
@@ -1962,6 +2169,79 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 #guard !(Replay.acceptsFrame profile registration Symbol.c8 criticalHeadContext Operator.acu
   fetchedExitCritical.families (.frameCancel (.decompose 0 .rigid) .rigid (.cancellation .matched)))
 
+/- Two further equations from the Bakery narrowing term shapes. The shared
+   frame identifies serving counters; wait/crit and idle/crit then CLASH.
+   Native Maude supplies just the crossed family in each case. These typed
+   contexts are prototype reification data, not semantic registration proofs.
+   No claim of a general term-to-context translator is made here. -/
+def enterCriticalHeads : Replay.HeadPair Sig Tag.s0 Tag.s1 Tag.s2 where
+  outer := .app Symbol.c6 (.focus .hole .nil)
+  left := .unary Symbol.c3
+  right := .unary Symbol.c4
+
+def wakeCriticalHeads : Replay.HeadPair Sig Tag.s0 Tag.s1 Tag.s2 where
+  outer := .app Symbol.c6 (.focus .hole .nil)
+  left := .fixed (.app Symbol.c2 .nil)
+  right := .unary Symbol.c4
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let sorts ← Maude.collectSignature (Lean.mkConst ``Conf)
+  let model := Maude.renderModule sorts (← Maude.inspectTheory (Lean.mkConst ``BakeryTheory))
+  let critical ← `(fun (next' serving' : Nat) (Q : ProcSet) =>
+    Conf.mk next' serving' (ProcSet.union (ProcSet.singleton (.crit serving')) Q))
+  let jobs := [
+    ((← `(fun (next serving : Nat) (P : ProcSet) =>
+      Conf.mk next serving (ProcSet.union (ProcSet.singleton (.wait serving)) P))),
+      enterCriticalHeads, `DirectCertification.Bakery.fetchedEnterCritical),
+    ((← `(fun (next serving : Nat) (P : ProcSet) =>
+      Conf.mk next serving (ProcSet.union (ProcSet.singleton Mode.idle) P))),
+      wakeCriticalHeads, `DirectCertification.Bakery.fetchedWakeCritical)]
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  for (lhsSyntax, heads, pre) in jobs do
+    let lhs ← Lean.Elab.Term.elabTerm lhsSyntax none
+    let rhs ← Lean.Elab.Term.elabTerm critical none
+    let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
+    let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
+    let context := Replay.External.contextDump profile heads.outer
+    let result ← Replay.External.fetch model engine sorts left right context true
+      (some (heads.left.code profile, heads.right.code profile))
+    Replay.External.emit pre result
+    Lean.logInfo s!"{pre}: {left.term.render} =? {right.term.render}"
+    Lean.logInfo s!"Native families: {result.families.map Replay.Family.dump}; fetched trace: {result.trace.dump}"
+    -- An oriented crossed answer must not be accepted with its tails swapped.
+    let spec ← Lean.ofExcept (Replay.External.framedInput left right true)
+    let answers ← Lean.ofExcept (Maude.parseUnifiers sorts spec.variables result.nativeOutput)
+    let some answer := answers.toList.head? | throwError "no native clash answer"
+    let .variable xName _ := spec.x | throwError "invalid left tail variable"
+    let .variable yName _ := spec.y | throwError "invalid right tail variable"
+    let some x := answer.bindings.toList.find? (·.domain.maudeName == xName)
+      | throwError "no left tail image"
+    let some y := answer.bindings.toList.find? (·.domain.maudeName == yName)
+      | throwError "no right tail image"
+    let swapped := { answer with bindings := answer.bindings.map fun binding =>
+      if binding.domain.maudeName == xName then { binding with image := y.image }
+      else if binding.domain.maudeName == yName then { binding with image := x.image }
+      else binding }
+    unless !(Replay.External.recognize spec swapped).isOk do
+      throwError "accepted reversed crossed substitution images"
+
+#guard fetchedEnterCritical.families == [.crossed]
+#guard fetchedWakeCritical.families == [.crossed]
+#guard Replay.acceptsFrameClash profile registration Symbol.c8 enterCriticalHeads Operator.acu
+  fetchedEnterCritical.families fetchedEnterCritical.trace
+#guard Replay.acceptsFrameClash profile registration Symbol.c8 wakeCriticalHeads Operator.acu
+  fetchedWakeCritical.families fetchedWakeCritical.trace
+#guard !(Replay.acceptsFrameClash profile registration Symbol.c8 enterCriticalHeads Operator.acu
+  [] fetchedEnterCritical.trace)
+#guard !(Replay.acceptsFrameClash profile registration Symbol.c8 enterCriticalHeads Operator.acu
+  [.crossed, .matched] fetchedEnterCritical.trace)
+#guard !(Replay.acceptsFrameClash profile registration Symbol.c8 enterCriticalHeads Operator.acu
+  [.crossed] (.frameClash .rigid .rigid (.decompose 1 .clash) .crossed))
+#guard !(Replay.acceptsFrameClash profile registration Symbol.c8
+  { enterCriticalHeads with right := .unary Symbol.c3 } Operator.acu
+  [.crossed] fetchedEnterCritical.trace)
+
 /- Checker regression tests, not helper lemmas for the certification proof.
    None of these checks is relied on as an oracle: replay_exact is proved above
    and the actual certificate below supplies kernel-checked acceptance by rfl.
@@ -2093,6 +2373,35 @@ theorem exit_critical_certificate (next serving next' serving' : Nat) (P Q : Pro
         fetchedExitCritical.families (of_decide_eq_true rfl) (of_decide_eq_true rfl)
         next next' serving serving' P Q)
 
+/- Full input equations, NOT residual bag equations. Inference trace:
+     Decompose Conf; Rigid next; Rigid serving;
+     Decompose singleton at position 0; Clash wait/crit (or idle/crit);
+     Exchange; Emit the proposed crossed substitution.
+   Replay of these GENERAL rules proves the displayed semantic iff:
+   .mp certifies completeness and .mpr certifies soundness. The proof term
+   contains no Bakery helper lemma, tactic, or trusted Maude assertion. -/
+theorem enter_critical_certificate (next serving next' serving' : Nat) (P Q : ProcSet) :
+    Conf.mk next serving (ProcSet.union (ProcSet.singleton (.wait serving)) P)
+      =[BakeryTheory.certified]
+    Conf.mk next' serving' (ProcSet.union (ProcSet.singleton (.crit serving')) Q) ↔
+      ∃ N M : Nat, ∃ R : ProcSet,
+        next = N ∧ next' = N ∧ serving = M ∧ serving' = M ∧
+        P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.crit M)) R ∧
+        Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.wait M)) R :=
+  Replay.replay_frame_clash_exact profile registration Symbol.c8 enterCriticalHeads Operator.acu
+    fetchedEnterCritical.families fetchedEnterCritical.trace rfl next next' serving serving' P Q
+
+theorem wake_critical_certificate (next serving next' serving' : Nat) (P Q : ProcSet) :
+    Conf.mk next serving (ProcSet.union (ProcSet.singleton Mode.idle) P)
+      =[BakeryTheory.certified]
+    Conf.mk next' serving' (ProcSet.union (ProcSet.singleton (.crit serving')) Q) ↔
+      ∃ N M : Nat, ∃ R : ProcSet,
+        next = N ∧ next' = N ∧ serving = M ∧ serving' = M ∧
+        P =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton (.crit M)) R ∧
+        Q =[BakeryTheory.certified] ProcSet.union (ProcSet.singleton Mode.idle) R :=
+  Replay.replay_frame_clash_exact profile registration Symbol.c8 wakeCriticalHeads Operator.acu
+    fetchedWakeCritical.families fetchedWakeCritical.trace rfl next next' serving serving' P Q
+
 /- Decompose also works when a free constructor contains NON-rigid payloads.
    Conf is not rigid: its process-field equality must stay modulo ACU.
    This is a regression against incorrectly replacing every free-head equality
@@ -2142,11 +2451,14 @@ theorem missing_matched_rejected (n : Nat) :
 #print axioms refinement_certificate
 #print axioms one_tail_certificate
 #print axioms exit_critical_certificate
+#print axioms enter_critical_certificate
+#print axioms wake_critical_certificate
 #print axioms acu_payload_certificate
 #print axioms head_clash_certificate
 #print axioms missing_matched_rejected
 #print axioms coverage_iff
 #print axioms Replay.replay_exact
 #print axioms Replay.replay_frame_exact
+#print axioms Replay.replay_frame_clash_exact
 
 end DirectCertification.Bakery

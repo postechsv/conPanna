@@ -9,6 +9,8 @@
 ---   Head(rigidHole)        -> EqualCase, recording Rigid.
 ---   EqualCase              -> UnequalCase, using a proposed matched family.
 ---   UnequalCase            -> Reply, using a proposed crossed family.
+---   Head(rigidHole, distinct head codes) -> CrossedCase, recording Clash.
+---   CrossedCase            -> Reply, using only a proposed crossed family.
 --- An absent family leaves an unsolved state: it is NOT regenerated.
 --- The trace is accumulated by the rules, not a constant scripted certificate.
 --- Contexts have one hole; fixed arguments are retained in Lean's typed context.
@@ -28,7 +30,7 @@ mod DIRECT-CERTIFICATION is
   op nil : -> Families [ctor] .
   op cons : Family Families -> Families [ctor] .
   op contains : Families Family -> Bool .
-  op rigid : -> HeadCertificate [ctor] .
+  ops rigid clash : -> HeadCertificate [ctor] .
   op decompose : Nat HeadCertificate -> HeadCertificate [ctor] .
   op done : -> Frame [ctor] .
   op wrap : Nat Frame -> Frame [ctor] .
@@ -37,17 +39,20 @@ mod DIRECT-CERTIFICATION is
   op coverage : HeadCertificate Certificate Certificate -> Certificate [ctor] .
   op cancellation : Certificate -> Certificate [ctor] .
   op frameCancel : HeadCertificate HeadCertificate Certificate -> Certificate [ctor] .
+  op frameClash : HeadCertificate HeadCertificate HeadCertificate Certificate -> Certificate [ctor] .
   ops request frameRequest : Context Families -> Request [ctor] .
+  op clashRequest : Context Nat Nat Families -> Request [ctor] .
   op start : Request -> State [ctor] .
   op head : Request Context Frame -> State [ctor] .
   ops equalCase unequalCase : Request HeadCertificate -> State [ctor] .
   op frameCase : Request -> State [ctor] .
+  op crossedCase : Request HeadCertificate -> State [ctor] .
   op proposed : Request Certificate -> Reply [ctor] .
 
   vars C : Context .
   vars F G : Family .
   var FS : Families .
-  var N : Nat .
+  vars N L M : Nat .
   var K : Frame .
   var H : HeadCertificate .
   var R : Request .
@@ -75,4 +80,16 @@ mod DIRECT-CERTIFICATION is
   crl [frame-cancel] : frameCase(frameRequest(C, FS)) =>
     proposed(frameRequest(C, FS), frameCancel(rigid, rigid, cancellation(emit(matched))))
     if contains(FS, matched) = true .
+
+  --- Same frame rule, now with DIFFERENT inner heads. Descend the common
+  --- wrapper and record its actual positions. At the rigid inner sort, unequal
+  --- constructor codes discharge the matched branch; only crossed is needed.
+  --- Lean independently checks the real heads, their codes and atomicity.
+  rl [frame-clash-decompose] : start(clashRequest(C, L, M, FS)) =>
+    head(clashRequest(C, L, M, FS), C, done) .
+  crl [clash] : head(clashRequest(C, L, M, FS), rigidHole, K) =>
+    crossedCase(clashRequest(C, L, M, FS), plug(K, clash)) if L =/= M .
+  crl [cover-crossed] : crossedCase(clashRequest(C, L, M, FS), H) =>
+    proposed(clashRequest(C, L, M, FS), frameClash(rigid, rigid, H, emit(crossed)))
+    if contains(FS, crossed) = true /\ contains(FS, matched) = false .
 endm
