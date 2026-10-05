@@ -1011,6 +1011,27 @@ equation, the template, and every lifted residual equation. This is a general
 typed abstraction primitive, specialized to singleton terms by the intended
 algorithm. It is NOT automatic occurrence extraction or a phase scheduler.
 
+Automatic free-step selection is now implemented, but not its repeated driver.
+`Binding.prepare` computes deletion of the selected sorted variable and traverses
+the complete replacement, returning a checked term in the reduced scope.
+`FreePhase.classify` selects DELETE, ORIENT, BIND, DECOMPOSE, CLASH, FREE-OCCURS,
+or postponement generically, with no constructor-name or depth/arity bound.
+The existing profile generator forwards decidable equality from generated finite
+sort/head tags; users supply no extra instances or semantic registration proofs.
+
+`FreeOccurs.findProper` discovers an occurrence beneath at least one free head,
+traversing only free heads. `FreeOccurs.Proper.sound` validates that witness using
+a structural-law-invariant depth: ACU union takes the maximum, the unit has depth
+zero, and a free constructor adds one above its deepest field. Thus a proper
+free occurrence cannot equal its containing term modulo B. Scope extraction
+failure alone is NOT a contradiction: `P =B P+Q` is postponed, since Q may be zero.
+`Worklist.closeFree` compiles discovered occurs/clash witnesses to checked finite
+completeness data. Two automatic Bakery examples certify empty answer families
+for `n =B succ(n)` and `wait(n) =B crit(n)`, without user-supplied witnesses or
+problem-specific lemmas. Full-file LSP and axiom audits pass without admissions.
+Binding/decomposition/deletion selection is tested, but repeatedly executing
+those steps and scheduling the residual ACU equations remains to be implemented.
+
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
 required bound. The label-count argument checks that the document's opposite-pair
@@ -1075,7 +1096,9 @@ factorization and matching completeness. The difficult formalization lies in:
    reconstruction, and the typed substitution replay rule are now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
    propagation through postponed bag equations. Typed BIND and whole-state
-   propagation are proved; automatic selection and occurs handling are pending.
+   propagation, scoped replacement extraction, automatic free-step selection,
+   and proper free-occurrence rejection are proved/implemented. The repeated
+   driver and its exhaustive scheduling argument remain unfinished.
 3. Composing the now-proved exhaustive singleton/zero replay rules with
    the now-proved PURIFY/BIND primitives, and proving single-bag solver exactness
    while tracking all parameter contexts and shared images.

@@ -34,10 +34,25 @@ solutions in BOTH directions; its typed template computes the original equation
 when filled by the named term. Complete.purify retains the defining equation and
 supports arbitrary worklist position. purification_binding_certificate composes
 PURIFY/BIND/DECOMPOSE/COVER. Full LSP/axiom checks pass without warnings/sorryAx.
+Automatic scoped binding preparation and free-step selection now work without
+model names or arity/depth bounds. Binding.prepare computes variable deletion and
+checks the entire replacement; FreePhase.classify chooses DELETE/ORIENT/BIND/
+DECOMPOSE/CLASH/FREE-OCCURS or postponement. FreeOccurs.Proper.sound proves proper
+FREE occurrences impossible modulo B using an invariant depth (ACU union=max,
+free heads add one). Bag self-unions are NOT rejected. Worklist.closeFree compiles
+occurs/clash witnesses into existing replay data; automatic_occurs_certificate
+and automatic_clash_certificate certify empty Bakery answer families without
+user-supplied paths or problem-specific lemmas. Existing derive_direct_profile
+now forwards decidable sort/head equality from generated tags automatically.
+Full LSP/axiom checks pass without warnings/sorryAx. Only certification.lean was
+changed for code; no tactics, new Lean files, library/narrowing changes, or Maude
+calls were added. The free-phase checklist item is PARTIALLY complete: selection
+and rejection work, but repeated binding/decomposition/deletion execution and
+postponed-equation scheduling do not exist yet. Factor search was NOT started.
 No general automated search is claimed. Follow TODO.md's current checkbox list
-and CERTIFICATION.md §12.1. Next implement automatic typed free-equation
-processing (scoped term extraction/occurs, orientation/decompose/delete), then
-automatic bag preprocessing and phase scheduling using these checked primitives.
+and CERTIFICATION.md §12.1. Next implement the repeated typed free-phase worklist
+driver, then automatic bag preprocessing and phase scheduling using these checked
+primitives.
 Do not touch narrowing yet.
 The older capability descriptions below remain historical context.
 

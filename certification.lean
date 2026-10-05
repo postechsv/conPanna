@@ -8,7 +8,8 @@ This is ONE prototype, with four parts:
 1. GENERAL SEMANTIC RULES over the existing registered structural equality.
 2. EXHAUSTIVE FINITE SHARING: semantic exactness and typed substitution generation.
 3. TYPED CERTIFICATE DATA and acceptance (soundness plus complete coverage).
-4. BAKERY CERTIFICATES: explicit proof terms, without custom proof tactics.
+4. BAKERY CERTIFICATES: explicit proof terms and computed occurs/clash closure,
+   without custom proof tactics.
 
 Kept from the previous prototype: quotient-based internal proofs, arbitrary-arity
 free-head rules, native lifting, typed image vectors, and checked worklist trees.
@@ -20,6 +21,9 @@ The equality is Structural.Indexed.NativeEq, written `=[BakeryTheory.certified]`
 Quotients and multiplicity vectors are INTERNAL proof tools, not user encodings.
 Only the last section uses Bakery; the rules work over a generic signature.
 The profile command generates/checks syntactic metadata, not semantic user proofs.
+Scoped binding preparation and free-step classification now compute checked data;
+proper free-occurrence/clash closure is automatic. A repeated worklist driver,
+bag-phase scheduling, and complete whole-vector factor search remain unfinished.
 
 Proved acceptance is not proved search success:
 * equality traces establish SOUNDNESS of each proposed substitution;
@@ -118,6 +122,53 @@ def measureModel : Model sig (measure profile) where
 theorem mass_congr {s} {a b : Tree sig s} (h : Structural.Indexed.Eq sig a b) :
     mass profile a = mass profile b :=
   Structural.Indexed.Eq.sound sig (measureModel profile) h
+
+/- A second INTERNAL observer for FREE-OCCURS. ACU nodes take maximum depth,
+while every free constructor adds one. max is commutative/associative with zero,
+so this observer respects B, including free wrappers containing bag arguments.
+It proves that an actual proper free-constructor occurrence cannot be a fixed
+point. It is NOT syntactic occurs rejection for bag unions. -/
+namespace FreeDepth
+
+def maxArgs : {ss : List Sorts} → Args (fun _ : Sorts => Nat) ss → Nat
+  | [], _ => 0
+  | _ :: _, args => max args.1 (maxArgs args.2)
+
+theorem maxArgs_congr {ss} (a b : Args (fun _ : Sorts => Nat) ss)
+    (same : ArgsRel (fun _ => _root_.Eq) ss a b) : maxArgs a = maxArgs b := by
+  induction ss with
+  | nil => rfl
+  | cons s ss ih => simp only [maxArgs, same.1, ih a.2 b.2 same.2]
+
+def algebra (profile : Profile sig) : Algebra sig where
+  Carrier := fun _ => Nat
+  apply := fun f args => match profile.view f with
+    | .zero _ => 0
+    | .add _ => max args.1 args.2.1
+    | .atom _ => (maxArgs args) + 1
+
+def model (profile : Profile sig) : Model sig (algebra profile) where
+  Rel := fun _ => _root_.Eq
+  refl := fun _ _ => rfl
+  symm := fun _ {_ _} h => h.symm
+  trans := fun _ {_ _ _} h k => h.trans k
+  congr := by
+    intro ss s f a b h
+    cases hv : profile.view f with
+    | zero => rfl
+    | add => simp only [algebra, hv, h.1, h.2.1]
+    | atom => simp only [algebra, hv, maxArgs_congr a b h]
+  «comm» := by intro s op a b; simp [algebra, profile.view_add, Nat.max_comm]
+  «assoc» := by intro s op a b c; simp [algebra, profile.view_add, Nat.max_assoc]
+  unit := by intro s op a; simp [algebra, profile.view_add, profile.view_zero]
+
+def depth (profile : Profile sig) {s} (term : Tree sig s) : Nat := term.eval (algebra profile)
+
+theorem congr (profile : Profile sig) {s} {a b : Tree sig s}
+    (same : Structural.Indexed.Eq sig a b) : depth profile a = depth profile b :=
+  Structural.Indexed.Eq.sound sig (model profile) same
+
+end FreeDepth
 
 @[simp] theorem mass_zero {s} (op : sig.ACUOp s) :
     mass profile (zero sig op) = 0 := by
@@ -2459,6 +2510,8 @@ sort-dependency graph. A sort is rigid only if no constructor path reaches an
 ACU sort (cycles such as Nat -> Nat are allowed). All resulting metadata fields
 are checked by constructor cases/reduction. There is no semantic field for the
 user to prove and no problem-specific theorem name in the generator.
+Decidable sort/head equality is forwarded from the already-generated finite
+tag types, so opaque registration projections require no extra user instances.
 
 This frontend now enforces the DOCUMENTED initial contract, rather than merely
 one operation per sort: exactly one ACU operation globally; its result sort has
@@ -2469,10 +2522,13 @@ These checks do not prove the pending finite-sharing search-success theorem.
 
 open Lean Meta Elab Command in
 elab "derive_direct_profile " name:ident " for " theory:ident : command => do
-  let (theoryName, symbolNames, zeroHeads, addHeads, rigidSorts) ← liftTermElabM do
+  let (theoryName, sortName, symbolName, symbolNames, zeroHeads, addHeads, rigidSorts) ← liftTermElabM do
     let t ← Term.elabTerm theory (some (mkConst ``Structural.CertifiedTheory))
     let some theoryName := t.constName?
       | throwError "expected a named certified theory"
+    let sorts ← whnf (← mkAppM ``Structural.CertifiedTheory.Sorts #[t])
+    let some sortName := sorts.constName?
+      | throwError "expected a generated finite sort datatype"
     let sig ← mkAppM ``Structural.CertifiedTheory.signature #[t]
     let symbol ← whnf (← mkAppM ``Structural.Indexed.Signature.Symbol #[sig])
     let some symbolName := symbol.getAppFn.constName?
@@ -2545,7 +2601,7 @@ elab "derive_direct_profile " name:ident " for " theory:ident : command => do
       throwError "bag fragment must contain only unit, operation, and one singleton"
     if blocked.contains bagPayloads[0]! then
       throwError "singleton payload must not contain the ACU bag sort"
-    return (theoryName, symbolInfo.ctors, zeros, adds,
+    return (theoryName, sortName, symbolName, symbolInfo.ctors, zeros, adds,
       tags.map fun tag => (tag, !blocked.contains (mkConst tag)))
   let q (n : Name) := "_root_." ++ n.toString
   let signature := "(Structural.CertifiedTheory.signature " ++ q theoryName ++ ")"
@@ -2573,6 +2629,17 @@ elab "derive_direct_profile " name:ident " for " theory:ident : command => do
   match Parser.runParserCategory (← getEnv) `command source with
   | .ok stx => elabCommand stx
   | .error e => throwError "generated profile syntax: {e}"
+  -- Forward existing decidable metadata through opaque registration projections.
+  -- This is generated here, not a new user registration obligation.
+  for source in [
+      "local instance " ++ name.getId.toString ++ "_decidableSorts : DecidableEq (" ++
+        q theoryName ++ ".Sorts) := inferInstanceAs (DecidableEq " ++ q sortName ++ ")",
+      "local instance " ++ name.getId.toString ++ "_decidableSymbols : ∀ ss s, DecidableEq (" ++
+        signature ++ ".Symbol ss s) := fun ss s => inferInstanceAs (DecidableEq (" ++
+        q symbolName ++ " ss s))"] do
+    match Parser.runParserCategory (← getEnv) `command source with
+    | .ok stx => elabCommand stx
+    | .error e => throwError "generated decidable metadata syntax: {e}"
 
 /-! ## General native proof rules
 
@@ -2914,6 +2981,7 @@ namespace Substitution
 inductive Variable : List Sorts → Sorts → Type where
   | here {s ss} : Variable (s :: ss) s
   | there {s t ss} : Variable ss s → Variable (t :: ss) s
+  deriving DecidableEq
 
 def Variable.eval {C : Sorts → Type} {Γ s} : Variable Γ s → Args C Γ → C s
   | .here, values => values.1
@@ -2950,6 +3018,12 @@ def Terms.variables (Γ : List Sorts) : (Δ : List Sorts) →
       (Terms.variables Γ ss (fun v => rename (.there v)))
 
 def Terms.identity (Γ : List Sorts) : Terms sig Γ Γ := Terms.variables Γ Γ (fun v => v)
+
+theorem Terms.variables_get {Γ Δ t} (rename : ∀ {s}, Variable Δ s → Variable Γ s)
+    (v : Variable Δ t) : (Terms.variables Γ Δ rename : Terms sig Γ Δ).get v = .var (rename v) := by
+  induction v with
+  | here => rfl
+  | there v ih => exact ih (fun v => rename (.there v))
 
 private theorem variables_eval (reg : Registration sig) {Γ Δ}
     (rename : ∀ {s}, Variable Δ s → Variable Γ s)
@@ -3507,6 +3581,109 @@ theorem Removal.replace_weaken {s Γ Δ Ω t} (remove : Removal s Γ Δ) (term :
 def Removal.embedding {s Γ Δ} (remove : Removal s Γ Δ) : Terms sig Γ Δ :=
   Terms.variables Γ Δ remove.weaken
 
+/-- Deletion is inferred from the typed variable POSITION, at any sort. -/
+def deletion {Γ : List Sorts} {s : Sorts} : Variable Γ s → Σ Δ, Removal s Γ Δ
+  | .here => ⟨_, .here⟩
+  | .there v => let ⟨Δ, remove⟩ := deletion v; ⟨_ :: Δ, .there remove⟩
+
+theorem deletion_variable {Γ : List Sorts} {s : Sorts} (v : Variable Γ s) :
+    (deletion v).2.variable = v := by
+  induction v with
+  | here => rfl
+  | there v ih => exact congrArg Variable.there ih
+
+def Removal.lowerVariable {s} : {Γ Δ : List Sorts} → Removal s Γ Δ →
+    {t : Sorts} → Variable Γ t → Option (Variable Δ t)
+  | _, _, .here, _, .here => none
+  | _, _, .here, _, .there v => some v
+  | _, _, .there _, _, .here => some .here
+  | _, _, .there rest, _, .there v => (rest.lowerVariable v).map Variable.there
+
+theorem Removal.lowerVariable_sound {s t : Sorts} {Γ Δ : List Sorts} (remove : Removal s Γ Δ)
+    (v : Variable Γ t) (w : Variable Δ t) (found : remove.lowerVariable v = some w) :
+    remove.weaken w = v := by
+  induction remove with
+  | here =>
+    cases v with
+    | here => cases found
+    | there v => cases found; rfl
+  | there rest ih =>
+    cases v with
+    | here => cases found; rfl
+    | there v =>
+      cases h : rest.lowerVariable v with
+      | none => simp only [Removal.lowerVariable, h, Option.map_none] at found; cases found
+      | some lower =>
+        simp only [Removal.lowerVariable, h, Option.map_some, Option.some.injEq] at found
+        cases found
+        exact congrArg Variable.there (ih v lower h)
+
+mutual
+  def lower {s Γ Δ} (remove : Removal s Γ Δ) : {t : Sorts} → Term sig Γ t → Option (Term sig Δ t)
+    | _, .var v => (remove.lowerVariable v).map Term.var
+    | _, .app f args => (lowerArgs remove args).map (Term.app f)
+  def lowerArgs {s Γ Δ} (remove : Removal s Γ Δ) :
+      {ss : List Sorts} → Terms sig Γ ss → Option (Terms sig Δ ss)
+    | _, .nil => some .nil
+    | _, .cons first rest => do
+        let first ← lower remove first
+        let rest ← lowerArgs remove rest
+        pure (.cons first rest)
+end
+
+theorem lower_sound {s Γ Δ t} (remove : Removal s Γ Δ)
+    (term : Term sig Γ t) (reduced : Term sig Δ t) (found : lower remove term = some reduced) :
+    reduced.subst remove.embedding = term := by
+  refine Term.rec
+    (motive_1 := fun {t} term => ∀ reduced : Term sig Δ t,
+      lower remove term = some reduced → reduced.subst remove.embedding = term)
+    (motive_2 := fun {ss} args => ∀ reduced : Terms sig Δ ss,
+      lowerArgs remove args = some reduced → reduced.subst remove.embedding = args)
+    ?_ ?_ ?_ ?_ term reduced found
+  · intro t v reduced found
+    cases h : remove.lowerVariable v with
+    | none => simp only [lower, h, Option.map_none] at found; cases found
+    | some w =>
+      simp only [lower, h, Option.map_some, Option.some.injEq] at found
+      cases found
+      change (remove.embedding).get w = .var v
+      rw [Removal.embedding, Terms.variables_get, remove.lowerVariable_sound v w h]
+  · intro ss t f args ih reduced found
+    cases h : lowerArgs remove args with
+    | none => simp only [lower, h, Option.map_none] at found; cases found
+    | some reducedArgs =>
+      simp only [lower, h, Option.map_some, Option.some.injEq] at found
+      cases found
+      exact congrArg (Term.app f) (ih _ h)
+  · intro reduced found
+    cases found; rfl
+  · intro t ss first rest hf hr reduced found
+    cases hfirst : lower remove first with
+    | none => simp only [lowerArgs, hfirst] at found; cases found
+    | some first' =>
+      cases hrest : lowerArgs remove rest with
+      | none => simp only [lowerArgs, hfirst, hrest] at found; cases found
+      | some rest' =>
+        simp only [lowerArgs, hfirst, hrest, Option.pure_def] at found
+        cases found
+        simp only [Terms.subst, hf _ hfirst, hr _ hrest]
+
+/-- Executable scoped extraction. Success returns checked reconstruction data;
+failure says only that the chosen variable occurs, NOT that ACU is unsatisfiable. -/
+structure Prepared {Γ s} (selected : Variable Γ s) (rhs : Term sig Γ s) where
+  context : List Sorts
+  remove : Removal s Γ context
+  position : remove.variable = selected
+  replacement : Term sig context s
+  reconstruction : replacement.subst remove.embedding = rhs
+
+def prepare {Γ s} (selected : Variable Γ s) (rhs : Term sig Γ s) : Option (Prepared selected rhs) :=
+  let remove := (deletion selected).2
+  match found : lower remove rhs with
+  | none => none
+  | some replacement => some ⟨_, remove, deletion_variable selected, replacement,
+      lower_sound remove rhs replacement found⟩
+
 def Removal.substitution {s Γ Δ} (remove : Removal s Γ Δ) (term : Term sig Δ s) : Terms sig Δ Γ :=
   tabulate Δ Γ (remove.replace term (fun v => .var v))
 
@@ -3579,6 +3756,172 @@ theorem sound (reg : Registration sig) {s Γ Δ} (remove : Removal s Γ Δ)
   exact .refl _
 
 end Binding
+
+/-! ### Checked FREE-OCCURS (§4.1)
+
+FreePath is a finite path through FREE constructors only. A proper occurrence
+starts with at least one such constructor, e.g. n in succ(n). Native structural
+equality preserves FreeDepth, while every step of the path strictly increases
+that depth. Thus x =B f(...x...) is impossible along such a path.
+
+There is deliberately no union-path constructor: P =B P+Q is not a contradiction.
+The observer also handles free wrappers above ACU sorts; it does not assume all
+non-bag values are rigid or replace their structural equality by literal equality.
+-/
+namespace FreeOccurs
+
+def argsDepth (profile : Profile sig) (reg : Registration sig) {ss}
+    (values : Args reg.Carrier ss) : Nat :=
+  FreeDepth.maxArgs ((Args.quote sig reg.quote ss values).eval (FreeDepth.algebra profile))
+
+theorem field_le (profile : Profile sig) (reg : Registration sig) {ss s}
+    (field : Variable ss s) (values : Args reg.Carrier ss) :
+    FreeDepth.depth profile (reg.quote s (field.eval values)) ≤ argsDepth profile reg values := by
+  induction field with
+  | here => exact Nat.le_max_left _ _
+  | there field ih => exact Nat.le_trans (ih values.2) (Nat.le_max_right _ _)
+
+theorem field_lt (profile : Profile sig) (reg : Registration sig) {ss s t}
+    (f : sig.Symbol ss s) (free : profile.view f = .atom f)
+    (field : Variable ss t) (values : Args reg.Carrier ss) :
+    FreeDepth.depth profile (reg.quote t (field.eval values)) <
+      FreeDepth.depth profile (reg.quote s (reg.apply f values)) := by
+  rw [reg.quote_apply]
+  have head : FreeDepth.depth profile (.app f (Args.quote sig reg.quote ss values)) =
+      argsDepth profile reg values + 1 := by
+    simp only [FreeDepth.depth, Tree.eval, FreeDepth.algebra, free, argsDepth]
+  rw [head]
+  exact Nat.lt_succ_of_le (field_le profile reg field values)
+
+inductive Path (profile : Profile sig) {Γ s} (v : Variable Γ s) :
+    {t : Sorts} → Term sig Γ t → Type where
+  | root : Path profile v (.var v)
+  | field {ss t u} (f : sig.Symbol ss t) (free : profile.view f = .atom f)
+      (args : Terms sig Γ ss) (index : Variable ss u) (child : Path profile v (args.get index)) :
+      Path profile v (.app f args)
+
+theorem Path.le (profile : Profile sig) (reg : Registration sig) {Γ s t}
+    (v : Variable Γ s) (term : Term sig Γ t) (path : Path profile v term)
+    (values : Args reg.Carrier Γ) :
+    FreeDepth.depth profile (reg.quote s (v.eval values)) ≤
+      FreeDepth.depth profile (reg.quote t (term.eval reg values)) := by
+  induction path with
+  | root => exact Nat.le_refl _
+  | field f free args index child ih =>
+    apply Nat.le_of_lt (Nat.lt_of_le_of_lt ih _)
+    simpa only [Variable.eval_get, Term.eval] using field_lt profile reg f free index (args.eval reg values)
+
+inductive Proper (profile : Profile sig) {Γ s} (v : Variable Γ s) : Term sig Γ s → Type where
+  | field {ss t} (f : sig.Symbol ss s) (free : profile.view f = .atom f)
+      (args : Terms sig Γ ss) (index : Variable ss t) (child : Path profile v (args.get index)) :
+      Proper profile v (.app f args)
+
+theorem Proper.sound (profile : Profile sig) (reg : Registration sig) {Γ s}
+    (v : Variable Γ s) (term : Term sig Γ s) (path : Proper profile v term)
+    (values : Args reg.Carrier Γ) : ¬ NativeEq sig reg (v.eval values) (term.eval reg values) := by
+  intro same
+  cases path with
+  | field f free args index child =>
+    have lower := child.le profile reg v (args.get index) values
+    have upper := field_lt profile reg f free index (args.eval reg values)
+    rw [Variable.eval_get] at upper
+    have different := Nat.ne_of_lt (Nat.lt_of_le_of_lt lower upper)
+    exact different (FreeDepth.congr profile same)
+
+/- Executable witness search. Decidable sort/position equality is syntactic
+metadata, already supplied by generated finite sort tags, not semantic evidence.
+Traversal is structural, with no depth bound or constructor-arity restriction. -/
+mutual
+  def findPath [DecidableEq Sorts] (profile : Profile sig) {Γ s}
+      (v : Variable Γ s) : {t : Sorts} → (term : Term sig Γ t) → Option (Path profile v term)
+    | t, .var w => if sameSort : s = t then by
+        subst t
+        exact if same : v = w then by subst w; exact some .root else none
+      else none
+    | _, .app f args => by
+      cases free : profile.view f with
+      | zero => exact none
+      | add => exact none
+      | atom f => exact (findArgs profile v args).map fun ⟨_, index, child⟩ => .field f free args index child
+  def findArgs [DecidableEq Sorts] (profile : Profile sig) {Γ s}
+      (v : Variable Γ s) : {ss : List Sorts} → (args : Terms sig Γ ss) →
+        Option (Σ t, Σ index : Variable ss t, Path profile v (args.get index))
+    | _, .nil => none
+    | _, .cons first rest => match findPath profile v first with
+      | some path => some ⟨_, .here, path⟩
+      | none => (findArgs profile v rest).map fun ⟨t, index, path⟩ => ⟨t, .there index, path⟩
+end
+
+def findProper [DecidableEq Sorts] (profile : Profile sig) {Γ s}
+    (v : Variable Γ s) : (term : Term sig Γ s) → Option (Proper profile v term)
+  | .var _ => none
+  | .app f args => by
+    cases free : profile.view f with
+    | zero => exact none
+    | add => exact none
+    | atom f => exact (findArgs profile v args).map fun ⟨_, index, child⟩ => .field f free args index child
+
+end FreeOccurs
+
+/-! ### Automatic free-equation classification
+
+This is a TOTAL, unbounded, signature-generic selector for checked primitive
+steps. It does not loop a scheduler or guess that a postponed equation is solved.
+It tries safe BIND even on bag variables, but only proves FREE-OCCURS using an
+actual proper free path. ACU heads are postponed for the complete bag phase.
+Model annotations supply decidable sort/symbol tags automatically.
+-/
+namespace FreePhase
+
+inductive Action (profile : Profile sig) {Γ} : {s : Sorts} → Term sig Γ s → Term sig Γ s → Type where
+  | delete {s} (term : Term sig Γ s) : Action profile term term
+  | bind {s} (v : Variable Γ s) (rhs : Term sig Γ s) (entry : Binding.Prepared v rhs) :
+      Action profile (.var v) rhs
+  | occurs {s} (v : Variable Γ s) (rhs : Term sig Γ s) (path : FreeOccurs.Proper profile v rhs) :
+      Action profile (.var v) rhs
+  | orient {s a b} (action : Action profile (s := s) b a) : Action profile a b
+  | decompose {ss s} (f : sig.Symbol ss s) (free : profile.view f = .atom f)
+      (a b : Terms sig Γ ss) : Action profile (.app f a) (.app f b)
+  | clash {ss tt s} (f : sig.Symbol ss s) (g : sig.Symbol tt s)
+      (hf : profile.view f = .atom f) (hg : profile.view g = .atom g)
+      (different : (⟨ss, f⟩ : Σ us, sig.Symbol us s) ≠ ⟨tt, g⟩)
+      (a : Terms sig Γ ss) (b : Terms sig Γ tt) : Action profile (.app f a) (.app g b)
+  | postpone {s a b} : Action profile (s := s) a b
+
+def classifyVariable [DecidableEq Sorts] (profile : Profile sig) {Γ s} (v : Variable Γ s)
+    (rhs : Term sig Γ s) : Action profile (.var v) rhs :=
+  match rhs with
+  | .var w => if same : v = w then by subst w; exact .delete _
+      else match Binding.prepare v (.var w) with
+        | some entry => .bind v _ entry
+        | none => .postpone
+  | .app f args => match Binding.prepare v (.app f args) with
+      | some entry => .bind v _ entry
+      | none => match FreeOccurs.findProper profile v (.app f args) with
+        | some path => .occurs v _ path
+        | none => .postpone
+
+def classify [DecidableEq Sorts] [∀ ss s, DecidableEq (sig.Symbol ss s)]
+    (profile : Profile sig) {Γ s} (left right : Term sig Γ s) : Action profile left right :=
+  match left, right with
+  | .var v, rhs => classifyVariable profile v rhs
+  | lhs, .var v => .orient (classifyVariable profile v lhs)
+  | @Term.app _ _ _ ss _ f a, @Term.app _ _ _ tt _ g b => by
+      cases hf : profile.view f with
+      | zero => exact .postpone
+      | add => exact .postpone
+      | atom f =>
+        cases hg : profile.view g with
+        | zero => exact .postpone
+        | add => exact .postpone
+        | atom g =>
+          exact if sameSorts : ss = tt then by
+            cases sameSorts
+            exact if sameHead : f = g then by subst g; exact .decompose f hf a b
+            else .clash f g hf hg (fun same => sameHead (eq_of_heq (Sigma.mk.inj same).2)) a b
+          else .clash f g hf hg (fun same => sameSorts (Sigma.mk.inj same).1) a b
+
+end FreePhase
 
 namespace Sharing
 
@@ -4014,6 +4357,9 @@ inductive Complete (profile : Profile sig) {inputs} (proposed : List (Answer sig
       (child : Complete profile proposed (images.subst (remove.substitution term))
         (substituteEquations (remove.substitution term) eqs)) :
       Complete profile proposed images eqs
+  | occurs {Γ images eqs s} (v : Variable Γ s) (rhs : Term sig Γ s)
+      (path : FreeOccurs.Proper profile v rhs)
+      (selected : Derives profile eqs (.var v) rhs) : Complete profile proposed images eqs
   | purify {Γ images s} (term : Term sig Γ s) (template : Problem sig (s :: Γ))
       (before after : List (Problem sig Γ))
       (child : Complete profile proposed (images.subst Purification.embedding)
@@ -4083,6 +4429,9 @@ theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs 
     refine ⟨answer, member, parameters, ?_⟩
     rw [Terms.eval_subst] at covered
     exact args_trans reg (images.eval_congr reg same) covered
+  | occurs v rhs path selected =>
+    intro values input
+    exact False.elim (path.sound profile reg v rhs values (selected.sound reg values input))
   | @purify Γ images s term template before after child ih =>
     intro values input
     have selected := input _ (List.mem_append.mpr (.inr List.mem_cons_self))
@@ -4192,6 +4541,26 @@ theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs 
     intro values input
     exact False.elim ((clash_native profile reg f g hf hg different _ _)
       (selected.sound reg values input))
+
+/-- Compile a discovered contradiction to the EXISTING finite replay tree.
+None means "not closed by this step", never "the equation has no solution".
+Orientation is traversed structurally and the same selected equation is retained.
+This is ordinary proof-data construction, not a tactic or a bounded solver. -/
+def closeAction [DecidableEq Sorts] {profile : Profile sig} {inputs Γ}
+    {proposed : List (Answer sig inputs)} {images : Terms sig Γ inputs}
+    {eqs : List (Problem sig Γ)} {s a b} (action : FreePhase.Action profile (s := s) a b)
+    (selected : Derives profile eqs a b) : Option (Complete profile proposed images eqs) :=
+  match action with
+  | .occurs v rhs path => some (.occurs v rhs path selected)
+  | .clash f g hf hg different a b => some (.clash f g hf hg different a b selected)
+  | .orient action => closeAction action (.symm selected)
+  | _ => none
+
+def closeFree [DecidableEq Sorts] [∀ ss s, DecidableEq (sig.Symbol ss s)]
+    (profile : Profile sig) {inputs Γ} (proposed : List (Answer sig inputs))
+    (images : Terms sig Γ inputs) (eqs : List (Problem sig Γ)) (index : Fin eqs.length) :
+    Option (Complete profile proposed images eqs) :=
+  closeAction (FreePhase.classify profile (eqs.get index).left (eqs.get index).right) (.hyp index)
 
 /-- Soundness of ALL proposed answers for ALL original equations. Keeping the
 same proposed vectors in every component preserves cross-equation correlations.
@@ -4671,6 +5040,64 @@ theorem purification_binding_certificate :
                 (.hyp ⟨0, of_decide_eq_true rfl⟩))) .nil)))))
     (.cons (.refl _) .nil)
 
+/- Automatic scope and occurrence checks, still over the SAME registered terms.
+The selector traverses the signature generically. These guards are regression
+tests, not the metatheorem justifying the FREE-OCCURS rule. -/
+def cyclicNat : Problem Sig [Tag.s0] :=
+  equation (.var .here) (.app Symbol.c1 (.cons (.var .here) .nil))
+
+def cancellableBag : Problem Sig [Tag.s2, Tag.s2] :=
+  equation (.var .here) (add Operator.acu (.var .here) (.var (.there .here)))
+
+def freeHeadClash : Problem Sig [Tag.s0] :=
+  equation (.app Symbol.c3 (.cons (.var .here) .nil)) (.app Symbol.c4 (.cons (.var .here) .nil))
+
+#guard (Binding.prepare (sig := Sig) (Γ := [Tag.s0, Tag.s2]) (.there .here)
+  (waitingAtom (.var .here))).isSome
+#guard !(Binding.prepare (sig := Sig) (Γ := [Tag.s0]) .here cyclicNat.right).isSome
+#guard !(Binding.prepare (sig := Sig) (Γ := [Tag.s2, Tag.s2]) .here cancellableBag.right).isSome
+#guard (FreeOccurs.findProper profile (.here : Variable [Tag.s0] Tag.s0) cyclicNat.right).isSome
+#guard !(FreeOccurs.findProper profile (.here : Variable [Tag.s2, Tag.s2] Tag.s2)
+  cancellableBag.right).isSome
+#guard (Worklist.closeFree profile [] (Terms.identity [Tag.s0]) [cyclicNat]
+  ⟨0, of_decide_eq_true rfl⟩).isSome
+#guard !(Worklist.closeFree profile [] (Terms.identity [Tag.s2, Tag.s2]) [cancellableBag]
+  ⟨0, of_decide_eq_true rfl⟩).isSome
+#guard match FreePhase.classify profile (.var (.there .here) : Term Sig [Tag.s0, Tag.s2] Tag.s2)
+    (waitingAtom (.var .here)) with
+  | .bind .. => true
+  | _ => false
+#guard match FreePhase.classify profile (waitingAtom (.var .here) : Term Sig [Tag.s0, Tag.s2] Tag.s2)
+    (.var (.there .here)) with
+  | .orient (.bind ..) => true
+  | _ => false
+#guard match FreePhase.classify profile (waitingAtom (.var .here) : Term Sig [Tag.s0, Tag.s0] Tag.s2)
+    (waitingAtom (.var (.there .here))) with
+  | .decompose .. => true
+  | _ => false
+#guard match FreePhase.classify profile cancellableBag.left cancellableBag.right with
+  | .postpone => true
+  | _ => false
+#guard (Worklist.closeFree profile [] (Terms.identity [Tag.s0]) [equation cyclicNat.right cyclicNat.left]
+  ⟨0, of_decide_eq_true rfl⟩).isSome
+
+/- Actual unconstrained certification of n =B succ(n), without supplying the
+occurrence path. The algorithm discovers it, constructs Complete.occurs, and
+the general checker proves the semantic empty-answer certificate. -/
+theorem automatic_occurs_certificate :
+    ∀ values, cyclicNat.Holds registration values ↔
+      Solutions registration ([] : List (Answer Sig [Tag.s0])) values :=
+  Worklist.exact registration (profile := profile) cyclicNat []
+    ((Worklist.closeFree profile [] (Terms.identity [Tag.s0]) [cyclicNat]
+      ⟨0, of_decide_eq_true rfl⟩).get (of_decide_eq_true rfl)) .nil
+
+theorem automatic_clash_certificate :
+    ∀ values, freeHeadClash.Holds registration values ↔
+      Solutions registration ([] : List (Answer Sig [Tag.s0])) values :=
+  Worklist.exact registration (profile := profile) freeHeadClash []
+    ((Worklist.closeFree profile [] (Terms.identity [Tag.s0]) [freeHeadClash]
+      ⟨0, of_decide_eq_true rfl⟩).get (of_decide_eq_true rfl)) .nil
+
 -- Kernel audits: standard Lean axioms are acceptable; sorryAx is not.
 #print axioms atomic_exact_data
 #print axioms repeated_exact_data
@@ -4698,5 +5125,9 @@ theorem purification_binding_certificate :
 #print axioms binding_system_certificate
 #print axioms Worklist.Purification.exact
 #print axioms purification_binding_certificate
+#print axioms Binding.lower_sound
+#print axioms FreeOccurs.Proper.sound
+#print axioms automatic_occurs_certificate
+#print axioms automatic_clash_certificate
 
 end DirectCertification.Bakery
