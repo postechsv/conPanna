@@ -1032,6 +1032,61 @@ problem-specific lemmas. Full-file LSP and axiom audits pass without admissions.
 Binding/decomposition/deletion selection is tested, but repeatedly executing
 those steps and scheduling the residual ACU equations remains to be implemented.
 
+### Precompiled checker and external certificate construction
+
+The general infrastructure is compiled independently of individual certificates:
+
+- `conPanna/Certification/Core.lean`: constructor and ACU semantic rules.
+- `Sharing.lean`: finite-sharing arithmetic and semantic existence proofs.
+- `Enumeration.lean`: exhaustive supports and singleton/zero metatheorems.
+- `Replay.lean`: typed certificate data, acceptance, and generated profiles.
+
+`certification.lean` contains examples using these modules, not a second copy
+of the calculus. `examples/certification-demo.lean` is a lightweight consumer.
+
+The external pipeline separates discovery from trusted justification:
+
+```text
+native Maude unify -> proposed answer set
+Maude certification rules -> structured rule trace
+Python constructor compiler -> explicit Lean proof term
+Lean, with an independently fixed goal -> kernel-checked exactness theorem
+```
+
+The trace supplies sorted contexts, binding/removal positions, replacement terms,
+whole image vectors, residual equations, premise references, and coverage factors.
+Sharing steps additionally supply coefficients and finite-layout evidence.
+Python constructs applications of existing general rules; it is not a trusted
+solver and needs no compiler-correctness theorem. An incorrect translation must
+fail Lean checking against the independently specified problem and answer set.
+
+`LeanReady.prepareProof` parses the generated term against that goal and rejects
+unresolved variables and admissions. Installing the resulting theorem invokes
+the kernel. Production input must be restricted structured data and approved
+rule templates: arbitrary Lean syntax or tactics are not a security sandbox.
+The backend is precompiled once; individual proofs import it rather than
+re-elaborating its metatheorems. No proof-producing dependent interpreter runs
+inside kernel reduction.
+
+The runnable demo uses native Maude proposals and actual BIND/BIND/COVER rule
+evidence for `P =B Q, Q =B [wait(n)]`. Its final theorem expresses both directions
+in native Bakery constructors. The wrapper's answer parser and signature map
+are deliberately specific to that demonstration. General automated ACU
+certification search, general model export, and general native-answer parsing
+remain separate implementation obligations; this example is not their guarantee.
+
+Run from the repository root:
+
+```sh
+python3 certification_compiler.py --build
+python3 certification_compiler.py --demo
+```
+
+The first command precompiles the backend; the second reuses cached modules,
+calls Maude, saves its trace/proof under `.lake/build/certification`, and checks
+the final theorem. A built project dependency environment is required.
+Compilation and subprocesses are sequential and resource-limited.
+
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
 required bound. The label-count argument checks that the document's opposite-pair

@@ -1,3 +1,56 @@
+--- Boundary experiment only: RIGHT-UNIT, LEFT-EQ, and variable BIND.
+--- Not a general certification search procedure. The native answer below is
+--- checked independently by Lean; no Maude success flag is trusted.
+fmod LEAN-READY-BOUNDARY-NATIVE is
+  protecting NAT .
+  sort Bag .
+  op empty : -> Bag [ctor] .
+  op singleton : Nat -> Bag [ctor] .
+  op union : Bag Bag -> Bag [ctor assoc comm id: empty] .
+endfm
+
+mod LEAN-READY-BOUNDARY-EMITTER is
+  protecting STRING .
+  sorts Term Proof Frame State .
+  op v : String -> Term [ctor] .
+  op unit : -> Term [ctor] .
+  op plus : Term Term -> Term [ctor] .
+  op rightUnit : Term -> Proof [ctor] .
+  op bind : Term Term -> Proof [ctor] .
+  op chain : Proof Proof -> Proof [ctor] .
+  op idFrame : -> Frame [ctor] .
+  op leftFrame : Proof Frame -> Frame [ctor] .
+  op finish : Proof Frame -> Proof .
+  op solve : Term Term Frame -> State [ctor] .
+  op done : Proof -> State [ctor] .
+  op result : String -> State [ctor] .
+  op termText : Term -> String .
+  op proofText : Proof -> String .
+  vars A B : Term .
+  vars S T : String .
+  vars H E : Proof .
+  var K : Frame .
+
+  eq termText(v(S)) = S .
+  eq finish(E, idFrame) = E .
+  eq finish(E, leftFrame(H, K)) = finish(chain(H, E), K) .
+  eq proofText(rightUnit(A)) = "(rightUnit registration Operator.acu " + termText(A) + ")" .
+  eq proofText(bind(A, B)) = "(bind registration (s := Tag.s2) " + termText(A) + " " + termText(B) + ")" .
+  eq proofText(chain(H, E)) = "(Iff.trans (leftEq registration (s := Tag.s2) " + proofText(H) + ") " + proofText(E) + ")" .
+
+  rl [right-unit] : solve(plus(A, unit), B, K) => solve(A, B, leftFrame(rightUnit(A), K)) .
+  crl [bind] : solve(v(S), v(T), K) => done(finish(bind(v(S), v(T)), K)) if S =/= T .
+  rl [emit] : done(E) => result("fun P Q : ProcSet => " + proofText(E)) .
+endm
+
+--- Run manually (no automatic Lean/editor calls):
+--- unify in LEAN-READY-BOUNDARY-NATIVE : union(P:Bag, empty) =? Q:Bag .
+--- rew in LEAN-READY-BOUNDARY-EMITTER : solve(plus(v("P"), unit), v("Q"), idFrame) .
+--- Names registration/Tag.s2/Operator.acu and binder P/Q are the Bakery test's
+--- fixed signature-printing map, not unification heuristics. Other signature
+--- names are a serializer parameter in a production emitter. Lean independently
+--- checks the declared native problem/answer family, even for malformed dumps.
+
 --- Answer-directed, OBJECT-LEVEL search for certification.lean's one-tail rule.
 --- This file contains no user model, META-LEVEL calls, or unification algorithm.
 --- Lean exports the native model and calls native unify FIRST. It validates all

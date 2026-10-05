@@ -368,6 +368,45 @@ Constrained narrowing will consume this only after unification certification wor
   compiles discovered occurs/clash witnesses to existing replay data. Automatic
   Bakery empty-answer certificates pass LSP and axiom audits without sorryAx;
   P =B P+Q is correctly postponed, NOT rejected. Decidable metadata is generated.
+- [x] Test a lean-ready proof-term FRONTEND instead of the expensive dependent
+  interpreter. The failed interpreter experiment was removed. A 27-line helper
+  uses Lean's term parser and a fixed expected proposition. Isolated frontend
+  check compiled it, parsed actual BIND/BIND/COVER text in 1 ms, and checked a
+  trivial True proof. This does NOT certify the native Bakery dump. Whole-file
+  validation hit imposed memory limits; native/negative tests are disabled.
+- [x] Verify a SMALL actual object-level Maude emitter -> native Lean proof:
+  RIGHT-UNIT/BIND/EMIT for P union empty =B Q, answer P:=Z,Q:=Z. General semantic
+  rules use the existing registration directly; emitted term checks exactness
+  with no axioms. Parsing <1 ms, elaboration 7 ms, kernel <1 ms. Wrong answer
+  rejected. Isolated permanent section: 1.47 s / 1,250,020 KiB; import baseline
+  1.26 s / 1,236,552 KiB. This is not a general certifier or full-file check;
+  native query and signature-printing map are configured manually for this test.
+- [x] Check FULL existing native certificates with an external constructor
+  compiler, not a new proof calculus: BIND/BIND/COVER and nonlinear SHARING/COVER
+  (2P =B 3Q), including soundness, kernel installation, and axiom audits.
+  Both use independently fixed expected propositions; three corrupted proofs
+  are rejected. Structured traces are MANUAL fixtures, not Maude-produced yet.
+  All original examples also pass after a temporary five-module split.
+- [x] Compare performance AND construction complexity. The current monolithic
+  failure occurs in general library compilation before replay; the unchanged
+  compact dump checks after splitting. Rich explicit output is NOT faster than
+  compact binding output. The 126-line external translator avoids proving a
+  dependent construction interpreter in Lean. Experimental results belong in
+  HANDOFF.md; CERTIFICATION.md documents the architecture, not a development log.
+- [x] Package existing metatheorems/calculus into compiled modules with a
+  lightweight consumer. Preserve the rules and native semantics; do not perform
+  a giant semantic rewrite. Four modules under conPanna/Certification replace
+  the monolithic general section; root certification.lean retains its examples.
+- [x] Runnable Python/Maude wrapper and FULL end-result binding certificate.
+  Native unify proposes the answer; actual object-level BIND/BIND/COVER rules
+  emit contexts/images/equations/premises and soundness as structured JSON.
+  Python translates it; examples/certification-demo.lean independently checks
+  exactness and presents it in native Bakery constructors, without holes.
+  Backend modules are cached. The parser/map/query are DEMO-specific, not a
+  general translator or complete ACU search implementation.
+- [ ] NEXT: extend actual Maude trace production to nonlinear SHARING/COVER;
+  retain the same lightweight consumer, independent goal, and existing rules.
+  Then produce all singleton/zero branches and complete trace-template coverage.
 - [ ] Finish automatic free-equation processing: repeatedly execute the selected
   binding/decomposition/deletion steps, propagate substitutions through ALL
   images/equations, and revisit postponed equations. Then automate singleton
@@ -381,8 +420,10 @@ Constrained narrowing will consume this only after unification certification wor
 - [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
   completeness holes. Production narrowing is deliberately unchanged so far.
 
-NEXT: the repeated typed free-phase worklist driver (binding/decomposition/deletion),
-then bag preprocessing and equation scheduling using the checked replay primitives.
+NEXT: extend Maude-side evidence production from the working binding-chain demo
+to nonlinear sharing, then the documented general search. Full-proof acceptance
+and actual binding trace production pass; general ACU trace search is unfinished.
+Do not build another Lean-side unification engine or raise resource limits.
 The numeric proof is general; the overall automatic ACU certifier is NOT finished.
 
 ### Historical integration notes

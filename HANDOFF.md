@@ -2,6 +2,175 @@
 
 This document records the design decisions and current implementation state needed to continue development in a new conversation. The current repository is `/home/byhoson/workspace/conPanna`.
 
+## Current runnable demo: Maude -> Python -> precompiled Lean (2026-10-06)
+
+Run `python3 certification_compiler.py --demo` from the repository root.
+`--build` precompiles only the backend. Four sequential cached modules live in
+conPanna/Certification: Core, Sharing, Enumeration, Replay. Generic proof bodies
+were moved, not reimplemented; certification.lean retains its examples. Cross-
+module helper theorems are public. Core imports Structural, not the Bakery model.
+
+The end result is examples/certification-demo.lean, theorem
+CertificationDemo.certificate. Its statement uses native Bakery constructors:
+P =B Q and Q =B [wait(n)] iff there exists N with n =B N and
+P =B [wait(N)] and Q =B [wait(N)]. Both soundness/completeness are kernel-checked;
+there is no certification hole and no problem-specific supporting certificate
+lemma. The final simp only unfolds the data representation into this statement.
+
+Unlike the earlier hand-fixture experiment, the Maude trace is ACTUAL output:
+native unify proposes (N,[wait(N)],[wait(N)]); generic sorted binding/whole-state
+substitution rules in examples/certification-demo.maude execute BIND/BIND/COVER.
+They emit contexts, replacement terms, images, equations, premise indices,
+factor data, and soundness evidence as JSON. Python translates existing rule
+templates. The independently fixed Lean goal checks the result; accepted output
+is audited for standard axioms only. Trace and proof are saved under
+.lake/build/certification, not additional permanent Lean source files.
+
+Successful cached run after normal Lake integration: Maude+Python 0.092 s, Lean
+parsing 10 ms/elaboration 209 ms, complete consumer 2.38 s. Corrupting the first
+binding replacement is rejected against the fixed goal; its temporary invalid
+proof was removed after the negative check. Lake validates cached
+backend dependencies; Python does not maintain a second build cache. Normal Lake
+builds also create editor metadata; Lean LSP reports no errors/warnings. Original
+certification.lean examples pass in 6.21 s with standard axioms only. No backend
+recompilation occurs on a cached demo run. The wrapper uses one process at a time, -j1 -M512,
+768 MiB data-segment limit, CPU 25 s, wall 30 s; timeout kills the process group.
+These observations do not diagnose the historical WSL crash or prove generic
+memory/speed guarantees.
+
+DEMO LIMITATION: the native-answer parser/signature map and query are fixed to
+this binding-chain problem. The rules/semantic backend are general, but the
+automatic complete ACU search driver and general model/answer translation are
+NOT implemented. Next extend actual evidence production to nonlinear sharing,
+then cover singleton/zero branches. Narrowing remains untouched.
+
+User explicitly corrected documentation policy: CERTIFICATION.md is technical
+documentation, not an experimental diary. Benchmark/history sections were
+removed; keep measurements here and tasks in TODO.md. §12.1 documents the module
+and trust boundaries and runnable commands, without chronological experiment logs.
+
+## Controlled full-certificate experiment (2026-10-06): current conclusion
+
+Experiment measurements and limitations belong in this handoff, NOT in
+CERTIFICATION.md, which is the technical specification/documentation. The
+decision is a FOCUSED refactoring: compile the existing general proofs separately
+and construct explicit rule trees outside Lean. Do not replace the semantic
+calculus or build another dependent proof-producing interpreter.
+
+- A capped monolithic check stopped before replay, while compiling general
+  infrastructure (8.37 s, peak RSS 1,430,324 KiB). No Maude or Python was running.
+  This diagnoses that current failure, NOT the historical WSL crash or the lost
+  InstructionReplay timeout.
+- A TEMPORARY five-module split compiled the same proofs/rules and ALL original
+  examples without errors or admissions. Only private theorem visibility was
+  relaxed to permit cross-module references; no semantic proof body changed.
+- certification_compiler.py is a thin, untrusted constructor translator. Two
+  manually supplied structured traces produce full original certificates:
+  BIND/BIND/COVER for P:=Q, Q:=[wait(n)], and SHARING/COVER for 2P =B 3Q with
+  P:=3Z, Q:=2Z. Both preserve the whole original input vector, including n.
+- The accepted statements are exactness against existing registered indexed
+  semantics. The producer does NOT define a different equality or new rules.
+  Independently fixed expected propositions, kernel checks, and axiom audits
+  passed. Wrong binding, missing soundness, and wrong sharing counts were rejected.
+- External binding: parse 12 ms, elaborate 276 ms, kernel <1 ms. Nonlinear:
+  parse 37 ms, elaborate 709 ms, kernel 2 ms. Original compact binding dump ALSO
+  passed: parse 1 ms, elaborate 209 ms, kernel 1 ms. Richer output is NOT faster
+  in this comparison; its benefit is construction simplicity, not shorter proofs.
+- The compiler is 126 lines of ordinary tree translation, with no new Lean
+  metatheorems or tactics. Its currently tested rule subset is not a general
+  certification engine. Maude did NOT generate these full structured traces;
+  automatic evidence production/search and legacy EqMod integration remain open.
+
+Audit files are grouped under /tmp/conpanna-replay-ab.28D3gH, including the
+temporary modules, structured fixtures, and Validation.lean. No permanent Lean
+files or library changes were added by this experiment. The monolithic source
+still has its heavy replay commands disabled; do not rerun it unrestricted.
+The original experimental measurement table was removed from CERTIFICATION.md
+at the user's request. Its architectural description remains in §12.1.
+Next: package the general proofs as compiled modules, then freeze a restricted
+trace format and implement its Maude producer. Keep the resource limits below.
+
+## Earlier boundary experiments (historical; superseded where noted)
+
+DIAGNOSIS CORRECTION: the preceding unit/bind example did NOT test rich scoped
+replay information and is not evidence that missing dump fields caused the
+earlier resource failure. A later TEMPORARY isolated diagnostic copied the actual
+Variable/Term/Binding.prepare definitions, substitution code, Profile, Equality,
+and Derives/DerivesArgs types from certification.lean. Object-level Maude emitted
+the two Binding.Prepared values, including reduced contexts, removal positions,
+lowered replacements, and rfl reconstruction witnesses. Both were accepted and
+proved equal to Lean's computed values; the composed image vector and residual
+equations also matched explicit states. Original COVER evidence type checked
+in both representations: computed state ~33.5 ms vs explicit ~5.93 ms; checking
+image computation against the explicit vector ~18 ms. Both were cheap under
+default heartbeats/capped resources. This demonstrates elimination of some
+reconstruction/reduction work, NOT the cause/cure of the previous runaway.
+The full Complete.sound/exactness theorem and the removed failing interpreter
+were NOT replayed in this diagnostic. Do NOT say the full BIND/BIND/COVER gate
+passed or recommend a giant refactoring on this evidence. Temporary probe files
+were removed. Next isolate/profile the actual failing boundary before claiming
+a memory diagnosis; retain the proved calculus while considering explicit dumps.
+
+NEW verified small producer-to-kernel result: certification.maude now contains
+LEAN-READY-BOUNDARY-NATIVE / LEAN-READY-BOUNDARY-EMITTER. Native unify returns
+P:=Z,Q:=Z for union(P,empty)=Q; object-level RIGHT-UNIT/BIND/EMIT produces an
+explicit Lean term. The isolated section at certification.lean lines 51–117
+checks that term against existing Bakery Indexed.NativeEq, in both directions.
+Generic leftEq/bind/rightUnit semantic rules replace dependent scope/image
+reconstruction for THIS small fragment. The theorem body is actual Maude output,
+not a handwritten proof string. No Maude process runs during normal elaboration.
+Actual-dump parsing <1 ms, elaboration 7 ms, kernel <1 ms; wrong BIND answer is
+rejected; axiom audit empty. Isolated permanent theorem/rules: 1.47 s, RSS
+1,250,020 KiB; import-only baseline: 1.26 s, RSS 1,236,552 KiB. The parsing and
+negative-test run: 1.88 s, RSS 1,278,580 KiB. Same limits below, no parallel Lean.
+This is a manually configured native query/emitter mapping, not automatic model
+export, native-answer parsing, general search, or a full-file compilation.
+The producer supports only right-unit normalization and a distinct-variable
+binding; that is an explicit EXPERIMENT scope, not the algorithm contract.
+No interpretation of the old typed Complete tree is involved. The source's
+older BIND/BIND/COVER dump remains unverified. Next test a multi-equation binding
+chain with the same native-semantic boundary before generalizing to ACU sharing.
+The earlier memory failure's cause remains unisolated; do not claim it fixed.
+
+User's intended pipeline is Maude certification-rule evidence -> explicit Lean
+proof term -> kernel checking, NOT another Lean unification/search engine.
+Prefer object-level Maude if its rule instrumentation supplies sufficient data;
+use meta-level Maude if control of contexts/premises/branches is needed. A Python
+proof-term translator is optional; do not stack it onto a meta-level emitter
+that can already produce suitable output. Independent native Maude matching
+queries may propose factors; every proposal still needs checked evidence.
+
+A dependent InstructionReplay experiment was added, then REMOVED: extracting its
+computed BIND/BIND/COVER certificate exceeded default heartbeats. Increasing the
+limit coincided with user-reported WSL instability; the crash cause was NOT
+established. Do not repeat raised-limit or unrestricted heavy Lean jobs.
+
+Replacement in certification.lean: 27-line LeanReady.prepareProof frontend and
+a hand-prepared leanReadyBindingDump using existing typed rules. No new tactic,
+library changes, Maude search, Python translator, or new Lean file. A fixed
+expected proposition is supplied by Lean independently of the dump. This is a
+prepared-input prototype, NOT a secure loader for arbitrary Lean text/macros.
+
+Verification boundary: an isolated capped stdin check importing ONLY Lean
+compiled the helper, parsed the actual dump in 1 ms, and installed/audited a
+trivial True proof (no axioms). It does NOT certify Bakery or check its replay
+premises. Full certification.lean check stopped with out-of-memory under imposed
+limits (12.34 s, peak RSS 1,588,324 KiB), with no certificate result. The actual
+native test and negative factor test are therefore DISABLED in a block comment;
+their theorem/axiom audit are not claimed verified. Text parsing is not the
+observed bottleneck. Do not mark the cheap native acceptance gate complete.
+
+Safety: -j1, -M512, wall deadline 30 s, CPU 25 s; prlimit --data=805306368.
+An earlier 1 GiB VIRTUAL ADDRESS cap caused signal 11 even for `import Lean`;
+it is not a usable RAM guard here. Lean's -M is not a strict RSS limit (minimal
+frontend check peaked at 1,261,296 KiB). Avoid parallel CLI/LSP workers. Do not
+increase limits or rebuild the full file repeatedly without discussing resources.
+
+NEXT: agree a resource-safe way to check the existing native rule infrastructure
+and the explicit dump in isolation. Then implement the simplest sufficient Maude
+evidence producer. General automated certification/search is still unfinished;
+the earlier proved calculus remains, but the next step is NOT more isolated rules.
+
 ## Current milestone: direct native certification (2026-10-04)
 
 Read THIS section first; the older NEXT SESSION plan below is historical.
