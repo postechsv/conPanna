@@ -124,6 +124,9 @@ fmod GENERIC-CERTIFICATION-DATA is
   op hsCons : Hint Hints -> Hints [ctor] .
   op gRequest : AOps GP GAs GAs Hints -> GQ [ctor] .
   ops eRefl eComm eAssoc eUnit : -> EP [ctor] .
+  --- Hypothesis references are accepted ONLY in worklist consequence traces,
+  --- never in unconditional candidate-soundness or factor-equality traces.
+  op eHyp : Nat -> EP [ctor] .
   op eSym : EP -> EP [ctor] .
   op eTrans : GT EP EP -> EP [ctor] .
   op eCongr : EPS -> EP [ctor] .
@@ -292,4 +295,140 @@ mod GENERIC-CERTIFICATION is
       fsCons(factor(I, US, ES), FS))
     if factor(I, US, ES) := checkFactor(answer(S2, TS), getAnswer(PROP, I), I, US, OS) .
   rl [g-done] : gCover(Q, asNil, hsNil, PS, FS) => gProposed(Q, gCertificate(PS, reverseFactors(FS))) .
+endm
+
+--- Generic completeness-tree pilot. No Bakery symbols, fixed variable indices,
+--- family labels, or trusted completeness flags. Control currently performs
+--- one root Mutate and at most one SplitAtom, then tries equality/factor leaves.
+--- Failure to close such a leaf is NOT proof of an empty solution set.
+fmod WORKLIST-CERTIFICATION-DATA is
+  protecting GENERIC-CERTIFICATION-DATA .
+  sorts CE CEs RW RWs Lookup SplitChoice CT CQ .
+  op ce : GT GT -> CE [ctor] .
+  op cesNil : -> CEs [ctor] .
+  op cesCons : CE CEs -> CEs [ctor] .
+  op rw : Nat GT EP -> RW [ctor] .
+  op rwsNil : -> RWs [ctor] .
+  op rwsCons : RW RWs -> RWs [ctor] .
+  op found : GT EP -> Lookup [ctor] .
+  op absent : -> Lookup [ctor] .
+  op splitChoice : Nat GT GT GT EP -> SplitChoice [ctor] .
+  op noSplit : -> SplitChoice [ctor] .
+  op cLeaf : GTS EPS -> CT [ctor] .
+  op cMutate : Nat GT GT GT GT EP CT -> CT [ctor] .
+  op cSplit : Nat GT GT GT EP CT CT -> CT [ctor] .
+  op cRequest : AOps Ns Nat GT GT -> CQ [ctor] .
+  op shift : GT Nat -> GT .
+  op shiftArgs : GTS Nat -> GTS .
+  op shiftEqs : CEs Nat -> CEs .
+  op indices : Ns Nat -> GTS .
+  op mutateEqs : Nat GT GT GT GT CEs -> CEs .
+  op freeHead : Nat AOps -> Bool .
+  op lookupACU : Nat AOps -> AOp .
+  op chooseSplit : CEs AOps Nat -> SplitChoice .
+  op lookup : Nat RWs -> Lookup .
+  op rewrite : GT RWs -> Norm .
+  op rewriteVar : Nat Lookup RWs -> Norm .
+  op rewriteArgs : GTS RWs -> Norms .
+  op normalized : GT RWs AOps -> Norm .
+  op normalizeRewrite : Norm AOps -> Norm .
+  op normalizedArgs : GTS RWs AOps -> Norms .
+  op occurs : Nat GT -> Bool .
+  op occursArgs : Nat GTS -> Bool .
+  op simplify : CEs Nat RWs AOps -> RWs .
+  op solve : GT GT Norm Norm Nat RWs -> RWs .
+  op finishLeaf : Norms -> CT .
+  op ready : CT -> Bool .
+
+  vars I J F U K : Nat . vars A B C D T : GT . vars TS US : GTS .
+  vars ES : CEs . vars OS : AOps . vars S : Ns . vars RS : RWs .
+  vars P Q : EP . vars PS : EPS . vars N : Norm . vars L R : CT .
+  eq shift(v(I), K) = v(I + K) .
+  eq shift(node(F, TS), K) = node(F, shiftArgs(TS, K)) .
+  eq shiftArgs(tsNil, K) = tsNil .
+  eq shiftArgs(tsCons(A, TS), K) = tsCons(shift(A, K), shiftArgs(TS, K)) .
+  eq shiftEqs(cesNil, K) = cesNil .
+  eq shiftEqs(cesCons(ce(A, B), ES), K) = cesCons(ce(shift(A, K), shift(B, K)), shiftEqs(ES, K)) .
+  eq indices(nsNil, I) = tsNil .
+  eq indices(nsCons(J, S), I) = tsCons(v(I), indices(S, s(I))) .
+  eq mutateEqs(F, A, B, C, D, ES) =
+    cesCons(ce(shift(A, 4), sum(F, v(0), v(1))),
+    cesCons(ce(shift(B, 4), sum(F, v(2), v(3))),
+    cesCons(ce(shift(C, 4), sum(F, v(0), v(2))),
+    cesCons(ce(shift(D, 4), sum(F, v(1), v(3))), shiftEqs(ES, 4))))) .
+  eq freeHead(F, opsNil) = true .
+  eq freeHead(F, opsCons(acu(F, U), OS)) = false .
+  eq freeHead(U, opsCons(acu(F, U), OS)) = false .
+  eq freeHead(J, opsCons(acu(F, U), OS)) = freeHead(J, OS) [owise] .
+  eq lookupACU(F, opsCons(acu(F, U), OS)) = acu(F, U) .
+  eq lookupACU(F, opsCons(acu(J, U), OS)) = lookupACU(F, OS) [owise] .
+  eq chooseSplit(cesNil, OS, I) = noSplit .
+  ceq chooseSplit(cesCons(ce(node(J, TS), node(F, tsCons(A, tsCons(B, tsNil)))), ES), OS, I) =
+    splitChoice(F, A, B, node(J, TS), eSym(eHyp(I))) if freeHead(J, OS) .
+  ceq chooseSplit(cesCons(ce(node(F, tsCons(A, tsCons(B, tsNil))), node(J, TS)), ES), OS, I) =
+    splitChoice(F, A, B, node(J, TS), eHyp(I)) if freeHead(J, OS) .
+  eq chooseSplit(cesCons(ce(A, B), ES), OS, I) = chooseSplit(ES, OS, s(I)) [owise] .
+
+  eq lookup(I, rwsNil) = absent .
+  eq lookup(I, rwsCons(rw(I, T, P), RS)) = found(T, P) .
+  eq lookup(I, rwsCons(rw(J, T, P), RS)) = lookup(I, RS) [owise] .
+  eq rewrite(v(I), RS) = rewriteVar(I, lookup(I, RS), RS) .
+  eq rewriteVar(I, absent, RS) = norm(v(I), eRefl) .
+  eq rewriteVar(I, found(T, P), RS) = mergeHead(T, P, rewrite(T, RS)) .
+  eq rewrite(node(F, TS), RS) = liftNode(F, rewriteArgs(TS, RS)) .
+  eq rewriteArgs(tsNil, RS) = norms(tsNil, esNil) .
+  eq rewriteArgs(tsCons(A, TS), RS) = liftCons(rewrite(A, RS), rewriteArgs(TS, RS)) .
+  eq normalized(T, RS, OS) = normalizeRewrite(rewrite(T, RS), OS) .
+  eq normalizeRewrite(norm(T, P), OS) = mergeHead(T, P, normal(T, OS)) .
+  eq normalizedArgs(tsNil, RS, OS) = norms(tsNil, esNil) .
+  eq normalizedArgs(tsCons(A, TS), RS, OS) = liftCons(normalized(A, RS, OS), normalizedArgs(TS, RS, OS)) .
+  eq occurs(I, v(J)) = I == J .
+  eq occurs(I, node(F, TS)) = occursArgs(I, TS) .
+  eq occursArgs(I, tsNil) = false .
+  eq occursArgs(I, tsCons(A, TS)) = occurs(I, A) or occursArgs(I, TS) .
+  eq simplify(cesNil, I, RS, OS) = RS .
+  eq simplify(cesCons(ce(A, B), ES), I, RS, OS) =
+    simplify(ES, s(I), solve(A, B, normalized(A, RS, OS), normalized(B, RS, OS), I, RS), OS) .
+  ceq solve(A, B, norm(v(J), P), norm(T, Q), I, RS) =
+    rwsCons(rw(J, T, eTrans(A, eSym(P), eTrans(B, eHyp(I), Q))), RS)
+    if not occurs(J, T) .
+  ceq solve(A, B, norm(T, P), norm(v(J), Q), I, RS) =
+    rwsCons(rw(J, T, eTrans(B, eSym(Q), eTrans(A, eSym(eHyp(I)), P))), RS)
+    if not occurs(J, T) .
+  eq solve(A, B, N, norm(T, Q), I, RS) = RS [owise] .
+  eq finishLeaf(norms(TS, PS)) = cLeaf(TS, PS) .
+  eq ready(cLeaf(TS, PS)) = true .
+  eq ready(cMutate(F, A, B, C, D, P, L)) = ready(L) .
+  eq ready(cSplit(F, A, B, C, P, L, R)) = ready(L) and ready(R) .
+endfm
+
+mod WORKLIST-CERTIFICATION is
+  protecting WORKLIST-CERTIFICATION-DATA .
+  sorts CState CReply . subsort CReply < CState .
+  op cStart : CQ -> CState [ctor] .
+  op cPlan : CQ CT -> CState [ctor] .
+  op cProposed : CQ CT -> CReply [ctor] .
+  op cWork : AOps GTS CEs -> CT .
+  op cClose : AOps GTS CEs -> CT .
+  vars OS OS2 : AOps . vars S : Ns . vars I F U : Nat .
+  vars A B C D : GT . vars IS : GTS . vars ES : CEs .
+  vars P : EP . vars Q : CQ . vars TREE : CT .
+  crl [c-mutate] : cStart(cRequest(OS, S, I,
+      node(F, tsCons(A, tsCons(B, tsNil))), node(F, tsCons(C, tsCons(D, tsNil))))) =>
+    cPlan(cRequest(OS, S, I, sum(F, A, B), sum(F, C, D)),
+      cMutate(F, A, B, C, D, eHyp(0),
+        cWork(OS, shiftArgs(indices(S, 0), 4),
+          mutateEqs(F, A, B, C, D, cesCons(ce(sum(F, A, B), sum(F, C, D)), cesNil)))))
+    if acu(F, U) := lookupACU(F, OS) .
+  crl [c-split] : cWork(OS, IS, ES) =>
+    cSplit(F, A, B, C, P,
+      cClose(OS, IS, cesCons(ce(A, node(U, tsNil)), cesCons(ce(B, C), ES))),
+      cClose(OS, IS, cesCons(ce(A, C), cesCons(ce(B, node(U, tsNil)), ES))))
+    if splitChoice(F, A, B, C, P) := chooseSplit(ES, OS, 0)
+    /\ acu(F, U) := lookupACU(F, OS) .
+  crl [c-no-split] : cWork(OS, IS, ES) => cClose(OS, IS, ES)
+    if chooseSplit(ES, OS, 0) == noSplit .
+  rl [c-close] : cClose(OS, IS, ES) =>
+    finishLeaf(normalizedArgs(IS, simplify(ES, 0, rwsNil, OS), OS)) .
+  crl [c-finish] : cPlan(Q, TREE) => cProposed(Q, TREE) if ready(TREE) .
 endm

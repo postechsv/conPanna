@@ -17,6 +17,10 @@ object-level Maude generates primitive equality traces for those suggestions.
 Lean reconstructs typed Factor/Soundness data and
 the kernel checks it. The one-tail and four-bag mutation examples combine this
 fetched data with the proved general Exchange/Mutate completeness rules.
+The Worklist section additionally replays finite completeness trees over the
+actual equation worklist. For the nonlinear example, Maude emits BOTH Mutate/
+Split branches and their equality consequences; no reference-completeness
+lemma or handwritten problem proof remains. Search control is still bounded.
 OLD restricted control traces remain only as checked regression fixtures.
 
 The current milestone is answer-directed certification of ONE explicit atom
@@ -1510,6 +1514,199 @@ theorem exact_of_coverage (reg : Registration sig) {inputs} (problem : Problem s
     ∀ values, problem.Holds reg values ↔ Solutions reg proposed values :=
   fun values => ⟨fun h => cover.sound reg (complete values h), sound.sound reg values⟩
 
+/-! ### General completeness trees over equation worklists
+
+Judgement: E ; images ⇒ proposed
+  Every valuation satisfying ALL equations E has its input images covered by
+  one proposed answer. E retains variable INDICES, including repeated ones.
+
+  E ⊢ a+b = c+d       E↑, a↑=p+q, b↑=r+t, c↑=p+r, d↑=q+t ; images↑ ⇒ proposed
+  ========================================================================== Mutate
+                             E ; images ⇒ proposed
+
+  E ⊢ x+y = atom       E,x=0,y=atom ; images ⇒ proposed
+                        E,x=atom,y=0 ; images ⇒ proposed
+  ===================================================== SplitAtom
+                    E ; images ⇒ proposed
+
+  E ⊢ images = normalized       normalized = proposed[i] β
+  ======================================================= Emit/Factor
+                      E ; images ⇒ proposed
+
+These are finite DATA constructors, not proof search tactics. Mutate introduces
+four fresh indices and lifts every old index uniformly. It NEVER renames two
+occurrences independently. Split requires BOTH children. Emit requires checked
+equational consequences of E, then the existing checked factor certificate.
+-/
+namespace Worklist
+
+def Holds (reg : Registration sig) {Γ} (eqs : List (Problem sig Γ))
+    (values : Args reg.Carrier Γ) : Prop := ∀ p ∈ eqs, p.Holds reg values
+
+mutual
+  inductive Derives (sig : Signature Sorts) {Γ} (eqs : List (Problem sig Γ)) :
+      {s : Sorts} → Term sig Γ s → Term sig Γ s → Type where
+    | axiom {s a b} : Equality sig Γ (s := s) a b → Derives sig eqs a b
+    | hyp (index : Fin eqs.length) : Derives sig eqs (eqs.get index).left (eqs.get index).right
+    | symm {s a b} : Derives sig eqs (s := s) a b → Derives sig eqs b a
+    | trans {s a b c} : Derives sig eqs (s := s) a b → Derives sig eqs b c → Derives sig eqs a c
+    | congr {ss s} (f : sig.Symbol ss s) {a b : Terms sig Γ ss} :
+        DerivesArgs sig eqs a b → Derives sig eqs (.app f a) (.app f b)
+  inductive DerivesArgs (sig : Signature Sorts) {Γ} (eqs : List (Problem sig Γ)) :
+      {ss : List Sorts} → Terms sig Γ ss → Terms sig Γ ss → Type where
+    | nil : DerivesArgs sig eqs .nil .nil
+    | cons {s ss a b as bs} : Derives sig eqs (s := s) a b →
+        DerivesArgs sig eqs (ss := ss) as bs → DerivesArgs sig eqs (.cons a as) (.cons b bs)
+end
+
+theorem Derives.sound (reg : Registration sig) {Γ eqs s a b}
+    (proof : Derives sig (Γ := Γ) eqs (s := s) a b) (values : Args reg.Carrier Γ)
+    (input : Holds reg eqs values) : NativeEq sig reg (a.eval reg values) (b.eval reg values) := by
+  refine Derives.rec
+    (motive_1 := fun {s} a b _ => NativeEq sig reg (a.eval reg values) (b.eval reg values))
+    (motive_2 := fun {ss} as bs _ =>
+      ArgsRel (fun s => NativeEq sig reg (s := s)) ss (as.eval reg values) (bs.eval reg values))
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ proof
+  · intro s a b h; exact h.sound reg values
+  · intro index; exact input _ (List.get_mem _ _)
+  · intro s a b h ih; exact .symm ih
+  · intro s a b c h k ih ik; exact .trans ih ik
+  · intro ss s f as bs h ih; exact apply_congr reg f ih
+  · trivial
+  · intro s ss a b as bs h k ih ik; exact ⟨ih, ik⟩
+
+theorem DerivesArgs.sound (reg : Registration sig) {Γ eqs ss a b}
+    (proof : DerivesArgs sig (Γ := Γ) eqs (ss := ss) a b) (values : Args reg.Carrier Γ)
+    (input : Holds reg eqs values) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) ss (a.eval reg values) (b.eval reg values) :=
+  match proof with
+  | .nil => True.intro
+  | .cons h rest => ⟨h.sound reg values input, rest.sound reg values input⟩
+
+def equation {Γ s} (a b : Term sig Γ s) : Problem sig Γ := ⟨s, a, b⟩
+
+def lift4 {Γ s} : Terms sig (s :: s :: s :: s :: Γ) Γ :=
+  Terms.variables _ Γ (fun v => .there (.there (.there (.there v))))
+
+private theorem variables_eval (reg : Registration sig) {Γ Δ}
+    (rename : ∀ {s}, Variable Δ s → Variable Γ s)
+    (old : Args reg.Carrier Δ) (fresh : Args reg.Carrier Γ)
+    (same : ∀ {s} (v : Variable Δ s), (rename v).eval fresh = v.eval old) :
+    (Terms.variables Γ Δ rename : Terms sig Γ Δ).eval reg fresh = old := by
+  induction Δ with
+  | nil => cases old; rfl
+  | cons s ss ih =>
+    exact Prod.ext (same .here) (ih (fun v => rename (.there v)) old.2
+      (fun v => same (.there v)))
+
+theorem lift4_eval (reg : Registration sig) {Γ s} (p q r t : reg.Carrier s)
+    (values : Args reg.Carrier Γ) :
+    (lift4 (sig := sig) (Γ := Γ) (s := s)).eval (Γ := s :: s :: s :: s :: Γ)
+      reg (p, q, r, t, values) = values :=
+  variables_eval reg _ values _ (fun _ => rfl)
+
+theorem identity_eval (reg : Registration sig) {Γ} (values : Args reg.Carrier Γ) :
+    (Terms.identity Γ : Terms sig Γ Γ).eval reg values = values :=
+  variables_eval reg _ values values (fun _ => rfl)
+
+def liftEquations {Γ s} (eqs : List (Problem sig Γ)) : List (Problem sig (s :: s :: s :: s :: Γ)) :=
+  eqs.map fun e => equation (e.left.subst lift4) (e.right.subst lift4)
+
+def mutated {Γ s} (op : sig.ACUOp s) (a b c d : Term sig Γ s)
+    (eqs : List (Problem sig Γ)) : List (Problem sig (s :: s :: s :: s :: Γ)) :=
+  [equation (a.subst lift4) (add op (.var .here) (.var (.there .here))),
+   equation (b.subst lift4) (add op (.var (.there (.there .here))) (.var (.there (.there (.there .here))))),
+   equation (c.subst lift4) (add op (.var .here) (.var (.there (.there .here)))),
+   equation (d.subst lift4) (add op (.var (.there .here)) (.var (.there (.there (.there .here)))))] ++
+    liftEquations eqs
+
+inductive Complete (profile : Profile sig) {inputs} (proposed : List (Answer sig inputs)) :
+    {Γ : List Sorts} → Terms sig Γ inputs → List (Problem sig Γ) → Type where
+  | emit {Γ images eqs} (index : Fin proposed.length) (normalized : Terms sig Γ inputs)
+      (derived : DerivesArgs sig eqs images normalized)
+      (factor : Factor (⟨Γ, normalized⟩ : Answer sig inputs) (proposed.get index)) :
+      Complete profile proposed images eqs
+  | mutate {Γ images eqs s} (op : sig.ACUOp s) (a b c d : Term sig Γ s)
+      (selected : Derives sig eqs (add op a b) (add op c d))
+      (child : Complete profile proposed (images.subst lift4) (mutated op a b c d eqs)) :
+      Complete profile proposed images eqs
+  | split {Γ images eqs ss s} (op : sig.ACUOp s) (x y : Term sig Γ s)
+      (f : sig.Symbol ss s) (free : profile.view f = .atom f) (args : Terms sig Γ ss)
+      (selected : Derives sig eqs (add op x y) (.app f args))
+      (left : Complete profile proposed images
+        (equation x (zero op) :: equation y (.app f args) :: eqs))
+      (right : Complete profile proposed images
+        (equation x (.app f args) :: equation y (zero op) :: eqs)) :
+      Complete profile proposed images eqs
+
+theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs proposed Γ images eqs}
+    (proof : Complete profile (inputs := inputs) proposed (Γ := Γ) images eqs) :
+    ∀ values, Holds reg eqs values → Solutions reg proposed (images.eval reg values) := by
+  induction proof with
+  | emit index normalized derived factor =>
+    intro values input
+    exact ⟨_, List.get_mem _ _, factor.sound reg ⟨values, derived.sound reg values input⟩⟩
+  | @mutate Γ images eqs s op a b c d selected child ih =>
+    intro values input
+    have selected := selected.sound reg values input
+    rcases (mutate_native profile reg op (a.eval reg values) (b.eval reg values)
+      (c.eval reg values) (d.eval reg values)).mp selected with ⟨p, q, r, t, ha, hb, hc, hd⟩
+    have lifted : Holds reg (liftEquations (s := s) eqs) (p, q, r, t, values) := by
+      intro e member
+      simp only [liftEquations] at member
+      rcases List.mem_map.mp member with ⟨original, horiginal, heq⟩
+      rw [← heq]
+      simpa only [Problem.Holds, equation, Term.eval_subst, lift4_eval] using input original horiginal
+    have result := ih (p, q, r, t, values) (by
+      intro e member
+      simp only [mutated, List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at member
+      rcases member with (rfl | rfl | rfl | rfl) | member
+      · simpa only [Problem.Holds, equation, Term.eval_subst, lift4_eval, add,
+          Term.eval, Terms.eval, Variable.eval] using ha
+      · simpa only [Problem.Holds, equation, Term.eval_subst, lift4_eval, add,
+          Term.eval, Terms.eval, Variable.eval] using hb
+      · simpa only [Problem.Holds, equation, Term.eval_subst, lift4_eval, add,
+          Term.eval, Terms.eval, Variable.eval] using hc
+      · simpa only [Problem.Holds, equation, Term.eval_subst, lift4_eval, add,
+          Term.eval, Terms.eval, Variable.eval] using hd
+      · exact lifted e member)
+    simpa only [Terms.eval_subst, lift4_eval] using result
+  | @split Γ images eqs ss s op x y f free args selected left right il ir =>
+    intro values input
+    have atom : mass profile (reg.quote s ((Term.app f args).eval reg values)) = 1 := by
+      simp [Term.eval, reg.quote_apply, mass, Tree.eval, measure, free]
+    rcases (split_native profile reg op (x.eval reg values) (y.eval reg values)
+      ((Term.app f args).eval reg values) atom).mp (selected.sound reg values input) with
+      ⟨hx, hy⟩ | ⟨hx, hy⟩
+    · apply il values
+      intro e member
+      rcases List.mem_cons.mp member with rfl | member
+      · exact hx
+      rcases List.mem_cons.mp member with rfl | member
+      · exact hy
+      exact input e member
+    · apply ir values
+      intro e member
+      rcases List.mem_cons.mp member with rfl | member
+      · exact hx
+      rcases List.mem_cons.mp member with rfl | member
+      · exact hy
+      exact input e member
+
+/-- One checked completeness tree plus the existing checked soundness data
+establishes EXACTNESS. No independent reference-completeness premise remains. -/
+theorem exact (reg : Registration sig) {profile : Profile sig} {inputs}
+    (problem : Problem sig inputs) (proposed : List (Answer sig inputs))
+    (complete : Complete profile proposed (Terms.identity inputs) [problem])
+    (sound : Soundness problem proposed) :
+    ∀ values, problem.Holds reg values ↔ Solutions reg proposed values :=
+  fun values => ⟨fun input =>
+    (identity_eval reg values) ▸ complete.sound reg values
+      (fun _p member => (List.mem_singleton.mp member) ▸ input),
+    sound.sound reg values⟩
+
+end Worklist
+
 end Substitution
 
 /-! ## Finite certificates and native kernel replay
@@ -2988,18 +3185,196 @@ definition and cannot introduce a semantic assumption. -/
 def checkGenericData (reg problem reference proposed : Expr) (sound cover : Wire) : MetaM Unit := do
   let _ ← decodeGeneric (← layout reg) problem reference proposed sound cover
 
-def fetchGeneric (pre : Name) (reg problem reference proposed : Expr)
-    (engine : String) : MetaM GenericFetched := do
-  let l ← layout reg
+private def genericData (l : Layout) (problem reference proposed : Expr)
+    (engine : String) : MetaM (GenericFetched × Expr × Expr) := do
   let request ← genericRequest l problem reference proposed
     (← nativeFactorHints l problem reference proposed)
   let output ← Maude.runMaude engine
     s!"search [1, 64] in GENERIC-CERTIFICATION : gStart({request}) =>! G:GenericReply ."
   let (soundRaw, coverRaw) ← Lean.ofExcept (genericReply request output)
   let (sound, cover) ← decodeGeneric l problem reference proposed soundRaw coverRaw
+  return ({ request, output }, sound, cover)
+
+def fetchGeneric (pre : Name) (reg problem reference proposed : Expr)
+    (engine : String) : MetaM GenericFetched := do
+  let (fetched, sound, cover) ← genericData (← layout reg) problem reference proposed engine
   emitDefinition (pre ++ `soundness) sound
   emitDefinition (pre ++ `coverage) cover
-  return { request, output }
+  return fetched
+
+mutual
+  private partial def decodeDerives (l : Layout) (Γ eqs left right : Expr) (wire : Wire) : MetaM Expr := do
+    let s := (← inferType left).getAppArgs.back!
+    let typeArgs := #[l.sortType, l.signature, Γ, eqs]
+    let result ← match wire with
+    | .app "eHyp" #[.num i] => do
+      let n := (← listItems eqs).size
+      unless i < n do throwError "worklist hypothesis index out of bounds"
+      let fin := mkAppN (mkConst ``Fin.mk) #[mkNatLit n, mkNatLit i,
+        ← mkDecideProof (← mkLt (mkNatLit i) (mkNatLit n))]
+      pure <| mkAppN (mkConst ``Substitution.Worklist.Derives.hyp) (typeArgs ++ #[fin])
+    | .app "eSym" #[p] => do
+      let p ← decodeDerives l Γ eqs right left p
+      pure <| mkAppN (mkConst ``Substitution.Worklist.Derives.symm) (typeArgs ++ #[s, right, left, p])
+    | .app "eTrans" #[middle, p, q] => do
+      let (t, mid) ← decodeTerm l Γ middle
+      unless ← isDefEq s t do throwError "worklist midpoint sort changed"
+      let p ← decodeDerives l Γ eqs left mid p
+      let q ← decodeDerives l Γ eqs mid right q
+      pure <| mkAppN (mkConst ``Substitution.Worklist.Derives.trans) (typeArgs ++ #[s, left, mid, right, p, q])
+    | .app "eCongr" #[ps] => do
+      let (f, as) ← appView left
+      let (g, bs) ← appView right
+      unless ← isDefEq f g do throwError "worklist congruence changed constructor"
+      let ss := (← inferType as).getAppArgs.back!
+      let ps ← decodeDerivesArgs l Γ eqs as bs ps
+      pure <| mkAppN (mkConst ``Substitution.Worklist.Derives.congr) (typeArgs ++ #[ss, s, f, as, bs, ps])
+    | _ => do
+      let p ← decodeEquality l Γ left right wire
+      pure <| mkAppN (mkConst ``Substitution.Worklist.Derives.axiom) (typeArgs ++ #[s, left, right, p])
+    let expected := mkAppN (mkConst ``Substitution.Worklist.Derives) (typeArgs ++ #[s, left, right])
+    unless ← isDefEq (← inferType result) expected do throwError "worklist consequence endpoints changed"
+    return result
+
+  private partial def decodeDerivesArgs (l : Layout) (Γ eqs left right : Expr) (wire : Wire) : MetaM Expr := do
+    let xs ← vectorItems left
+    let ys ← vectorItems right
+    let raw ← wireItems "esNil" "esCons" wire
+    unless xs.size == ys.size && xs.size == raw.size do throwError "worklist image trace count changed"
+    let typeArgs := #[l.sortType, l.signature, Γ, eqs]
+    let mut result := mkAppN (mkConst ``Substitution.Worklist.DerivesArgs.nil) typeArgs
+    for i in (List.range xs.size).reverse do
+      let (s, a) := xs[i]!
+      let (t, b) := ys[i]!
+      unless ← isDefEq s t do throwError "worklist image sort changed"
+      let p ← decodeDerives l Γ eqs a b raw[i]!
+      let as ← terms l Γ (xs.extract (i + 1) xs.size)
+      let bs ← terms l Γ (ys.extract (i + 1) ys.size)
+      let ss ← mkListLit l.sortType ((xs.extract (i + 1) xs.size).toList.map (·.1))
+      result := mkAppN (mkConst ``Substitution.Worklist.DerivesArgs.cons)
+        (typeArgs ++ #[s, ss, a, b, as, bs, p, result])
+    return result
+end
+
+private def decodeVector (l : Layout) (Γ ss : Expr) (wire : Wire) : MetaM Expr := do
+  let expected ← listItems ss
+  let raw ← wireItems "tsNil" "tsCons" wire
+  unless expected.size == raw.size do throwError "worklist vector arity changed"
+  let items ← raw.mapM (decodeTerm l Γ)
+  for i in [:items.size] do
+    unless ← isDefEq items[i]!.1 expected[i]! do throwError "worklist vector sort changed"
+  terms l Γ items
+
+private def wireOperator (l : Layout) (index : Nat) : MetaM Expr := do
+  let some (_, _, op) := (← registeredOperators l).find? (·.1 == index)
+    | throwError "worklist step uses an unregistered ACU symbol"
+  return op
+
+/-- Replay a general tree against the CURRENT scope/worklist. No node is selected
+by a Bakery shape. Leaf search uses the production native matcher; its factor
+data is still checked by the existing generic decoder and the final kernel. -/
+private partial def decodeComplete (l : Layout) (profile problem proposed : Expr)
+    (Γ images eqs : Expr) (wire : Wire) (engine : String) : MetaM Expr := do
+  let inputs := (← inferType problem).getAppArgs.back!
+  let typeArgs := #[l.sortType, l.signature, profile, inputs, proposed, Γ, images, eqs]
+  let result ← match wire with
+  | .app "cLeaf" #[normalizedRaw, derivedRaw] => do
+    let normalized ← decodeVector l Γ inputs normalizedRaw
+    let derived ← decodeDerivesArgs l Γ eqs images normalized derivedRaw
+    let source := mkAppN (mkConst ``Substitution.Answer.mk) #[l.sortType, l.signature, inputs, Γ, normalized]
+    let reference ← mkListLit (← inferType source) [source]
+    let (_, _, cover) ← genericData l problem reference proposed engine
+    let fields := cover.getAppArgs
+    unless cover.getAppFn.constName? == some ``Substitution.Coverage.cons do
+      throwError "missing worklist leaf factor"
+    pure <| mkAppN (mkConst ``Substitution.Worklist.Complete.emit)
+      (typeArgs ++ #[fields[fields.size - 3]!, normalized, derived, fields[fields.size - 2]!])
+  | .app "cMutate" #[.num opId, a, b, c, d, selectedRaw, childRaw] => do
+    let op ← wireOperator l opId
+    let (s, a) ← decodeTerm l Γ a
+    let (sb, b) ← decodeTerm l Γ b
+    let (sc, c) ← decodeTerm l Γ c
+    let (sd, d) ← decodeTerm l Γ d
+    unless (← isDefEq s sb) && (← isDefEq s sc) && (← isDefEq s sd) do
+      throwError "worklist mutation operand sorts changed"
+    let left := mkAppN (mkConst ``Substitution.add) #[l.sortType, l.signature, Γ, s, op, a, b]
+    let right := mkAppN (mkConst ``Substitution.add) #[l.sortType, l.signature, Γ, s, op, c, d]
+    let selected ← decodeDerives l Γ eqs left right selectedRaw
+    let lift := mkAppN (mkConst ``Substitution.Worklist.lift4) #[l.sortType, l.signature, Γ, s]
+    let images' ← mkAppM ``Substitution.Terms.subst #[images, lift]
+    let Γ' := (← inferType images').getAppArgs[2]!
+    let eqs' := mkAppN (mkConst ``Substitution.Worklist.mutated)
+      #[l.sortType, l.signature, Γ, s, op, a, b, c, d, eqs]
+    let child ← decodeComplete l profile problem proposed Γ' images' eqs' childRaw engine
+    pure <| mkAppN (mkConst ``Substitution.Worklist.Complete.mutate)
+      (typeArgs ++ #[s, op, a, b, c, d, selected, child])
+  | .app "cSplit" #[.num opId, x, y, atom, selectedRaw, leftRaw, rightRaw] => do
+    let op ← wireOperator l opId
+    let (s, x) ← decodeTerm l Γ x
+    let (t, y) ← decodeTerm l Γ y
+    let (u, atom) ← decodeTerm l Γ atom
+    unless (← isDefEq s t) && (← isDefEq s u) do throwError "worklist split operand sorts changed"
+    let (f, args) ← appView atom
+    let ss := (← inferType args).getAppArgs.back!
+    let view ← mkAppM ``Profile.view #[profile, f]
+    let free := mkAppN (mkConst ``HeadView.atom) #[l.sortType, l.signature, ss, s, f]
+    unless ← isDefEq view free do throwError "worklist split selected a non-atomic head"
+    let metadata ← mkEqRefl view
+    let sum := mkAppN (mkConst ``Substitution.add) #[l.sortType, l.signature, Γ, s, op, x, y]
+    let selected ← decodeDerives l Γ eqs sum atom selectedRaw
+    let zero := mkAppN (mkConst ``Substitution.zero) #[l.sortType, l.signature, Γ, s, op]
+    let problemType := mkAppN (mkConst ``Substitution.Problem) #[l.sortType, l.signature, Γ]
+    let originals := (← listItems eqs).toList
+    let leftEqs ← mkListLit problemType ((← mkAppM ``Substitution.Worklist.equation #[x, zero]) ::
+      (← mkAppM ``Substitution.Worklist.equation #[y, atom]) :: originals)
+    let rightEqs ← mkListLit problemType ((← mkAppM ``Substitution.Worklist.equation #[x, atom]) ::
+      (← mkAppM ``Substitution.Worklist.equation #[y, zero]) :: originals)
+    let left ← decodeComplete l profile problem proposed Γ images leftEqs leftRaw engine
+    let right ← decodeComplete l profile problem proposed Γ images rightEqs rightRaw engine
+    pure <| mkAppN (mkConst ``Substitution.Worklist.Complete.split)
+      (typeArgs ++ #[ss, s, op, x, y, f, metadata, args, selected, left, right])
+  | _ => throwError "unsupported or incomplete worklist certificate tree"
+  let expected := mkAppN (mkConst ``Substitution.Worklist.Complete) typeArgs
+  unless ← isDefEq (← inferType result) expected do throwError "worklist tree does not match its sequent"
+  return result
+
+def completeReply (request stdout : String) : Except String Wire := do
+  let [before, after] := stdout.splitOn "W:CReply --> "
+    | throw "expected exactly one worklist certificate result"
+  unless (before.splitOn "Solution 1 (state ").length == 2 do throw "missing worklist solution heading"
+  let [term, exit] := after.splitOn "Bye." | throw "truncated worklist certificate"
+  unless exit.trim.isEmpty do throw "trailing worklist certificate output"
+  let .app "cProposed" #[echo, tree] ← Maude.Certification.parseNode term
+    | throw "unsupported worklist reply"
+  unless echo == (← Maude.Certification.parseNode request) do throw "worklist request echo changed"
+  return tree
+
+/-- Non-mutating replay entry point for malformed-certificate regression tests.
+No declarations are emitted if any branch or equality fails validation. -/
+def checkCompleteData (reg profile problem proposed : Expr) (tree : Wire) (engine : String) : MetaM Unit := do
+  let l ← layout reg
+  let Γ := (← inferType problem).getAppArgs.back!
+  let images := mkAppN (mkConst ``Substitution.Terms.identity) #[l.sortType, l.signature, Γ]
+  let eqs ← mkListLit (← inferType problem) [problem]
+  check (← decodeComplete l profile problem proposed Γ images eqs tree engine)
+
+def fetchComplete (pre : Name) (reg profile problem proposed : Expr) (engine : String) : MetaM GenericFetched := do
+  let l ← layout reg
+  let ops := wireList "opsNil" "opsCons" ((← registeredOperators l).map fun (a, z, _) => s!"acu({a},{z})")
+  let Γ := (← inferType problem).getAppArgs.back!
+  let s ← sameIndex (l.sorts.map (·.2)) (← field ``Substitution.Problem.sort problem)
+  let request := s!"cRequest({ops},{← dumpSorts l Γ},{s}," ++
+    s!"{← dumpTerm l (← field ``Substitution.Problem.left problem)}," ++
+    s!"{← dumpTerm l (← field ``Substitution.Problem.right problem)})"
+  let stdout ← Maude.runMaude engine
+    s!"search [1, 64] in WORKLIST-CERTIFICATION : cStart({request}) =>! W:CReply ."
+  let tree ← Lean.ofExcept (completeReply request stdout)
+  let images := mkAppN (mkConst ``Substitution.Terms.identity) #[l.sortType, l.signature, Γ]
+  let eqs ← mkListLit (← inferType problem) [problem]
+  let proof ← decodeComplete l profile problem proposed Γ images eqs tree engine
+  check proof
+  emitDefinition (pre ++ `completeness) proof
+  return { request, output := stdout }
 
 end External
 
@@ -3077,6 +3452,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     | throwError "missing generic coverage trace"
   let badCases := [
     (Maude.Certification.Node.app "esCons" #[.app "eRefl" #[], soundRest], cover),
+    (.app "esCons" #[.app "eHyp" #[.num 0], soundRest], cover),
     (sound, .app "fsCons" #[.app "factor" #[.num 9, beta, images], coverRest]),
     (sound, .app "fsCons" #[.app "factor" #[.num 0, beta, images], coverRest]),
     (sound, .app "fsCons" #[.app "factor" #[.num 1, .app "tsNil" #[], images], coverRest]),
@@ -3379,8 +3755,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 /- A genuinely NONLINEAR problem: X occurs twice in the same ACU sum.
    Native unify returns X=idle+Z, Y=idle+(Z+Z). Nothing compacts this into a
    preselected family. Generic Maude replay proves soundness of the actual
-   answer; the completeness proof below applies general Mutate/Split rules.
-   An empty reference here requests SOUNDNESS ONLY, not completeness.+-/
+   answer; a separate object-level search emits the full general Mutate/Split
+   completeness tree. Neither direction contains handwritten problem reasoning.
+   An empty reference in fetchGeneric requests SOUNDNESS ONLY; fetchComplete
+   supplies the independent checked completeness tree.
+-/
 run_cmd Lean.Elab.Command.liftTermElabM do
   let sorts ← Maude.collectSignature (Lean.mkConst ``Conf)
   let model := Maude.renderModule sorts (← Maude.inspectTheory (Lean.mkConst ``BakeryTheory))
@@ -3399,6 +3778,40 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.fetchedNonlinear
     (Lean.mkConst ``registration) (Lean.mkConst `DirectCertification.Bakery.fetchedNonlinear.problem)
     (← Lean.Meta.mkListLit answerType []) proposed engine
+  let problem := Lean.mkConst `DirectCertification.Bakery.fetchedNonlinear.problem
+  let complete ← Replay.External.fetchComplete `DirectCertification.Bakery.fetchedNonlinear
+    (Lean.mkConst ``registration) (Lean.mkConst ``profile) problem proposed engine
+  unless !(Replay.External.completeReply complete.request (complete.output.replace "Bye." "")).isOk do
+    throwError "accepted truncated completeness tree output"
+  unless !(Replay.External.completeReply complete.request
+      (complete.output.replace "cRequest(" "changedRequest(")).isOk do
+    throwError "accepted changed completeness request"
+  let tree ← Lean.ofExcept (Replay.External.completeReply complete.request complete.output)
+  let .app "cMutate" #[op, a, b, c, d, selected, child] := tree
+    | throwError "nonlinear certificate did not contain Mutate"
+  let .app "cSplit" #[splitOp, x, y, atom, splitProof, leftChild, rightChild] := child
+    | throwError "nonlinear certificate did not contain BOTH Split branches"
+  let corrupted := [
+    Maude.Certification.Node.app "cMutate" #[op, a, b, c, d, .app "eHyp" #[.num 99], child],
+    .app "cMutate" #[op, a, c, c, d, selected, child],
+    .app "cMutate" #[op, a, b, c, d, selected,
+      .app "cSplit" #[splitOp, x, y, atom, splitProof, leftChild]],
+    .app "cMutate" #[op, a, b, c, d, selected,
+      .app "cSplit" #[splitOp, x, y, atom, splitProof, rightChild, rightChild]]]
+  for bad in corrupted do
+    let rejected ← try
+      Replay.External.checkCompleteData (Lean.mkConst ``registration) (Lean.mkConst ``profile)
+        problem proposed bad engine
+      pure false
+    catch _ => pure true
+    unless rejected do throwError "accepted corrupt hypothesis, sharing, or Split branch in completeness tree"
+  let missingRejected ← try
+    let _ ← Replay.External.fetchComplete `DirectCertification.Bakery.missingNonlinear
+      (Lean.mkConst ``registration) (Lean.mkConst ``profile) problem
+      (← Lean.Meta.mkListLit answerType []) engine
+    pure false
+  catch _ => pure true
+  unless missingRejected do throwError "completeness tree accepted an empty proposed answer set"
   Lean.logInfo s!"Nonlinear native query produced {answers.size} answer(s)."
 
 #guard fetchedNonlinear.answers.length == 1
@@ -3658,53 +4071,20 @@ theorem mutation_native_certificate :
 
    Thus sharing is an equation to preserve, NOT a reason to treat occurrences
    as independent variables. Both branches are covered by the actual native
-   answer. The proof is a direct application of GENERAL Mutate/Split and
-   equality rules. Its converse replays Maude's finite soundness trace.
+   answer. The ENTIRE tree above, including the equality consequences and both
+   closing factors, comes from Maude and is checked by general kernel replay.
+   The user proof below is only the general exactness metatheorem applied to
+   those finite data. No problem-specific lemma or handwritten branch remains.
 
-   This demonstrates nonlinear certification, not a general automated worklist
-   algorithm: this completeness trace is still written here, not fetched.
+   Control is still a bounded pilot (one root Mutate, at most one Split). The
+   general proof rules support arbitrary shared terms and recursive trees;
+   this is NOT yet an automatic certifier for all ACU equations.
 -/
 theorem nonlinear_native_certificate :
     ∀ values, fetchedNonlinear.problem.Holds registration values ↔
       Substitution.Solutions registration fetchedNonlinear.answers values :=
-  fun values => Iff.intro
-    (fun input =>
-      let X : ProcSet := values.1
-      let Y : ProcSet := values.2.1
-      let a := ProcSet.singleton Mode.idle
-      let emit : ∀ Z : ProcSet,
-          X =[BakeryTheory.certified] ProcSet.union a Z →
-          Y =[BakeryTheory.certified] ProcSet.union a (ProcSet.union Z Z) →
-          Substitution.Solutions registration fetchedNonlinear.answers values :=
-        fun Z hx hy =>
-          ⟨fetchedNonlinear.answers.get ⟨0, of_decide_eq_true rfl⟩,
-            List.get_mem _ _, (Z, PUnit.unit),
-            hx.trans (native_comm registration Operator.acu a Z),
-            hy.trans ((native_comm registration Operator.acu a (ProcSet.union Z Z)).trans
-              (native_assoc registration Operator.acu Z Z a)), True.intro⟩
-      match (mutate_native profile registration Operator.acu X X a Y).mp input with
-      | ⟨P, Q, R, T, hx, hx', ha, hy⟩ =>
-        match (split_native profile registration Operator.acu P R a rfl).mp ha.symm with
-        | Or.inl ⟨hp, hr⟩ =>
-          let hxt := hx'.trans (native_add_congr registration Operator.acu hr (native_refl registration T))
-          let hxq := hx.trans ((native_add_congr registration Operator.acu hp (native_refl registration Q)).trans
-            (native_unit registration Operator.acu Q))
-          let hq := hxq.symm.trans hxt
-          emit T hxt (hy.trans
-            ((native_add_congr registration Operator.acu hq (native_refl registration T)).trans
-              (native_assoc registration Operator.acu a T T)))
-        | Or.inr ⟨hp, hr⟩ =>
-          let hxq := hx.trans (native_add_congr registration Operator.acu hp (native_refl registration Q))
-          let hxt := hx'.trans ((native_add_congr registration Operator.acu hr (native_refl registration T)).trans
-            (native_unit registration Operator.acu T))
-          let ht := hxt.symm.trans hxq
-          emit Q hxq (hy.trans
-            ((native_add_congr registration Operator.acu (native_refl registration Q) ht).trans
-              ((native_assoc registration Operator.acu Q a Q).symm.trans
-                ((native_add_congr registration Operator.acu
-                    (native_comm registration Operator.acu Q a) (native_refl registration Q)).trans
-                  (native_assoc registration Operator.acu a Q Q))))))
-    (Substitution.Soundness.sound registration fetchedNonlinear.soundness values)
+  Substitution.Worklist.exact registration fetchedNonlinear.problem fetchedNonlinear.answers
+    fetchedNonlinear.completeness fetchedNonlinear.soundness
 
 /- Decompose also works when a free constructor contains NON-rigid payloads.
    Conf is not rigid: its process-field equality must stay modulo ACU.
@@ -3754,6 +4134,7 @@ theorem missing_matched_rejected (n : Nat) :
 #print axioms one_tail_native_certificate
 #print axioms mutation_native_certificate
 #print axioms nonlinear_native_certificate
+#print axioms Substitution.Worklist.Complete.sound
 #print axioms Substitution.Coverage.sound
 #print axioms Substitution.Soundness.sound
 #print axioms atomic_certificate
