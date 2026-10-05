@@ -93,3 +93,203 @@ mod DIRECT-CERTIFICATION is
     proposed(clashRequest(C, L, M, FS), frameClash(rigid, rigid, H, emit(crossed)))
     if contains(FS, crossed) = true /\ contains(FS, matched) = false .
 endm
+
+--- Generic, proof-producing data algorithms. Terms retain every constructor
+--- and variable index. Only declared ACU nodes are normalized; free constructor
+--- arguments are handled recursively, with no arity bound. All traces below
+--- are expanded Assoc/Comm/Unit/Congruence, not semantic success flags.
+fmod GENERIC-CERTIFICATION-DATA is
+  protecting NAT .
+  protecting BOOL .
+  sorts GT GTS Ns AOp AOps GA GAs GP GQ EP EPS Norm Norms EResult
+    FactorResult Factors Hint Hints .
+  op v : Nat -> GT [ctor] .
+  op node : Nat GTS -> GT [ctor] .
+  op tsNil : -> GTS [ctor] .
+  op tsCons : GT GTS -> GTS [ctor] .
+  op nsNil : -> Ns [ctor] .
+  op nsCons : Nat Ns -> Ns [ctor] .
+  op acu : Nat Nat -> AOp [ctor] .
+  op opsNil : -> AOps [ctor] .
+  op opsCons : AOp AOps -> AOps [ctor] .
+  op answer : Ns GTS -> GA [ctor] .
+  op asNil : -> GAs [ctor] .
+  op asCons : GA GAs -> GAs [ctor] .
+  op problem : Ns GT GT -> GP [ctor] .
+  --- Hints are untrusted native-match results. The object-level rules check
+  --- every image equality before emitting the factor certificate.
+  op hint : Nat GTS -> Hint [ctor] .
+  op hFailed : -> Hint [ctor] .
+  op hsNil : -> Hints [ctor] .
+  op hsCons : Hint Hints -> Hints [ctor] .
+  op gRequest : AOps GP GAs GAs Hints -> GQ [ctor] .
+  ops eRefl eComm eAssoc eUnit : -> EP [ctor] .
+  op eSym : EP -> EP [ctor] .
+  op eTrans : GT EP EP -> EP [ctor] .
+  op eCongr : EPS -> EP [ctor] .
+  op esNil : -> EPS [ctor] .
+  op esCons : EP EPS -> EPS [ctor] .
+  op norm : GT EP -> Norm [ctor] .
+  op norms : GTS EPS -> Norms [ctor] .
+  op proved : EP -> EResult [ctor] .
+  op eFailed : -> EResult [ctor] .
+  op factor : Nat GTS EPS -> FactorResult [ctor] .
+  op fFailed : -> FactorResult [ctor] .
+  op fsNil : -> Factors [ctor] .
+  op fsCons : FactorResult Factors -> Factors [ctor] .
+
+  op sum : Nat GT GT -> GT .
+  op less : GT GT -> Bool .
+  op lessArgs : GTS GTS -> Bool .
+  op normal : GT AOps -> Norm .
+  op normalNode : Nat GTS AOps AOps -> Norm .
+  op normalArgs : GTS AOps -> Norms .
+  op liftNode : Nat Norms -> Norm .
+  op liftCons : Norm Norms -> Norms .
+  op normalAdd : Norm Norm Nat Nat -> Norm .
+  op merge : GT GT Nat Nat -> Norm .
+  op insert : GT GT Nat Nat -> Norm .
+  op mergeTail : GT GT GT Norm Nat Nat -> Norm .
+  op mergeHead : GT EP Norm -> Norm .
+  op insertTail : GT GT GT Norm Nat -> Norm .
+  op swapRight : GT GT GT Nat -> EP .
+  op prove : GT GT AOps -> EResult .
+  op finishProof : Norm Norm -> EResult .
+  op substitute : GT GTS -> GT .
+  op substituteArgs : GTS GTS -> GTS .
+  op getTerm : GTS Nat -> GT .
+  op getAnswer : GAs Nat -> GA .
+  op checkFactor : GA GA Nat GTS AOps -> FactorResult .
+  op verifiedFactor : Norms Nat GTS -> FactorResult .
+  op allProved : GTS -> Bool .
+  op failedTerm : -> GT [ctor] .
+  op factorArgs : GTS GTS AOps -> Norms .
+  op factorCons : EResult Norms -> Norms .
+
+  vars I J F U : Nat .
+  vars A B C D T V : GT .
+  vars TS US VS : GTS .
+  vars S S2 : Ns .
+  vars OS OS2 : AOps .
+  vars P Q : EP .
+  vars PS : EPS .
+  vars N : Norm .
+  vars NS : Norms .
+  vars AS : GAs .
+  var X : GA .
+
+  eq sum(F, A, B) = node(F, tsCons(A, tsCons(B, tsNil))) .
+  eq less(v(I), v(J)) = I < J .
+  eq less(v(I), node(F, TS)) = true .
+  eq less(node(F, TS), v(I)) = false .
+  eq less(node(F, TS), node(J, US)) =
+    if F == J then lessArgs(TS, US) else F < J fi .
+  eq lessArgs(tsNil, tsNil) = false .
+  eq lessArgs(tsNil, tsCons(A, TS)) = true .
+  eq lessArgs(tsCons(A, TS), tsNil) = false .
+  eq lessArgs(tsCons(A, TS), tsCons(B, US)) =
+    if A == B then lessArgs(TS, US) else less(A, B) fi .
+
+  eq normal(v(I), OS) = norm(v(I), eRefl) .
+  eq normal(node(F, TS), OS) = normalNode(F, TS, OS, OS) .
+  eq normalNode(F, tsCons(A, tsCons(B, tsNil)), opsCons(acu(F, U), OS), OS2) =
+    normalAdd(normal(A, OS2), normal(B, OS2), F, U) .
+  eq normalNode(F, TS, opsCons(acu(J, U), OS), OS2) = normalNode(F, TS, OS, OS2) [owise] .
+  eq normalNode(F, TS, opsNil, OS2) = liftNode(F, normalArgs(TS, OS2)) .
+  eq normalArgs(tsNil, OS) = norms(tsNil, esNil) .
+  eq normalArgs(tsCons(A, TS), OS) = liftCons(normal(A, OS), normalArgs(TS, OS)) .
+  eq liftNode(F, norms(TS, PS)) = norm(node(F, TS), eCongr(PS)) .
+  eq liftCons(norm(A, P), norms(TS, PS)) = norms(tsCons(A, TS), esCons(P, PS)) .
+  eq normalAdd(norm(A, P), norm(B, Q), F, U) =
+    mergeHead(sum(F, A, B), eCongr(esCons(P, esCons(Q, esNil))), merge(A, B, F, U)) .
+  eq mergeHead(T, P, norm(V, Q)) = norm(V, eTrans(T, P, Q)) .
+
+  eq merge(node(U, tsNil), B, F, U) = norm(B, eUnit) .
+  eq merge(node(F, tsCons(A, tsCons(B, tsNil))), C, F, U) =
+    mergeTail(A, B, C, merge(B, C, F, U), F, U) .
+  eq merge(A, B, F, U) = insert(A, B, F, U) [owise] .
+  eq mergeTail(A, B, C, norm(T, P), F, U) =
+    mergeHead(sum(F, A, T),
+      eTrans(sum(F, A, sum(F, B, C)), eAssoc, eCongr(esCons(eRefl, esCons(P, esNil)))),
+      insert(A, T, F, U)) .
+  eq insert(A, node(U, tsNil), F, U) =
+    norm(A, eTrans(sum(F, node(U, tsNil), A), eComm, eUnit)) .
+  eq insert(A, node(F, tsCons(B, tsCons(C, tsNil))), F, U) =
+    if less(B, A) then insertTail(A, B, C, insert(A, C, F, U), F)
+    else norm(sum(F, A, sum(F, B, C)), eRefl) fi .
+  eq insert(A, B, F, U) =
+    if less(B, A) then norm(sum(F, B, A), eComm)
+    else norm(sum(F, A, B), eRefl) fi [owise] .
+  eq insertTail(A, B, C, norm(T, P), F) = norm(sum(F, B, T),
+    eTrans(sum(F, B, sum(F, A, C)), swapRight(A, B, C, F),
+      eCongr(esCons(eRefl, esCons(P, esNil))))) .
+  eq swapRight(A, B, C, F) =
+    eTrans(sum(F, sum(F, A, B), C), eSym(eAssoc),
+      eTrans(sum(F, sum(F, B, A), C), eCongr(esCons(eComm, esCons(eRefl, esNil))), eAssoc)) .
+  eq prove(A, A, OS) = proved(eRefl) .
+  eq prove(A, B, OS) = finishProof(normal(A, OS), normal(B, OS)) [owise] .
+  eq finishProof(norm(T, P), norm(T, Q)) = proved(eTrans(T, P, eSym(Q))) .
+  eq finishProof(N, norm(T, Q)) = eFailed [owise] .
+
+  eq substitute(v(I), TS) = getTerm(TS, I) .
+  eq substitute(node(F, US), TS) = node(F, substituteArgs(US, TS)) .
+  eq substituteArgs(tsNil, TS) = tsNil .
+  eq substituteArgs(tsCons(A, US), TS) = tsCons(substitute(A, TS), substituteArgs(US, TS)) .
+  eq getTerm(tsCons(A, TS), 0) = A .
+  eq getTerm(tsCons(A, TS), s(I)) = getTerm(TS, I) .
+  eq getAnswer(asCons(X, AS), 0) = X .
+  eq getAnswer(asCons(X, AS), s(I)) = getAnswer(AS, I) .
+  eq checkFactor(answer(S, TS), answer(S2, US), I, VS, OS) =
+    verifiedFactor(factorArgs(TS, substituteArgs(US, VS), OS), I, VS) .
+  eq factorArgs(tsNil, tsNil, OS) = norms(tsNil, esNil) .
+  eq factorArgs(tsCons(A, TS), tsCons(B, US), OS) = factorCons(prove(A, B, OS), factorArgs(TS, US, OS)) .
+  eq factorCons(proved(P), norms(TS, PS)) = norms(TS, esCons(P, PS)) .
+  eq factorCons(eFailed, NS) = norms(tsCons(failedTerm, tsNil), esNil) .
+  eq allProved(tsNil) = true .
+  eq allProved(tsCons(failedTerm, TS)) = false .
+  eq allProved(tsCons(T, TS)) = allProved(TS) [owise] .
+  eq verifiedFactor(norms(TS, PS), I, US) =
+    if allProved(TS) then factor(I, US, PS) else fFailed fi .
+endfm
+
+mod GENERIC-CERTIFICATION is
+  protecting GENERIC-CERTIFICATION-DATA .
+  sorts GenericState GenericReply .
+  subsort GenericReply < GenericState .
+  op gStart : GQ -> GenericState [ctor] .
+  op gSound : GQ GAs EPS -> GenericState [ctor] .
+  op gCover : GQ GAs Hints EPS Factors -> GenericState [ctor] .
+  op gCertificate : EPS Factors -> GenericReply [ctor] .
+  op gProposed : GQ GenericReply -> GenericReply [ctor] .
+  vars OS : AOps . vars S S2 : Ns . vars A B : GT . vars TS : GTS .
+  vars REF PROP AS : GAs . vars Q : GQ . vars PS : EPS . vars FS : Factors .
+  vars P : EP . vars I : Nat . vars US : GTS . vars ES : EPS .
+  vars HS REST : Hints .
+  op reverseProofs : EPS -> EPS .
+  op appendProof : EPS EP -> EPS .
+  op reverseFactors : Factors -> Factors .
+  op appendFactor : Factors FactorResult -> Factors .
+  eq reverseProofs(esNil) = esNil .
+  eq reverseProofs(esCons(P, PS)) = appendProof(reverseProofs(PS), P) .
+  eq appendProof(esNil, P) = esCons(P, esNil) .
+  vars E : EP . var F : FactorResult .
+  eq appendProof(esCons(P, PS), E) = esCons(P, appendProof(PS, E)) .
+  eq reverseFactors(fsNil) = fsNil .
+  eq reverseFactors(fsCons(F, FS)) = appendFactor(reverseFactors(FS), F) .
+  eq appendFactor(fsNil, F) = fsCons(F, fsNil) .
+  var F2 : FactorResult .
+  eq appendFactor(fsCons(F, FS), F2) = fsCons(F, appendFactor(FS, F2)) .
+  rl [g-begin] : gStart(gRequest(OS, problem(S, A, B), REF, PROP, HS)) =>
+    gSound(gRequest(OS, problem(S, A, B), REF, PROP, HS), PROP, esNil) .
+  crl [g-sound] : gSound(gRequest(OS, problem(S, A, B), REF, PROP, HS), asCons(answer(S2, TS), AS), PS) =>
+    gSound(gRequest(OS, problem(S, A, B), REF, PROP, HS), AS, esCons(P, PS))
+    if proved(P) := prove(substitute(A, TS), substitute(B, TS), OS) .
+  rl [g-cover-begin] : gSound(gRequest(OS, problem(S, A, B), REF, PROP, HS), asNil, PS) =>
+    gCover(gRequest(OS, problem(S, A, B), REF, PROP, HS), REF, HS, reverseProofs(PS), fsNil) .
+  crl [g-factor] : gCover(gRequest(OS, problem(S, A, B), REF, PROP, HS),
+      asCons(answer(S2, TS), AS), hsCons(hint(I, US), REST), PS, FS) =>
+    gCover(gRequest(OS, problem(S, A, B), REF, PROP, HS), AS, REST, PS,
+      fsCons(factor(I, US, ES), FS))
+    if factor(I, US, ES) := checkFactor(answer(S2, TS), getAnswer(PROP, I), I, US, OS) .
+  rl [g-done] : gCover(Q, asNil, hsNil, PS, FS) => gProposed(Q, gCertificate(PS, reverseFactors(FS))) .
+endm

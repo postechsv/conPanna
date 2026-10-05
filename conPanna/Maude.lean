@@ -12,8 +12,9 @@ Maude and parses candidate substitutions into solver-neutral data. Built-in
 free syntax, native signature data and a request for the object-level calculus;
 their replies still need a parser and kernel replay before narrowing can use them.
 
-Set `CONPANNA_MAUDE` to override the executable name or path. By default the
-backend runs `maude` from `PATH`.
+Set `CONPANNA_MAUDE` to override the executable name or path. Otherwise the
+backend searches `PATH`, then the conventional `$HOME/Maude/maude` installation.
+The fallback also works when an editor does not inherit the shell's `PATH`.
 -/
 
 namespace Maude
@@ -655,16 +656,34 @@ private def patternResultType
   withTransparency .all <| whnf (← inferType pattern.application)
 
 def maudeExecutable : IO String := do
-  return (← IO.getEnv "CONPANNA_MAUDE").getD "maude"
+  if let some executable ← IO.getEnv "CONPANNA_MAUDE" then
+    if executable.isEmpty then
+      throw <| IO.userError "CONPANNA_MAUDE is empty; set it to the Maude executable name or absolute path."
+    return executable
+  let filename := if System.Platform.isWindows then "maude.exe" else "maude"
+  let searchPath := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
+  for directory in searchPath do
+    let executable := directory / filename
+    if (← executable.pathExists) && !(← executable.isDir) then
+      return executable.toString
+  let homeVariable := if System.Platform.isWindows then "USERPROFILE" else "HOME"
+  if let some userDirectory ← IO.getEnv homeVariable then
+    let executable := System.FilePath.mk userDirectory / "Maude" / filename
+    if (← executable.pathExists) && !(← executable.isDir) then
+      return executable.toString
+  throw <| IO.userError
+    "Maude executable not found. Set CONPANNA_MAUDE to its absolute path, add Maude to PATH, or install it in your home directory's Maude folder."
 
 def runMaude (moduleText query : String) : IO String := do
-  let input := "set include BOOL off .\n" ++
+  -- Keep associative output binary, matching the registered constructor arity.
+  -- This changes printing only, not Maude's ACU search or term semantics.
+  let input := "set include BOOL off .\nset print flat off .\n" ++
     moduleText ++ "\n\n" ++ query ++ "\nquit\n"
   let executable ← maudeExecutable
-  let output ← IO.Process.output {
-    cmd := executable
-    args := #["-no-banner"]
-  } (some input)
+  let output ← try
+    IO.Process.output { cmd := executable, args := #["-no-banner"] } (some input)
+  catch error =>
+    throw <| IO.userError s!"Cannot start Maude executable '{executable}': {error}"
   if output.exitCode != 0 then
     throw <| IO.userError (
       s!"Maude failed with exit code {output.exitCode}\n" ++
@@ -689,6 +708,18 @@ private def solveWithMaude (sorts : Array SortDecl) (moduleText : String)
   let unifiers ← ofExcept <| parseUnifiers sorts inputs output
   toSolutionSet inputs unifiers
 
+/-- Native directional matching on translated constructor terms. Subject
+variables are fixed by Maude matching. A free tuple constructor may frame several
+images in one query, preserving correlations between all pattern variables.
+Returned substitutions are untrusted candidates, not semantic certificates. -/
+def matchTranslated (sorts : Array SortDecl) (moduleText : String)
+    (variables : Array MaudeVariable) (pattern subject : MaudeTerm) :
+    IO (Array MaudeUnifier) := do
+  let query := "match in LEAN-MODEL : " ++ pattern.render ++
+    " <=? " ++ subject.render ++ " ."
+  let output ← runMaude moduleText query
+  IO.ofExcept <| parseMatchers sorts variables output
+
 private def matchWithMaude (sorts : Array SortDecl) (moduleText : String)
     (pattern subject : Expr) :
     MetaM (Array Narrowing.Subsumption.MatchCandidate) := do
@@ -699,12 +730,7 @@ private def matchWithMaude (sorts : Array SortDecl) (moduleText : String)
   let variables := targets ++ fixed
   let patternTerm ← translateTerm sorts variables pattern
   let subjectTerm ← translateTerm sorts variables subject
-  let query :=
-    "match in LEAN-MODEL : " ++ patternTerm.render ++
-    " <=? " ++ subjectTerm.render ++ " ."
-  let output ← MonadLiftT.monadLift
-    (runMaude moduleText query : IO String)
-  let matchers ← ofExcept <| parseMatchers sorts variables output
+  let matchers ← matchTranslated sorts moduleText variables patternTerm subjectTerm
   matchers.mapM (matcherToCandidate variables targets)
 
 /-- Solve one library unification problem through the external Maude process. -/

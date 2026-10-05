@@ -11,11 +11,13 @@ This file contains four clearly separated parts:
 
 The new Substitution section supplies arbitrary many-sorted image vectors,
 finite ACU equality traces, and answer-indexed factorization/coverage data.
-Native export now preserves actual substitutions without template compaction.
-The one-tail and four-bag mutation examples certify those exported answers.
-Object-level Maude still emits the OLD restricted control traces; generating
-the new generic Factor/Soundness data in Maude is the next migration step.
-Both formats remain here as checked regression fixtures during that migration.
+Native export preserves actual substitutions without template compaction.
+Native Maude matching proposes generic answer indices and β substitutions;
+object-level Maude generates primitive equality traces for those suggestions.
+Lean reconstructs typed Factor/Soundness data and
+the kernel checks it. The one-tail and four-bag mutation examples combine this
+fetched data with the proved general Exchange/Mutate completeness rules.
+OLD restricted control traces remain only as checked regression fixtures.
 
 The current milestone is answer-directed certification of ONE explicit atom
 and ONE bag tail per side, including a free frame that identifies head parameters.
@@ -915,6 +917,16 @@ theorem native_comm (reg : Registration sig) {s} (op : sig.ACUOp s)
   unfold NativeEq
   rw [reg.quote_apply, reg.quote_apply]
   exact .comm op _ _
+
+/-- Native reassociation: a general equality rule, also used when repeated
+variables remain correlated after Mutate/Split. -/
+theorem native_assoc (reg : Registration sig) {s} (op : sig.ACUOp s)
+    (x y z : reg.Carrier s) :
+    NativeEq sig reg
+      (reg.apply (sig.add op) (reg.apply (sig.add op) (x, y, PUnit.unit), z, PUnit.unit))
+      (reg.apply (sig.add op) (x, reg.apply (sig.add op) (y, z, PUnit.unit), PUnit.unit)) := by
+  simp only [NativeEq, reg.quote_apply, Args.quote]
+  exact .assoc op _ _ _
 
 /-- Structural argument equality and the ordinary native argument tuple have
 the same components. No constructor-arity bound or hand-written carrier map. -/
@@ -2409,17 +2421,23 @@ structure Fetched where
   nativeOutput : String
   searchOutput : String
 
-/-- TWO engines: native unify proposes; object-level rewrite search certifies.
-There is no scripted strategy or preselected certificate term. Search depth is
-bounded, so failure is reported rather than hanging or inserting sorry. -/
-def fetch (model engine : String) (sorts : Array SortDecl)
-    (left right : TranslatedPattern) (context : String) (framed : Bool := false)
+/-- Native proposals, independently of any legacy family recognizer. Generic
+export/replay accepts arbitrary well-sorted constructor image vectors. -/
+def fetchNative (model : String) (sorts : Array SortDecl)
+    (left right : TranslatedPattern) : IO (String × Array MaudeUnifier) := do
+  let stdout ← Maude.runMaude model
+    s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
+  let unifiers ← IO.ofExcept (Maude.parseUnifiers sorts (left.variables ++ right.variables) stdout)
+  return (stdout, unifiers)
+
+/-- Legacy control fixture only. The GENERIC pipeline does not call this
+recognizer, nor does it use a family label as a soundness/coverage certificate. -/
+def fetchControlFixture (engine : String) (sorts : Array SortDecl)
+    (left right : TranslatedPattern) (stdout context : String) (framed : Bool := false)
     (clashCodes? : Option (Nat × Nat) := none) : IO Fetched := do
   if clashCodes?.isSome && !framed then throw (IO.userError "clash requests require a frame")
   let spec ← IO.ofExcept
     (if framed then framedInput left right clashCodes?.isSome else input left right)
-  let stdout ← Maude.runMaude model
-    s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
   let families ← IO.ofExcept (nativeAnswers sorts spec stdout)
   let request := match clashCodes? with
     | some (l, r) => s!"clashRequest({context},{l},{r},{familiesDump families})"
@@ -2566,9 +2584,13 @@ private def certificateExpr : Certificate → Expr
       (headExpr first) (headExpr second) (headExpr apart) (familyExpr family)
 
 private def emitDefinition (name : Name) (value : Expr) : MetaM Unit := do
+  let value ← instantiateMVars value
+  let type ← instantiateMVars (← Lean.Meta.inferType value)
+  if value.hasMVar || type.hasMVar then
+    throwError "unresolved metavariable in certificate data {name}"
   Lean.addAndCompile <| .defnDecl {
     name, levelParams := []
-    type := ← Lean.Meta.inferType value, value, hints := .regular 0, safety := .safe }
+    type, value, hints := .regular 0, safety := .safe }
   Lean.enableRealizationsForConst name
 
 /-- Export an arbitrary native answer set, independently of legacy family
@@ -2585,14 +2607,399 @@ def emitAnswers (pre : Name) (reg : Expr) (left right : TranslatedPattern)
   emitDefinition (pre ++ `answers) (← mkListLit answerType answers)
   emitDefinition (pre ++ `problem) (← problemExpr l left right)
 
-/-- Emit proofless constants ONLY. The theorem below must still kernel-check
-acceptance against its typed context, with ordinary rfl, not native_decide. -/
-def emit (pre : Name) (fetched : Fetched) (reg : Expr) (left right : TranslatedPattern) : Lean.MetaM Unit := do
-  emitAnswers pre reg left right fetched.unifiers
+/-- OLD regression data only, not the generic native-answer transport. -/
+def emitControlFixture (pre : Name) (fetched : Fetched) : Lean.MetaM Unit := do
   let trace := certificateExpr fetched.trace
   for (name, value) in [(pre ++ `families, ← Lean.Meta.mkListLit (mkConst ``Family)
       (fetched.families.map familyExpr)), (pre ++ `trace, trace)] do
     emitDefinition name value
+
+/- GENERIC WIRE BOUNDARY. Numeric IDs are local indices in the actual registered
+signature. They never carry semantic authority. The reply supplies only finite
+data: one primitive equality trace per answer, and one (index, β, image traces)
+per reference branch. Lean checks their precise sorted endpoints before the
+kernel checks the emitted definitions. No proof tactic runs here.
+
+The reference branches must separately have a semantic completeness theorem.
+Native Maude matching discovers β on the ENTIRE input-image vector. The
+object-level engine produces primitive equality traces for each suggested β;
+Lean then checks those traces. Failed matching is not a completeness proof.
+-/
+private abbrev Wire := Maude.Certification.Node
+
+private partial def listItems (e : Expr) : MetaM (Array Expr) := do
+  let e ← whnf e
+  match e.getAppFn.constName? with
+  | some ``List.nil => return #[]
+  | some ``List.cons =>
+    let a := e.getAppArgs
+    return #[a[a.size - 2]!] ++ (← listItems a.back!)
+  | _ => throwError "expected a finite constructor list"
+
+private partial def vectorItems (e : Expr) : MetaM (Array (Expr × Expr)) := do
+  let e ← whnf e
+  match e.getAppFn.constName? with
+  | some ``Substitution.Terms.nil => return #[]
+  | some ``Substitution.Terms.cons =>
+    let a := e.getAppArgs
+    return #[(a[3]!, a[a.size - 2]!)] ++ (← vectorItems a.back!)
+  | _ => throwError "expected a finite sorted term vector"
+
+private def sameIndex (items : Array Expr) (e : Expr) : MetaM Nat := do
+  for i in [:items.size] do
+    if ← isDefEq items[i]! e then return i
+  throwError "unregistered sort or constructor in certificate"
+
+private def wireList (nil cons : String) (items : Array String) : String :=
+  items.foldr (fun a rest => s!"{cons}({a},{rest})") nil
+
+private partial def variableIndex (e : Expr) : MetaM Nat := do
+  let e ← whnf e
+  match e.getAppFn.constName? with
+  | some ``Substitution.Variable.here => return 0
+  | some ``Substitution.Variable.there => return 1 + (← variableIndex e.getAppArgs.back!)
+  | _ => throwError "expected a finite sorted variable"
+
+private partial def dumpTerm (l : Layout) (e : Expr) : MetaM String := do
+  let e ← whnf e
+  let a := e.getAppArgs
+  match e.getAppFn.constName? with
+  | some ``Substitution.Term.var => return s!"v({← variableIndex a.back!})"
+  | some ``Substitution.Term.app =>
+    let id ← sameIndex (l.symbols.map (·.2)) a[a.size - 2]!
+    let args ← (← vectorItems a.back!).mapM (fun (_, t) => dumpTerm l t)
+    return s!"node({id},{wireList "tsNil" "tsCons" args})"
+  | _ => throwError "expected a registered constructor term"
+
+private def dumpSorts (l : Layout) (e : Expr) : MetaM String := do
+  let ids ← (← listItems e).mapM fun s => return toString (← sameIndex (l.sorts.map (·.2)) s)
+  return wireList "nsNil" "nsCons" ids
+
+private def field (name : Name) (e : Expr) : MetaM Expr := mkAppM name #[e]
+
+private def dumpAnswer (l : Layout) (answer : Expr) : MetaM String := do
+  let sorts ← dumpSorts l (← field ``Substitution.Answer.parameters answer)
+  let images ← (← vectorItems (← field ``Substitution.Answer.images answer)).mapM
+    (fun (_, t) => dumpTerm l t)
+  return s!"answer({sorts},{wireList "tsNil" "tsCons" images})"
+
+private def registeredOperators (l : Layout) : MetaM (Array (Nat × Nat × Expr)) := do
+  let mut result := #[]
+  for (_, tag) in l.sorts do
+    let ty ← whnf (← mkAppM ``Signature.ACUOp #[l.signature, tag])
+    let some name := ty.getAppFn.constName? | throwError "expected finite registered ACU operators"
+    for ctor in (← getConstInfoInduct name).ctors do
+      let op := mkConst ctor
+      if ← isDefEq (← inferType op) ty then
+        let add ← mkAppM ``Signature.add #[l.signature, op]
+        let zero ← mkAppM ``Signature.zero #[l.signature, op]
+        result := result.push (← sameIndex (l.symbols.map (·.2)) add,
+          ← sameIndex (l.symbols.map (·.2)) zero, op)
+  return result
+
+private def genericRequest (l : Layout) (problem reference proposed : Expr)
+    (hints : String := "hsNil") : MetaM String := do
+  let ops ← registeredOperators l
+  let ops := wireList "opsNil" "opsCons" (ops.map fun (a, z, _) => s!"acu({a},{z})")
+  let inputSorts := (← inferType problem).getAppArgs.back!
+  let p := s!"problem({← dumpSorts l inputSorts},{← dumpTerm l (← field ``Substitution.Problem.left problem)}," ++
+    s!"{← dumpTerm l (← field ``Substitution.Problem.right problem)})"
+  let ref ← (← listItems reference).mapM (dumpAnswer l)
+  let prop ← (← listItems proposed).mapM (dumpAnswer l)
+  return s!"gRequest({ops},{p},{wireList "asNil" "asCons" ref},{wireList "asNil" "asCons" prop},{hints})"
+
+def dumpGeneric (reg problem reference proposed : Expr) : MetaM String := do
+  genericRequest (← layout reg) problem reference proposed
+
+/-- Reject changed requests, multiple results, missing exit markers and unknown
+reply shapes. Equality/index/binding checks follow in the typed decoder. -/
+def genericReply (request stdout : String) : Except String (Wire × Wire) := do
+  let [before, after] := stdout.splitOn "G:GenericReply --> "
+    | throw "expected exactly one generic certificate search result"
+  unless (before.splitOn "Solution 1 (state ").length == 2 do throw "missing search solution heading"
+  let [term, exit] := after.splitOn "Bye." | throw "truncated generic certificate output"
+  unless exit.trim.isEmpty do throw "trailing generic certificate output"
+  let .app "gProposed" #[echo, .app "gCertificate" #[sound, cover]] ←
+      Maude.Certification.parseNode term | throw "unsupported generic certificate reply"
+  unless echo == (← Maude.Certification.parseNode request) do throw "generic request echo changed"
+  return (sound, cover)
+
+private partial def wireItems (nil cons : String) : Wire → MetaM (Array Wire)
+  | .app n #[] => if n == nil then pure #[] else throwError "unexpected certificate list tag {n}"
+  | .app n #[a, rest] => do
+    unless n == cons do throwError "unexpected certificate list tag {n}"
+    return #[a] ++ (← wireItems nil cons rest)
+  | _ => throwError "malformed certificate list"
+
+private def contextNames (l : Layout) (Γ : Expr) : MetaM (Array Name) := do
+  (← listItems Γ).mapM fun tag => do
+    let i ← sameIndex (l.sorts.map (·.2)) tag
+    return l.sorts[i]!.1
+
+private partial def decodeTerm (l : Layout) (Γ : Expr) (wire : Wire) : MetaM (Expr × Expr) := do
+  match wire with
+  | .app "v" #[.num i] =>
+    let names ← contextNames l Γ
+    let some name := names[i]? | throwError "certificate variable index out of bounds"
+    let s ← l.tag name
+    return (s, mkAppN (mkConst ``Substitution.Term.var)
+      #[l.sortType, l.signature, Γ, s, ← variableExpr l names i])
+  | .app "node" #[.num i, args] =>
+    let some (_, f) := l.symbols[i]? | throwError "certificate constructor index out of bounds"
+    let ty ← inferType f
+    let sorts := ty.getAppArgs[ty.getAppArgs.size - 2]!
+    let s := ty.getAppArgs.back!
+    let expected ← listItems sorts
+    let raw ← wireItems "tsNil" "tsCons" args
+    unless raw.size == expected.size do throwError "certificate constructor arity changed"
+    let decoded ← raw.mapM (decodeTerm l Γ)
+    for i in [:decoded.size] do
+      unless ← isDefEq decoded[i]!.1 expected[i]! do throwError "certificate constructor argument sort changed"
+    return (s, mkAppN (mkConst ``Substitution.Term.app)
+      #[l.sortType, l.signature, Γ, sorts, s, f, ← terms l Γ decoded])
+  | _ => throwError "unsupported term in certificate"
+
+private def appView (e : Expr) : MetaM (Expr × Expr) := do
+  let e ← whnf e
+  unless e.getAppFn.constName? == some ``Substitution.Term.app do
+    throwError "equality step expects a constructor application"
+  let a := e.getAppArgs
+  return (a[a.size - 2]!, a.back!)
+
+private def operatorOf (l : Layout) (term : Expr) : MetaM Expr := do
+  let (f, _) ← appView term
+  let id ← sameIndex (l.symbols.map (·.2)) f
+  let some (_, _, op) := (← registeredOperators l).find? (·.1 == id)
+    | throwError "equality step uses an unregistered ACU operator"
+  return op
+
+mutual
+  private partial def decodeEquality (l : Layout) (Γ left right : Expr) (wire : Wire) : MetaM Expr := do
+    let s := (← inferType left).getAppArgs.back!
+    let typeArgs := #[l.sortType, l.signature, Γ]
+    let value ← match wire with
+      | .app "eRefl" #[] => pure <| mkAppN (mkConst ``Substitution.Equality.refl) (typeArgs ++ #[s, left])
+      | .app "eSym" #[p] => do
+        let p ← decodeEquality l Γ right left p
+        pure <| mkAppN (mkConst ``Substitution.Equality.symm) (typeArgs ++ #[s, right, left, p])
+      | .app "eTrans" #[middle, p, q] => do
+        let (t, mid) ← decodeTerm l Γ middle
+        unless ← isDefEq s t do throwError "transitivity midpoint sort changed"
+        let p ← decodeEquality l Γ left mid p
+        let q ← decodeEquality l Γ mid right q
+        pure <| mkAppN (mkConst ``Substitution.Equality.trans) (typeArgs ++ #[s, left, mid, right, p, q])
+      | .app "eCongr" #[ps] => do
+        let (f, as) ← appView left
+        let (g, bs) ← appView right
+        unless ← isDefEq f g do throwError "congruence constructor changed"
+        let ss := (← inferType as).getAppArgs.back!
+        let ps ← decodeEqualities l Γ as bs ps
+        pure <| mkAppN (mkConst ``Substitution.Equality.congr) (typeArgs ++ #[ss, s, f, as, bs, ps])
+      | .app "eComm" #[] => do
+        let op ← operatorOf l left
+        let (_, as) ← appView left
+        let xs ← vectorItems as
+        unless xs.size == 2 do throwError "commutativity requires two arguments"
+        pure <| mkAppN (mkConst ``Substitution.Equality.comm) (typeArgs ++ #[s, op, xs[0]!.2, xs[1]!.2])
+      | .app "eAssoc" #[] => do
+        let op ← operatorOf l left
+        let (_, as) ← appView left
+        let xs ← vectorItems as
+        unless xs.size == 2 do throwError "associativity requires two arguments"
+        let (_, bs) ← appView xs[0]!.2
+        let ys ← vectorItems bs
+        unless ys.size == 2 do throwError "associativity requires a nested binary application"
+        pure <| mkAppN (mkConst ``Substitution.Equality.assoc)
+          (typeArgs ++ #[s, op, ys[0]!.2, ys[1]!.2, xs[1]!.2])
+      | .app "eUnit" #[] => do
+        let op ← operatorOf l left
+        let (_, as) ← appView left
+        let xs ← vectorItems as
+        unless xs.size == 2 do throwError "unit step requires two arguments"
+        pure <| mkAppN (mkConst ``Substitution.Equality.unit) (typeArgs ++ #[s, op, xs[1]!.2])
+      | _ => throwError "unsupported equality certificate tag"
+    let expected := mkAppN (mkConst ``Substitution.Equality) (typeArgs ++ #[s, left, right])
+    unless ← isDefEq (← inferType value) expected do throwError "equality trace endpoints do not match"
+    return value
+
+  private partial def decodeEqualities (l : Layout) (Γ left right : Expr) (wire : Wire) : MetaM Expr := do
+    let xs ← vectorItems left
+    let ys ← vectorItems right
+    let raw ← wireItems "esNil" "esCons" wire
+    unless xs.size == ys.size && xs.size == raw.size do throwError "image equality trace count changed"
+    let mut result := mkAppN (mkConst ``Substitution.Equalities.nil) #[l.sortType, l.signature, Γ]
+    let mut as := mkAppN (mkConst ``Substitution.Terms.nil) #[l.sortType, l.signature, Γ]
+    let mut bs := as
+    let mut ss := []
+    for i in (List.range xs.size).reverse do
+      let (s, a) := xs[i]!
+      let (t, b) := ys[i]!
+      unless ← isDefEq s t do throwError "image equality sort changed"
+      let p ← decodeEquality l Γ a b raw[i]!
+      result := mkAppN (mkConst ``Substitution.Equalities.cons)
+        #[l.sortType, l.signature, Γ, s, ← mkListLit l.sortType ss, a, b, as, bs, p, result]
+      as ← terms l Γ (xs.extract i xs.size)
+      bs ← terms l Γ (ys.extract i ys.size)
+      ss := s :: ss
+    return result
+end
+
+private def answerFields (answer : Expr) : MetaM (Expr × Expr) := do
+  return (← field ``Substitution.Answer.parameters answer, ← field ``Substitution.Answer.images answer)
+
+/-- Inverse of the native-term reifier, using distinct target/source variable
+names. Repeated indices produce the SAME Maude variable at every occurrence. -/
+private partial def nativeTerm (l : Layout) (variables : Array (String × Name))
+    (e : Expr) : MetaM MaudeTerm := do
+  let e ← whnf e
+  let a := e.getAppArgs
+  match e.getAppFn.constName? with
+  | some ``Substitution.Term.var =>
+    let i ← variableIndex a.back!
+    let some (name, sort) := variables[i]? | throwError "native match variable out of bounds"
+    return .variable name sort
+  | some ``Substitution.Term.app =>
+    let id ← sameIndex (l.symbols.map (·.2)) a[a.size - 2]!
+    let result ← sameIndex (l.sorts.map (·.2)) a[4]!
+    let args ← (← vectorItems a.back!).mapM (fun (_, t) => nativeTerm l variables t)
+    return .application l.symbols[id]!.1 l.sorts[result]!.1 args
+  | _ => throwError "expected a sorted constructor term for native matching"
+
+/-- Reuse the production Maude exporter/parser/matcher. A synthetic FREE tuple
+frames all input images in one query, so one β must satisfy every coordinate.
+Source parameters remain rigid subject variables; target parameters alone may
+be assigned. This is search DATA only; no matcher result is trusted as a proof.
+Unused target parameters are rejected rather than assigned fabricated values. -/
+private def nativeFactorHints (l : Layout) (problem reference proposed : Expr) : MetaM String := do
+  let root ← sameIndex (l.sorts.map (·.2)) (← field ``Substitution.Problem.sort problem)
+  let mut sorts ← Maude.collectSignature (mkConst l.sorts[root]!.1)
+  let inputs ← contextNames l (← inferType problem).getAppArgs.back!
+  let used := (sorts.flatMap fun s => #[s.leanName] ++ s.constructors.map (·.leanName)).map
+    (fun n => match n with | .str _ s => s | _ => n.toString)
+  let mut suffix := 0
+  while used.contains s!"CertificationImageVector{suffix}" ||
+      used.contains s!"certificationImages{suffix}" do
+    suffix := suffix + 1
+  let frameSort := Name.mkSimple s!"CertificationImageVector{suffix}"
+  let frame := Name.mkSimple s!"certificationImages{suffix}"
+  sorts := sorts.push {
+    leanName := frameSort
+    constructors := #[{ leanName := frame, fields := inputs, result := frameSort }] }
+  let operators ← (← registeredOperators l).mapM fun (add, unitId, _) => do
+    return ({ leanName := l.symbols[add]!.1, laws :=
+      #[.associative, .commutative, .identity l.symbols[unitId]!.1] } : OperatorDecl)
+  let model := Maude.renderModule sorts operators
+  let targets ← listItems proposed
+  let mut hints := #[]
+  for source in ← listItems reference do
+    let (Γ, sourceImages) ← answerFields source
+    let names ← contextNames l Γ
+    let fixed := names.mapIdx fun i s => (s!"S{i}", s)
+    let subject ← (← vectorItems sourceImages).mapM (fun (_, t) => nativeTerm l fixed t)
+    let mut hint := "hFailed"
+    for i in [:targets.size] do
+      let (Δ, targetImages) ← answerFields targets[i]!
+      let names ← contextNames l Δ
+      let bindable := names.mapIdx fun j s => (s!"T{j}", s)
+      let pattern ← (← vectorItems targetImages).mapM (fun (_, t) => nativeTerm l bindable t)
+      -- expression/leanName are unused by the raw parser; they carry no proof.
+      let variables := (bindable ++ fixed).mapIdx fun j (name, sort) =>
+        ({ expression := .bvar j, leanName := .mkSimple name, maudeName := name, sort } : MaudeVariable)
+      let candidates ← Maude.matchTranslated sorts model variables
+        (.application frame frameSort pattern) (.application frame frameSort subject)
+      for candidate in candidates do
+        let mut beta := #[]
+        let mut complete := true
+        for (name, sort) in bindable do
+          match candidate.bindings.find? (·.domain.maudeName == name) with
+          | none => complete := false
+          | some binding =>
+            unless binding.domain.sort == sort do throwError "native matcher changed a parameter sort"
+            let (_, term) ← reify l fixed Γ binding.image
+            beta := beta.push (← dumpTerm l term)
+        if complete then
+          hint := s!"hint({i},{wireList "tsNil" "tsCons" beta})"
+          break
+      if hint != "hFailed" then break
+    hints := hints.push hint
+  return wireList "hsNil" "hsCons" hints
+
+/-- Decode DATA only. Theorem selection stays outside this boundary: semantic
+completeness of the reference is supplied by the general Exchange/Mutate rules. -/
+private def decodeGeneric (l : Layout) (problem reference proposed : Expr)
+    (soundWire coverWire : Wire) : MetaM (Expr × Expr) := do
+  let inputs := (← inferType problem).getAppArgs.back!
+  let answerType := mkAppN (mkConst ``Substitution.Answer) #[l.sortType, l.signature, inputs]
+  let proposals ← listItems proposed
+  let sources ← listItems reference
+  let soundRaw ← wireItems "esNil" "esCons" soundWire
+  let coverRaw ← wireItems "fsNil" "fsCons" coverWire
+  unless soundRaw.size == proposals.size && coverRaw.size == sources.size do
+    throwError "certificate answer/reference count changed"
+  let left ← field ``Substitution.Problem.left problem
+  let right ← field ``Substitution.Problem.right problem
+  let mut sound := mkAppN (mkConst ``Substitution.Soundness.nil) #[l.sortType, l.signature, inputs, problem]
+  for i in (List.range proposals.size).reverse do
+    let answer := proposals[i]!
+    let (Γ, images) ← answerFields answer
+    let a ← mkAppM ``Substitution.Term.subst #[images, left]
+    let b ← mkAppM ``Substitution.Term.subst #[images, right]
+    let p ← decodeEquality l Γ a b soundRaw[i]!
+    let rest ← mkListLit answerType (proposals.extract (i + 1) proposals.size).toList
+    sound := mkAppN (mkConst ``Substitution.Soundness.cons)
+      #[l.sortType, l.signature, inputs, problem, answer, rest, p, sound]
+  let mut cover := mkAppN (mkConst ``Substitution.Coverage.nil) #[l.sortType, l.signature, inputs, proposed]
+  for i in (List.range sources.size).reverse do
+    let .app "factor" #[.num index, betaRaw, equalRaw] := coverRaw[i]!
+      | throwError "unsupported factorization certificate"
+    let some target := proposals[index]? | throwError "coverage answer index out of bounds"
+    let source := sources[i]!
+    let (Γ, images) ← answerFields source
+    let (Δ, targetImages) ← answerFields target
+    let expected ← listItems Δ
+    let betaRaw ← wireItems "tsNil" "tsCons" betaRaw
+    unless betaRaw.size == expected.size do throwError "factorization parameter count changed"
+    let betaItems ← betaRaw.mapM (decodeTerm l Γ)
+    for j in [:expected.size] do
+      unless ← isDefEq betaItems[j]!.1 expected[j]! do throwError "factorization parameter sort changed"
+    let beta ← terms l Γ betaItems
+    let composed ← mkAppM ``Substitution.Terms.subst #[targetImages, beta]
+    let ps ← decodeEqualities l Γ images composed equalRaw
+    let factor := mkAppN (mkConst ``Substitution.Factor.mk)
+      #[l.sortType, l.signature, inputs, source, target, beta, ps]
+    let n := mkNatLit proposals.size
+    let bound ← mkDecideProof (← mkLt (mkNatLit index) n)
+    let fin := mkAppN (mkConst ``Fin.mk) #[n, mkNatLit index, bound]
+    let rest ← mkListLit answerType (sources.extract (i + 1) sources.size).toList
+    cover := mkAppN (mkConst ``Substitution.Coverage.cons)
+      #[l.sortType, l.signature, inputs, proposed, source, rest, fin, factor, cover]
+  -- Meta.check catches ill-typed constructor applications too; kernel checking
+  -- emitted safe definitions remains the final acceptance boundary.
+  check sound
+  check cover
+  return (sound, cover)
+
+structure GenericFetched where
+  request : String
+  output : String
+
+/-- Read-only replay, also used by adversarial tests. A failed check emits no
+definition and cannot introduce a semantic assumption. -/
+def checkGenericData (reg problem reference proposed : Expr) (sound cover : Wire) : MetaM Unit := do
+  let _ ← decodeGeneric (← layout reg) problem reference proposed sound cover
+
+def fetchGeneric (pre : Name) (reg problem reference proposed : Expr)
+    (engine : String) : MetaM GenericFetched := do
+  let l ← layout reg
+  let request ← genericRequest l problem reference proposed
+    (← nativeFactorHints l problem reference proposed)
+  let output ← Maude.runMaude engine
+    s!"search [1, 64] in GENERIC-CERTIFICATION : gStart({request}) =>! G:GenericReply ."
+  let (soundRaw, coverRaw) ← Lean.ofExcept (genericReply request output)
+  let (sound, cover) ← decodeGeneric l problem reference proposed soundRaw coverRaw
+  emitDefinition (pre ++ `soundness) sound
+  emitDefinition (pre ++ `coverage) cover
+  return { request, output }
 
 end External
 
@@ -2652,8 +3059,38 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let source := System.FilePath.mk (← Lean.getFileName)
   let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
   let context := Replay.External.contextDump profile oneTailContext
-  let fetched ← Replay.External.fetch model engine sorts left right context
-  Replay.External.emit `DirectCertification.Bakery.fetched fetched (Lean.mkConst ``registration) left right
+  let (nativeOutput, nativeAnswers) ← Replay.External.fetchNative model sorts left right
+  Replay.External.emitAnswers `DirectCertification.Bakery.fetched
+    (Lean.mkConst ``registration) left right nativeAnswers
+  let reference ← Lean.Elab.Term.elabTerm
+    (← `(Replay.Reference.exchangeBranches oneTailContext Operator.acu)) none
+  let generic ← Replay.External.fetchGeneric `DirectCertification.Bakery.fetched
+    (Lean.mkConst ``registration) (Lean.mkConst `DirectCertification.Bakery.fetched.problem)
+    reference (Lean.mkConst `DirectCertification.Bakery.fetched.answers) engine
+  unless !(Replay.External.genericReply generic.request (generic.output.replace "Bye." "")).isOk do
+    throwError "accepted a truncated generic reply"
+  unless !(Replay.External.genericReply generic.request (generic.output.replace "gRequest(" "changedRequest(")).isOk do
+    throwError "accepted a changed generic request"
+  let (sound, cover) ← Lean.ofExcept (Replay.External.genericReply generic.request generic.output)
+  let .app "esCons" #[_, soundRest] := sound | throwError "missing generic soundness trace"
+  let .app "fsCons" #[.app "factor" #[_, beta, images], coverRest] := cover
+    | throwError "missing generic coverage trace"
+  let badCases := [
+    (Maude.Certification.Node.app "esCons" #[.app "eRefl" #[], soundRest], cover),
+    (sound, .app "fsCons" #[.app "factor" #[.num 9, beta, images], coverRest]),
+    (sound, .app "fsCons" #[.app "factor" #[.num 0, beta, images], coverRest]),
+    (sound, .app "fsCons" #[.app "factor" #[.num 1, .app "tsNil" #[], images], coverRest]),
+    (sound, .app "fsNil" #[])]
+  for (badSound, badCover) in badCases do
+    let rejected ← try
+      Replay.External.checkGenericData (Lean.mkConst ``registration)
+        (Lean.mkConst `DirectCertification.Bakery.fetched.problem) reference
+        (Lean.mkConst `DirectCertification.Bakery.fetched.answers) badSound badCover
+      pure false
+    catch _ => pure true
+    unless rejected do throwError "accepted corrupt generic equality/index/β/count data"
+  let fetched ← Replay.External.fetchControlFixture engine sorts left right nativeOutput context
+  Replay.External.emitControlFixture `DirectCertification.Bakery.fetched fetched
   Lean.logInfo s!"Native families: {fetched.families.map Replay.Family.dump}; fetched trace: {fetched.trace.dump}"
 
   -- Tamper with actual native bindings, not a toy mock parser input.
@@ -2732,8 +3169,26 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let source := System.FilePath.mk (← Lean.getFileName)
   let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
   let context := Replay.External.contextDump profile criticalHeadContext
-  let result ← Replay.External.fetch model engine sorts left right context true
-  Replay.External.emit `DirectCertification.Bakery.fetchedExitCritical result (Lean.mkConst ``registration) left right
+  let (nativeOutput, nativeAnswers) ← Replay.External.fetchNative model sorts left right
+  Replay.External.emitAnswers `DirectCertification.Bakery.fetchedExitCritical
+    (Lean.mkConst ``registration) left right nativeAnswers
+  let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.fetchedExitCritical
+    (Lean.mkConst ``registration) (Lean.mkConst `DirectCertification.Bakery.fetchedExitCritical.problem)
+    (Lean.mkConst `DirectCertification.Bakery.fetchedExitCritical.answers)
+    (Lean.mkConst `DirectCertification.Bakery.fetchedExitCritical.answers) engine
+  -- This request needs a genuine nonidentity β: crossed source tail maps to
+  -- the matched target's free process parameter. No family tag is transmitted.
+  -- This declaration was just emitted, so resolve its Name directly rather
+  -- than capturing a not-yet-existing identifier in a hygienic quotation.
+  let index ← Lean.Elab.Term.elabTerm (← `((⟨1, of_decide_eq_true rfl⟩ : Fin 2))) none
+  let matched ← Lean.Meta.mkAppM ``List.get
+    #[Lean.mkConst `DirectCertification.Bakery.fetchedExitCritical.answers, index]
+  let matchedOnly ← Lean.Meta.mkListLit (← Lean.Meta.inferType matched) [matched]
+  let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.exitDominance
+    (Lean.mkConst ``registration) (Lean.mkConst `DirectCertification.Bakery.fetchedExitCritical.problem)
+    (Lean.mkConst `DirectCertification.Bakery.fetchedExitCritical.answers) matchedOnly engine
+  let result ← Replay.External.fetchControlFixture engine sorts left right nativeOutput context true
+  Replay.External.emitControlFixture `DirectCertification.Bakery.fetchedExitCritical result
   Lean.logInfo s!"Exit/critical native query: {left.term.render} =? {right.term.render}"
   Lean.logInfo s!"Native families: {result.families.map Replay.Family.dump}; fetched trace: {result.trace.dump}"
 
@@ -2808,9 +3263,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
     let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
     let context := Replay.External.contextDump profile heads.outer
-    let result ← Replay.External.fetch model engine sorts left right context true
+    let (nativeOutput, nativeAnswers) ← Replay.External.fetchNative model sorts left right
+    Replay.External.emitAnswers pre (Lean.mkConst ``registration) left right nativeAnswers
+    let _ ← Replay.External.fetchGeneric pre (Lean.mkConst ``registration)
+      (Lean.mkConst (pre ++ `problem)) (Lean.mkConst (pre ++ `answers)) (Lean.mkConst (pre ++ `answers)) engine
+    let result ← Replay.External.fetchControlFixture engine sorts left right nativeOutput context true
       (some (heads.left.code profile, heads.right.code profile))
-    Replay.External.emit pre result (Lean.mkConst ``registration) left right
+    Replay.External.emitControlFixture pre result
     Lean.logInfo s!"{pre}: {left.term.render} =? {right.term.render}"
     Lean.logInfo s!"Native families: {result.families.map Replay.Family.dump}; fetched trace: {result.trace.dump}"
     -- An oriented crossed answer must not be accepted with its tails swapped.
@@ -2855,14 +3314,122 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let rhs ← Lean.Elab.Term.elabTerm (← `(fun (A R : ProcSet) => ProcSet.union A R)) none
   let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
   let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
-  let output ← Maude.runMaude model s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
-  let answers ← Lean.ofExcept (Maude.parseUnifiers sorts (left.variables ++ right.variables) output)
+  let (_, answers) ← Replay.External.fetchNative model sorts left right
   Replay.External.emitAnswers `DirectCertification.Bakery.fetchedMutation
     (Lean.mkConst ``registration) left right answers
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  let reference ← Lean.Elab.Term.elabTerm
+    (← `([Replay.Reference.mutationAnswer (sig := Sig) Operator.acu])) none
+  let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.fetchedMutation
+    (Lean.mkConst ``registration) (Lean.mkConst `DirectCertification.Bakery.fetchedMutation.problem)
+    reference (Lean.mkConst `DirectCertification.Bakery.fetchedMutation.answers) engine
   Lean.logInfo s!"Four-variable native query produced {answers.size} answer(s)."
 
 #guard fetchedMutation.answers.length == 1
 #guard (fetchedMutation.answers.get ⟨0, of_decide_eq_true rfl⟩).parameters.length == 4
+
+/- Native matching regression: the whole vector
+     [idle + Z, Z] <=? [B + (idle + C), B + C]
+   needs associative regrouping, not just binary swaps. Both coordinates must
+   share the SAME β(Z) = B+C. Changing the second coordinate to B+B must fail.
+   This is a factorization test, NOT a claim that these branches are complete.
+-/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let problem ← Lean.Elab.Term.elabTerm
+    (← `(({ sort := Tag.s2, left := .var .here, right := .var .here } :
+      Substitution.Problem Sig [Tag.s2, Tag.s2]))) none
+  let proposed ← Lean.Elab.Term.elabTerm
+    (← `(([{
+      parameters := [Tag.s2]
+      images := .cons
+        (Substitution.add Operator.acu
+          (.app Symbol.c6 (.cons (.app Symbol.c2 .nil) .nil)) (.var .here))
+        (.cons (.var .here) .nil)
+    }] : List (Substitution.Answer Sig [Tag.s2, Tag.s2])))) none
+  let reference ← Lean.Elab.Term.elabTerm
+    (← `(([{
+      parameters := [Tag.s2, Tag.s2]
+      images := .cons
+        (Substitution.add Operator.acu (.var .here)
+          (Substitution.add Operator.acu
+            (.app Symbol.c6 (.cons (.app Symbol.c2 .nil) .nil)) (.var (.there .here))))
+        (.cons (Substitution.add Operator.acu (.var .here) (.var (.there .here))) .nil)
+    }] : List (Substitution.Answer Sig [Tag.s2, Tag.s2])))) none
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.regrouping
+    (Lean.mkConst ``registration) problem reference proposed engine
+  let incoherent ← Lean.Elab.Term.elabTerm
+    (← `(([{
+      parameters := [Tag.s2, Tag.s2]
+      images := .cons
+        (Substitution.add Operator.acu (.var .here)
+          (Substitution.add Operator.acu
+            (.app Symbol.c6 (.cons (.app Symbol.c2 .nil) .nil)) (.var (.there .here))))
+        (.cons (Substitution.add Operator.acu (.var .here) (.var .here)) .nil)
+    }] : List (Substitution.Answer Sig [Tag.s2, Tag.s2])))) none
+  let rejected ← try
+    let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.incoherent
+      (Lean.mkConst ``registration) problem incoherent proposed engine
+    pure false
+  catch _ => pure true
+  unless rejected do throwError "native matching lost shared-variable correlations"
+
+/- A genuinely NONLINEAR problem: X occurs twice in the same ACU sum.
+   Native unify returns X=idle+Z, Y=idle+(Z+Z). Nothing compacts this into a
+   preselected family. Generic Maude replay proves soundness of the actual
+   answer; the completeness proof below applies general Mutate/Split rules.
+   An empty reference here requests SOUNDNESS ONLY, not completeness.+-/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let sorts ← Maude.collectSignature (Lean.mkConst ``Conf)
+  let model := Maude.renderModule sorts (← Maude.inspectTheory (Lean.mkConst ``BakeryTheory))
+  let lhs ← Lean.Elab.Term.elabTerm (← `(fun (X : ProcSet) => ProcSet.union X X)) none
+  let rhs ← Lean.Elab.Term.elabTerm
+    (← `(fun (Y : ProcSet) => ProcSet.union (ProcSet.singleton Mode.idle) Y)) none
+  let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
+  let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
+  let (_, answers) ← Replay.External.fetchNative model sorts left right
+  Replay.External.emitAnswers `DirectCertification.Bakery.fetchedNonlinear
+    (Lean.mkConst ``registration) left right answers
+  let proposed := Lean.mkConst `DirectCertification.Bakery.fetchedNonlinear.answers
+  let answerType := (← Lean.Meta.inferType proposed).getAppArgs.back!
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  let _ ← Replay.External.fetchGeneric `DirectCertification.Bakery.fetchedNonlinear
+    (Lean.mkConst ``registration) (Lean.mkConst `DirectCertification.Bakery.fetchedNonlinear.problem)
+    (← Lean.Meta.mkListLit answerType []) proposed engine
+  Lean.logInfo s!"Nonlinear native query produced {answers.size} answer(s)."
+
+#guard fetchedNonlinear.answers.length == 1
+#guard (fetchedNonlinear.answers.get ⟨0, of_decide_eq_true rfl⟩).parameters.length == 1
+
+-- Replay the primitive UNIT rule as well as the Assoc/Comm/Congruence steps
+-- exercised above. This is typed signature data, not a Bakery-specific rule.
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let problem ← Lean.Elab.Term.elabTerm
+    (← `(({
+      sort := Tag.s2
+      left := Substitution.add Operator.acu (Substitution.zero Operator.acu) (.var .here)
+      right := .var .here
+    } : Substitution.Problem Sig [Tag.s2]))) none
+  let answers ← Lean.Elab.Term.elabTerm
+    (← `(([{ parameters := [Tag.s2], images := Substitution.Terms.identity [Tag.s2] }] :
+      List (Substitution.Answer Sig [Tag.s2])))) none
+  let source := System.FilePath.mk (← Lean.getFileName)
+  let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
+  let result ← Replay.External.fetchGeneric `DirectCertification.Bakery.unitReplay
+    (Lean.mkConst ``registration) problem answers answers engine
+  -- Search itself must fail on a missing answer (not just reject its parser).
+  let answerType ← Lean.Elab.Term.elabTerm (← `(Substitution.Answer Sig [Tag.s2])) none
+  let missing ← Replay.External.dumpGeneric (Lean.mkConst ``registration)
+    problem answers (← Lean.Meta.mkListLit answerType [])
+  let failed ← Maude.runMaude engine
+    s!"search [1, 64] in GENERIC-CERTIFICATION : gStart({missing}) =>! G:GenericReply ."
+  unless !(Replay.External.genericReply missing failed).isOk do
+    throwError "generic search accepted missing required answer"
+  unless (Replay.External.genericReply result.request result.output).isOk do
+    throwError "generic search rejected the unit certificate"
 
 /- Checker regression tests, not helper lemmas for the certification proof.
    None of these checks is relied on as an oracle: replay_exact is proved above
@@ -3029,13 +3596,12 @@ theorem wake_critical_certificate (next serving next' serving' : Nat) (P Q : Pro
    then matched, so Factor selects answer indices 1 then 0. Each β is identity
    here, and ALL input images are checked by the generic Equalities.refl rule.
 
-   Soundness checks the actual substituted equation for BOTH proposals:
-     crossed: the derived Assoc/Comm equality exchange_tail;
-     matched: reflexivity.
+   Soundness checks the actual substituted equation for BOTH proposals, using
+   primitive Assoc/Comm/Congruence traces GENERATED BY MAUDE.
    Completeness combines the general Exchange metatheorem and those two Factor
    leaves. The proof is an ordinary term; no tactic/semantic user bridge/hole.
-   This milestone writes the generic certificate data here by hand. Moving its
-   generation/dump to object-level Maude is separate from proving its semantics.
+   Native matching supplies indices/β; object-level Maude emits equality steps.
+   The theorem supplies reference completeness, never an external success flag.
 -/
 theorem one_tail_native_certificate :
     ∀ values, fetched.problem.Holds registration values ↔
@@ -3046,35 +3612,26 @@ theorem one_tail_native_certificate :
       ((Replay.replayHead profile registration oneTailContext
         (.decompose 0 (.decompose 0 .rigid))).get (of_decide_eq_true rfl)).down
       ((Replay.atomic profile registration oneTailContext).get (of_decide_eq_true rfl)).down)
-    (.cons (Substitution.Equality.exchange_tail (sig := Sig) Operator.acu _ _ _) (.cons (.refl _) .nil))
-    (.cons ⟨1, of_decide_eq_true rfl⟩
-      ⟨Substitution.Terms.identity _, .refl _⟩
-      (.cons ⟨0, of_decide_eq_true rfl⟩ ⟨Substitution.Terms.identity _, .refl _⟩ .nil))
+    fetched.soundness fetched.coverage
 
 -- The same general soundness-data constructors check the full framed answers.
 -- There is no special soundness rule for exit, enter, wake, Conf, or ProcSet.
 example : Substitution.Soundness fetchedExitCritical.problem fetchedExitCritical.answers :=
-  .cons (.refl _) (.cons (.refl _) .nil)
+  fetchedExitCritical.soundness
 
 example : Substitution.Soundness fetchedEnterCritical.problem fetchedEnterCritical.answers :=
-  .cons (Substitution.Equality.congr (sig := Sig) Symbol.c8 (.cons (.refl _) (.cons (.refl _)
-    (.cons (Substitution.Equality.exchange_tail (sig := Sig) Operator.acu _ _ _) .nil)))) .nil
+  fetchedEnterCritical.soundness
 
 example : Substitution.Soundness fetchedWakeCritical.problem fetchedWakeCritical.answers :=
-  .cons (Substitution.Equality.congr (sig := Sig) Symbol.c8 (.cons (.refl _) (.cons (.refl _)
-    (.cons (Substitution.Equality.exchange_tail (sig := Sig) Operator.acu _ _ _) .nil)))) .nil
+  fetchedWakeCritical.soundness
 
-/- A NON-IDENTITY factorization: native exit's redundant crossed answer (0)
-   is an instance of its general matched answer (1). β maps the third target
-   parameter to the source's WHOLE process image, not just to another variable.
-   This uses only the generic Factor constructor. No matched/crossed flag is
-   inspected by Factor or its semantic theorem. -/
-example : Substitution.Factor
-    (fetchedExitCritical.answers.get ⟨0, of_decide_eq_true rfl⟩)
-    (fetchedExitCritical.answers.get ⟨1, of_decide_eq_true rfl⟩) :=
-  ⟨.cons (.var .here) (.cons (.var (.there .here))
-    (.cons ((fetchedExitCritical.answers.get ⟨0, of_decide_eq_true rfl⟩).images.get
-      (.there (.there .here))) .nil)), .refl _⟩
+/- A NON-IDENTITY factorization, now FOUND AND DUMPED BY MAUDE: native exit's
+   redundant crossed answer (0) is an instance of its matched answer (1).
+   β maps the target's process parameter to the source's WHOLE process image.
+   This coverage alone does not assert that the reference is complete. -/
+example : Substitution.Coverage
+    [fetchedExitCritical.answers.get ⟨1, of_decide_eq_true rfl⟩]
+    fetchedExitCritical.answers := exitDominance.coverage
 
 /- A further native problem that the old two-template recognizer cannot accept:
      X+Y =B A+R.
@@ -3088,8 +3645,66 @@ theorem mutation_native_certificate :
   Substitution.exact_of_coverage registration fetchedMutation.problem
     [Replay.Reference.mutationAnswer Operator.acu] fetchedMutation.answers
     (Replay.Reference.mutation_complete profile registration Operator.acu)
-    (.cons (Substitution.Equality.matrix (sig := Sig) Operator.acu _ _ _ _) .nil)
-    (.cons ⟨0, of_decide_eq_true rfl⟩ ⟨Substitution.Terms.identity _, .refl _⟩ .nil)
+    fetchedMutation.soundness fetchedMutation.coverage
+
+/- NONLINEAR completeness, with no problem-specific lemma or reference family.
+
+   General rule trace (the same X is retained in BOTH residual equations):
+     Mutate(X+X = a+Y)
+       X = P+Q, X = R+T, a = P+R, Y = Q+T
+     SplitAtom(P+R = a)
+       branch 1: P=0, R=a  -> X=a+T, Y=a+(T+T) -> Emit Z=T
+       branch 2: P=a, R=0  -> X=a+Q, Y=a+(Q+Q) -> Emit Z=Q
+
+   Thus sharing is an equation to preserve, NOT a reason to treat occurrences
+   as independent variables. Both branches are covered by the actual native
+   answer. The proof is a direct application of GENERAL Mutate/Split and
+   equality rules. Its converse replays Maude's finite soundness trace.
+
+   This demonstrates nonlinear certification, not a general automated worklist
+   algorithm: this completeness trace is still written here, not fetched.
+-/
+theorem nonlinear_native_certificate :
+    ∀ values, fetchedNonlinear.problem.Holds registration values ↔
+      Substitution.Solutions registration fetchedNonlinear.answers values :=
+  fun values => Iff.intro
+    (fun input =>
+      let X : ProcSet := values.1
+      let Y : ProcSet := values.2.1
+      let a := ProcSet.singleton Mode.idle
+      let emit : ∀ Z : ProcSet,
+          X =[BakeryTheory.certified] ProcSet.union a Z →
+          Y =[BakeryTheory.certified] ProcSet.union a (ProcSet.union Z Z) →
+          Substitution.Solutions registration fetchedNonlinear.answers values :=
+        fun Z hx hy =>
+          ⟨fetchedNonlinear.answers.get ⟨0, of_decide_eq_true rfl⟩,
+            List.get_mem _ _, (Z, PUnit.unit),
+            hx.trans (native_comm registration Operator.acu a Z),
+            hy.trans ((native_comm registration Operator.acu a (ProcSet.union Z Z)).trans
+              (native_assoc registration Operator.acu Z Z a)), True.intro⟩
+      match (mutate_native profile registration Operator.acu X X a Y).mp input with
+      | ⟨P, Q, R, T, hx, hx', ha, hy⟩ =>
+        match (split_native profile registration Operator.acu P R a rfl).mp ha.symm with
+        | Or.inl ⟨hp, hr⟩ =>
+          let hxt := hx'.trans (native_add_congr registration Operator.acu hr (native_refl registration T))
+          let hxq := hx.trans ((native_add_congr registration Operator.acu hp (native_refl registration Q)).trans
+            (native_unit registration Operator.acu Q))
+          let hq := hxq.symm.trans hxt
+          emit T hxt (hy.trans
+            ((native_add_congr registration Operator.acu hq (native_refl registration T)).trans
+              (native_assoc registration Operator.acu a T T)))
+        | Or.inr ⟨hp, hr⟩ =>
+          let hxq := hx.trans (native_add_congr registration Operator.acu hp (native_refl registration Q))
+          let hxt := hx'.trans ((native_add_congr registration Operator.acu hr (native_refl registration T)).trans
+            (native_unit registration Operator.acu T))
+          let ht := hxt.symm.trans hxq
+          emit Q hxq (hy.trans
+            ((native_add_congr registration Operator.acu (native_refl registration Q) ht).trans
+              ((native_assoc registration Operator.acu Q a Q).symm.trans
+                ((native_add_congr registration Operator.acu
+                    (native_comm registration Operator.acu Q a) (native_refl registration Q)).trans
+                  (native_assoc registration Operator.acu a Q Q))))))
+    (Substitution.Soundness.sound registration fetchedNonlinear.soundness values)
 
 /- Decompose also works when a free constructor contains NON-rigid payloads.
    Conf is not rigid: its process-field equality must stay modulo ACU.
@@ -3138,6 +3753,7 @@ theorem missing_matched_rejected (n : Nat) :
 -- Axiom audits should report only Lean's standard axioms, never sorryAx.
 #print axioms one_tail_native_certificate
 #print axioms mutation_native_certificate
+#print axioms nonlinear_native_certificate
 #print axioms Substitution.Coverage.sound
 #print axioms Substitution.Soundness.sound
 #print axioms atomic_certificate
