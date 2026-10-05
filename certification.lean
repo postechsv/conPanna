@@ -943,6 +943,247 @@ theorem generated_iff_balanced {n} (left right : Vector n)
     exact total_balanced left right parts (fun w hw => sound w (member w hw))
   · exact generated_of_minimal_coverage left right generators covers
 
+/-!
+### Minimal vectors and finite sharing capacities
+
+The next lemmas retain the arbitrary coefficients and variable repetitions.
+A transport matrix distributes the weighted multiplicities from left variables
+to right variables. It has the required row/column totals, without any bound
+on the size of the input problem.
+
+If a minimal vector had BOTH v_i > b_j and v_j > a_i, the elementary solution
+    X_i := b_j, Y_j := a_i, all other variables := 0
+would be a proper nonzero balanced subvector. Minimality forbids this.
+Consequently each transport block is bounded by a_i*b_j, exactly the number
+of cells between the occurrences of those two variables.
+
+IMPORTANT: bounded block totals alone do not prove that individual occurrence
+rows have equal degrees. The final Boolean-grid representation is still to be
+proved; none of the lemmas below silently assume it.
+
+The repair argument for that final theorem is:
+* Expand the variable labels to occurrence rows/columns with degrees v_i/v_j.
+  The transport existence lemma gives a natural-entry matrix with these margins.
+* Suppose a cell (u,z) contains a >= 2. Minimality gives either rowDegree(u)
+  <= number of columns with z's label, or the transposed inequality.
+* In the first case, some column z' with the same label has entry 0 in row u.
+  Its column total equals that of z, so some other row u' has
+  d := M[u',z'] > c := M[u',z].
+* Replace the rectangle (a,0;c,d) by (a-1,1;c+1,d-1). Margins are unchanged;
+  switch_cost_lt proves its squared-entry cost strictly decreases.
+* Use strong induction on the whole matrix's squared-entry cost. Eventually
+  every cell is 0 or 1, and its selected cells preserve every occurrence margin.
+  This completes the INFORMAL argument, not yet the whole Lean theorem.
+
+The matrix-rounding theorem, nonempty support extraction, and exhaustive
+support-family instantiation remain separate proof obligations. No new
+certificate rule/search control/user registration is introduced here.
+-/
+
+def spike {n} (index : Fin n) (value : Nat) : Vector n :=
+  fun i => if i = index then value else 0
+
+theorem size_spike {n} (index : Fin n) (value : Nat) : size (spike index value) = value := by
+  induction n with
+  | zero => exact Fin.elim0 index
+  | succ n ih =>
+    refine Fin.cases ?_ (fun j => ?_) index
+    · have tail : (fun i : Fin n => spike (0 : Fin (n+1)) value i.succ) = zeroVector := by
+        funext i
+        simp [spike, zeroVector, Fin.succ_ne_zero]
+      change spike (0 : Fin (n+1)) value 0 + size _ = value
+      rw [tail, size_zero]
+      simp [spike]
+    · have tail : (fun i : Fin n => spike j.succ value i.succ) = spike j value := by
+        funext i
+        simp [spike, Fin.succ_inj]
+      change spike j.succ value 0 + size _ = value
+      rw [tail, ih j]
+      simp [spike, Ne.symm (Fin.succ_ne_zero j)]
+
+theorem dot_spike {n} (coeff : Vector n) (index : Fin n) (value : Nat) :
+    dot coeff (spike index value) = coeff index * value := by
+  have image : (fun i => coeff i * spike index value i) = spike index (coeff index * value) := by
+    funext i
+    by_cases hi : i = index
+    · subst i; simp [spike]
+    · simp [spike, hi]
+  unfold dot
+  rw [image]
+  exact size_spike _ _
+
+def pairVector {n} (left right : Vector n) (i j : Fin n) : Vector n :=
+  plus (spike i (right j)) (spike j (left i))
+
+theorem pair_balanced {n} (left right : Vector n) (i j : Fin n)
+    (hi : right i = 0) (hj : left j = 0) :
+    Balanced left right (pairVector left right i j) := by
+  unfold Balanced pairVector
+  rw [dot_plus, dot_plus, dot_spike, dot_spike, dot_spike, dot_spike, hi, hj]
+  simp only [Nat.zero_mul, Nat.add_zero, Nat.zero_add]
+  exact Nat.mul_comm _ _
+
+/-- Opposite-side minimal multiplicities cannot both exceed the elementary
+two-variable solution. The hypotheses locate two distinct variable indices
+after cancellation; no occurrence is treated as an independent variable. -/
+theorem minimal_pair_bound {n} {left right v : Vector n} (minimal : Minimal left right v)
+    (i j : Fin n) (hr : 0 < right j)
+    (hi : right i = 0) (hj : left j = 0) :
+    v i ≤ right j ∨ v j ≤ left i := by
+  classical
+  have different : i ≠ j := by
+    intro same
+    subst j
+    omega
+  by_cases first : v i ≤ right j
+  · exact Or.inl first
+  by_cases second : v j ≤ left i
+  · exact Or.inr second
+  have below : Below (pairVector left right i j) v := by
+    intro k
+    by_cases ki : k = i
+    · subst k
+      simp [pairVector, plus, spike, different]
+      omega
+    by_cases kj : k = j
+    · subst k
+      simp [pairVector, plus, spike, Ne.symm different]
+      omega
+    · simp [pairVector, plus, spike, ki, kj]
+  have nonzero : pairVector left right i j ≠ zeroVector := by
+    intro equal
+    have atI := congrFun equal i
+    simp [pairVector, plus, spike, zeroVector, different] at atI
+    omega
+  have same := minimal.2.2 (pairVector left right i j) below (pair_balanced left right i j hi hj) nonzero
+  have atI := congrFun same i
+  simp [pairVector, plus, spike, different] at atI
+  omega
+
+/-- One rectangle exchange strictly decreases squared-entry cost. The zero
+entry is explicit in the formula; the other diagonal entry d exceeds c.
+This is a general arithmetic metatheorem, not problem-specific automation. -/
+theorem switch_cost_lt (a c d : Nat) (ha : 2 ≤ a) (hd : c < d) :
+    (a-1)*(a-1) + 1 + (c+1)*(c+1) + (d-1)*(d-1) <
+      a*a + c*c + d*d := by
+  obtain ⟨x, rfl⟩ := Nat.exists_eq_add_of_le ha
+  obtain ⟨y, rfl⟩ := Nat.exists_eq_add_of_le (Nat.succ_le_of_lt hd)
+  simp only [Nat.succ_eq_add_one]
+  have hx : 2 + x - 1 = 1 + x := by omega
+  have hy : c + 1 + y - 1 = c + y := by omega
+  simp only [hx, hy, Nat.mul_add, Nat.mul_comm]
+  omega
+
+
+
+theorem size_split {n} {small large : Vector n} (h : Below small large) :
+    size large = size small + size (minus large small) :=
+  (congrArg size (split_below h)).trans (size_plus _ _)
+
+theorem coordinate_le_size {n} (v : Vector n) (index : Fin n) : v index ≤ size v := by
+  have below : Below (spike index (v index)) v := by
+    intro i
+    by_cases same : i = index
+    · subst i; simp [spike]
+    · simp [spike, same]
+  have bound := size_mono below
+  rw [size_spike] at bound
+  exact bound
+
+/-- Allocate any requested amount no larger than the available finite total. -/
+theorem allocate {n} (available : Vector n) (amount : Nat) (h : amount ≤ size available) :
+    ∃ chosen : Vector n, Below chosen available ∧ size chosen = amount := by
+  induction n generalizing amount with
+  | zero =>
+    exact ⟨zeroVector, fun i => Fin.elim0 i, by simpa [size] using (Nat.eq_zero_of_le_zero h).symm⟩
+  | succ n ih =>
+    by_cases fits : amount ≤ available 0
+    · refine ⟨spike 0 amount, ?_, size_spike _ _⟩
+      intro i
+      refine Fin.cases ?_ (fun j => ?_) i
+      · simpa [spike] using fits
+      · simp [spike, Fin.succ_ne_zero]
+    · have remaining : amount - available 0 ≤ size (fun i => available i.succ) := by
+        simp only [size] at h
+        omega
+      obtain ⟨tail, below, enough⟩ := ih (fun i => available i.succ)
+        (amount - available 0) remaining
+      refine ⟨Fin.cases (available 0) tail, ?_, ?_⟩
+      · intro i
+        exact Fin.cases (Nat.le_refl _) (fun j => below j) i
+      · change available 0 + size tail = amount
+        rw [enough]
+        omega
+
+abbrev Matrix (rows cols : Nat) := Fin rows → Fin cols → Nat
+
+/-- Every pair of finite natural margin vectors with equal totals admits a
+transport matrix. The proof fills one row and recurses, retaining all margins. -/
+theorem transport_exists {rows cols} (rowTotals : Vector rows) (colTotals : Vector cols)
+    (same : size rowTotals = size colTotals) :
+    ∃ matrix : Matrix rows cols,
+      (∀ i, size (matrix i) = rowTotals i) ∧
+      (∀ j, size (fun i => matrix i j) = colTotals j) := by
+  induction rows generalizing colTotals with
+  | zero =>
+    have allZero : colTotals = zeroVector :=
+      (eq_of_below_size_eq (fun _ => Nat.zero_le _)
+        ((size_zero cols).trans same)).symm
+    refine ⟨fun i => Fin.elim0 i, fun i => Fin.elim0 i, ?_⟩
+    intro j
+    rw [allZero]
+    rfl
+  | succ rows ih =>
+    have enough : rowTotals 0 ≤ size colTotals := by
+      simp only [size] at same
+      omega
+    obtain ⟨first, below, firstTotal⟩ := allocate colTotals (rowTotals 0) enough
+    have remaining : size (fun i => rowTotals i.succ) = size (minus colTotals first) := by
+      have split := size_split below
+      simp only [size] at same
+      omega
+    obtain ⟨rest, restRows, restCols⟩ := ih (fun i => rowTotals i.succ)
+      (minus colTotals first) remaining
+    refine ⟨Fin.cases first rest, ?_, ?_⟩
+    · intro i
+      exact Fin.cases firstTotal (fun j => restRows j) i
+    · intro j
+      change first j + size (fun i => rest i j) = colTotals j
+      rw [restCols]
+      exact Nat.add_sub_of_le (below j)
+
+/-- Syntactic cancellation puts each active variable on at most one side.
+Variables canceled completely are handled separately as passthrough parameters. -/
+def Disjoint {n} (left right : Vector n) : Prop :=
+  ∀ i, left i = 0 ∨ right i = 0
+
+/-- General finite-capacity transport for ANY minimal balance vector.
+This proves the variable-pair bounds, NOT yet Boolean occurrence-grid coverage. -/
+theorem minimal_bounded_transport {n} {left right v : Vector n}
+    (disjoint : Disjoint left right) (minimal : Minimal left right v) :
+    ∃ matrix : Matrix n n,
+      (∀ i, size (matrix i) = left i * v i) ∧
+      (∀ j, size (fun i => matrix i j) = right j * v j) ∧
+      (∀ i j, matrix i j ≤ left i * right j) := by
+  obtain ⟨matrix, rows, cols⟩ := transport_exists
+    (fun i => left i * v i) (fun j => right j * v j) minimal.2.1
+  refine ⟨matrix, rows, cols, ?_⟩
+  intro i j
+  have rowBound : matrix i j ≤ left i * v i :=
+    by rw [← rows i]; exact coordinate_le_size (matrix i) j
+  have colBound : matrix i j ≤ right j * v j :=
+    by rw [← cols j]; exact coordinate_le_size (fun k => matrix k j) i
+  by_cases li : left i = 0
+  · simpa [li] using rowBound
+  by_cases rj : right j = 0
+  · simpa [rj] using colBound
+  have hr : 0 < right j := Nat.pos_of_ne_zero rj
+  have ri : right i = 0 := (disjoint i).resolve_left li
+  have lj : left j = 0 := (disjoint j).resolve_right rj
+  rcases minimal_pair_bound minimal i j hr ri lj with first | second
+  · exact Nat.le_trans rowBound (Nat.mul_le_mul_left (left i) first)
+  · exact Nat.le_trans colBound (by simpa [Nat.mul_comm] using Nat.mul_le_mul_left (right j) second)
+
 end FiniteSharing
 
 end DirectCertification

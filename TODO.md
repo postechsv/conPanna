@@ -283,6 +283,26 @@ EXISTING certification.lean, namespace DirectCertification.FiniteSharing.
   complete, and no native bag exactness/search-success theorem is claimed.
   Prove that representation theorem next, then lift through existing NativeEq.
 
+Second proof checkpoint (same file, no solver/library changes):
+
+- minimal_pair_bound proves that opposite-side minimal multiplicities cannot
+  both exceed the elementary two-variable solution. No coefficient/arity bound.
+- transport_exists constructs a natural-entry matrix with any compatible finite
+  row/column totals. minimal_bounded_transport proves every variable-pair block
+  of a minimal solution fits its a_i*b_j finite cell capacity after cancellation.
+- switch_cost_lt proves that (a,0;c,d) -> (a-1,1;c+1,d-1), for a>=2 and d>c,
+  strictly decreases squared-entry cost. Whole occurrence margins can be
+  preserved by this exchange. The complete INFORMAL repair argument is documented
+  beside these lemmas: a missing zero is obtained by the group-size bound;
+  equality of group column totals provides the other row, then cost induction
+  makes all entries Boolean. The transposed case uses the same argument.
+- Full-file LSP diagnostics report no errors/warnings. Isolated axiom checks on
+  the transport/bound/cost theorems contain no sorryAx. No Mathlib or custom tactics.
+- Still missing in Lean: the WHOLE matrix-rounding theorem (including exchange
+  witnesses and preserved margins), Boolean support extraction, and canonical
+  enumeration coverage. Bounded aggregate blocks alone are NOT yet a checked
+  representation by balanced occurrence supports. Prove rounding next.
+
 ## Short-term goal: certified constrained narrowing
 
 **Active milestone:** direct native certification, with native Maude `unify` as
