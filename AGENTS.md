@@ -8,6 +8,7 @@
 - If authorization is ambiguous, ask before changing anything.
 - After modifying code, recommend a concise, descriptive one-line Git commit message.
 - Present the recommended commit message as plain text, without backticks.
+- Put the commit message alone on a whole line, without a label or bullet.
 
 ## Default explanation and progress-report style
 

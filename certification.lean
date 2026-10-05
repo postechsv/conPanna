@@ -6,7 +6,7 @@ import examples.bakery_acu
 Specification and provenance: CERTIFICATION.md, especially §§4–9 and §14.
 This is ONE prototype, with four parts:
 1. GENERAL SEMANTIC RULES over the existing registered structural equality.
-2. FINITE-SHARING PROOF AUXILIARIES; its final completeness theorem is unfinished.
+2. FINITE-SHARING NUMERIC EXACTNESS; enumeration/native lifting are unfinished.
 3. TYPED CERTIFICATE DATA and acceptance (soundness plus complete coverage).
 4. BAKERY CERTIFICATES: explicit proof terms, without custom proof tactics.
 
@@ -790,10 +790,11 @@ The two established steps are:
   ==================================================================
                    Balanced(v) <==> Generated(G,v)
 
-The remaining finite-grid theorem must show that ALL balanced cell supports
-supply such a G. Its completeness is NOT assumed here as a new axiom or
-discharged by sample problems. After that theorem is proved, the existing
-flatten/rebuild lemmas lift these facts to registered NativeEq.
+Below, boolean_supports_exact proves the numerical exactness: every balanced
+active vector is a sum of nonempty Boolean support degrees, and every such sum
+is balanced. Minimal occurrence-level rounding is fully proved, not assumed.
+Still pending: exhaustive support enumeration, and lifting these multiplicity
+facts with the existing flatten/rebuild lemmas to symbolic/native bag images.
 
 The decomposition uses classical existence and strong induction. It is not
 executable certificate search, and no domain constraints or Bakery symbols
@@ -983,8 +984,8 @@ Consequently each transport block is bounded by a_i*b_j, exactly the number
 of cells between the occurrences of those two variables.
 
 IMPORTANT: bounded block totals alone do not prove that individual occurrence
-rows have equal degrees. The final Boolean-grid representation is still to be
-proved; none of the lemmas below silently assume it.
+rows have equal degrees. The later Boolean-grid section proves that stronger
+representation separately; none of the capacity lemmas silently assume it.
 
 The repair argument for that final theorem is:
 * Expand the variable labels to occurrence rows/columns with degrees v_i/v_j.
@@ -998,11 +999,11 @@ The repair argument for that final theorem is:
   switch_cost_lt proves its squared-entry cost strictly decreases.
 * Use strong induction on the whole matrix's squared-entry cost. Eventually
   every cell is 0 or 1, and its selected cells preserve every occurrence margin.
-  This completes the INFORMAL argument, not yet the whole Lean theorem.
+  boolean_transport_exists proves this argument in Lean below.
 
-The matrix-rounding theorem, nonempty support extraction, and exhaustive
-support-family instantiation remain separate proof obligations. No new
-certificate rule/search control/user registration is introduced here.
+Matrix rounding and nonempty support extraction are now proved below. Exhaustive
+support-family enumeration and native bag instantiation remain pending. No new
+search control or user registration is introduced by these metatheorems.
 -/
 
 def spike {n} (index : Fin n) (value : Nat) : Vector n :=
@@ -1208,6 +1209,523 @@ theorem minimal_bounded_transport {n} {left right v : Vector n}
   rcases minimal_pair_bound minimal i j hr ri lj with first | second
   · exact Nat.le_trans rowBound (Nat.mul_le_mul_left (left i) first)
   · exact Nat.le_trans colBound (by simpa [Nat.mul_comm] using Nat.mul_le_mul_left (right j) second)
+
+/-! ### Boolean occurrence-grid rounding (CERTIFICATION.md, Lemma 5.4)
+
+The lemmas below work on arbitrary finite matrices. A row/column total records
+the multiplicity of its variable, not an independently chosen occurrence.
+Rectangle exchanges preserve ALL margins and strictly decrease squared cost.
+No coefficient bound, linearity assumption, Bakery symbol, or solver is used.
+-/
+
+private def erase {n} (v : Vector n) (index : Fin n) : Vector n :=
+  fun i => if i = index then 0 else v i
+
+private theorem size_erase {n} (v : Vector n) (index : Fin n) :
+    size v = v index + size (erase v index) := by
+  have split : v = plus (spike index (v index)) (erase v index) := by
+    funext i
+    by_cases same : i = index
+    · subst i; simp [plus, spike, erase]
+    · simp [plus, spike, erase, same]
+  have sum := congrArg size split
+  simpa only [size_plus, size_spike] using sum
+
+/-- Compare finite sums when exactly two coordinates may change. The additive
+form avoids assuming that subtraction commutes with finite sums. -/
+private theorem size_compare_pair {n} (v w : Vector n) (i j : Fin n)
+    (different : i ≠ j) (outside : ∀ k, k ≠ i → k ≠ j → v k = w k) :
+    size w + v i + v j = size v + w i + w j := by
+  have same : erase (erase v i) j = erase (erase w i) j := by
+    funext k
+    by_cases first : k = i
+    · subst k; simp [erase]
+    by_cases second : k = j
+    · subst k; simp [erase]
+    · simp [erase, first, second, outside k first second]
+  have hv := size_erase v i
+  have hw := size_erase w i
+  have hv' := size_erase (erase v i) j
+  have hw' := size_erase (erase w i) j
+  simp only [erase, if_neg (Ne.symm different)] at hv' hw'
+  rw [same] at hv'
+  omega
+
+private theorem size_strict {n} {v w : Vector n} (below : Below v w)
+    (index : Fin n) (strict : v index < w index) : size v < size w := by
+  have bound := size_mono below
+  have different : size v ≠ size w := by
+    intro same
+    have values := congrFun (eq_of_below_size_eq below same) index
+    omega
+  omega
+
+def transpose {rows cols} (matrix : Matrix rows cols) : Matrix cols rows :=
+  fun j i => matrix i j
+
+def Margins {rows cols} (matrix : Matrix rows cols)
+    (rowTotals : Vector rows) (colTotals : Vector cols) : Prop :=
+  (∀ i, size (matrix i) = rowTotals i) ∧
+  (∀ j, size (fun i => matrix i j) = colTotals j)
+
+def cost {rows cols} (matrix : Matrix rows cols) : Nat :=
+  size (fun i => size (fun j => matrix i j * matrix i j))
+
+private theorem size_swap {rows cols} (matrix : Matrix rows cols) :
+    size (fun i => size (matrix i)) = size (fun j => size (fun i => matrix i j)) := by
+  induction rows with
+  | zero =>
+    change 0 = size (zeroVector (n := cols))
+    exact (size_zero cols).symm
+  | succ rows ih =>
+    change size (matrix 0) + size (fun i => size (matrix i.succ)) =
+      size (fun j => matrix 0 j + size (fun i => matrix i.succ j))
+    rw [ih]
+    exact (size_plus (matrix 0) (fun j => size (fun i => matrix i.succ j))).symm
+
+theorem cost_transpose {rows cols} (matrix : Matrix rows cols) :
+    cost (transpose matrix) = cost matrix :=
+  (size_swap (fun i j => matrix i j * matrix i j)).symm
+
+private theorem zero_in_column_class {rows cols} (matrix : Matrix rows cols)
+    (colTotals : Vector cols) (r : Fin rows) (c : Fin cols)
+    (bound : size (matrix r) ≤ size (fun j => if colTotals j = colTotals c then 1 else 0))
+    (large : 2 ≤ matrix r c) :
+    ∃ c', colTotals c' = colTotals c ∧ matrix r c' = 0 := by
+  classical
+  apply Classical.byContradiction
+  intro none
+  have below : Below (fun j => if colTotals j = colTotals c then 1 else 0) (matrix r) := by
+    intro j
+    by_cases same : colTotals j = colTotals c
+    · have positive : matrix r j ≠ 0 := fun zero => none ⟨j, same, zero⟩
+      simp only [if_pos same]
+      omega
+    · simp [same]
+  have strict := size_strict below c (by simp; omega)
+  omega
+
+private theorem crossing_row {rows cols} (matrix : Matrix rows cols)
+    (r : Fin rows) (c c' : Fin cols)
+    (same : size (fun i => matrix i c) = size (fun i => matrix i c'))
+    (strict : matrix r c' < matrix r c) :
+    ∃ r', matrix r' c < matrix r' c' := by
+  classical
+  apply Classical.byContradiction
+  intro none
+  have below : Below (fun i => matrix i c') (fun i => matrix i c) := by
+    intro i
+    change matrix i c' ≤ matrix i c
+    have notLess : ¬ matrix i c < matrix i c' := fun lt => none ⟨i, lt⟩
+    omega
+  have smaller := size_strict below r strict
+  omega
+
+/-- One rectangle exchange: (A,0;C,D) becomes (A-1,1;C+1,D-1). -/
+def rectangle {rows cols} (matrix : Matrix rows cols)
+    (r r' : Fin rows) (c c' : Fin cols) : Matrix rows cols :=
+  fun i j => if i = r then
+    if j = c then matrix i j - 1 else if j = c' then matrix i j + 1 else matrix i j
+  else if i = r' then
+    if j = c then matrix i j + 1 else if j = c' then matrix i j - 1 else matrix i j
+  else matrix i j
+
+private theorem rectangle_improves {rows cols} (matrix : Matrix rows cols)
+    (r r' : Fin rows) (c c' : Fin cols)
+    (large : 2 ≤ matrix r c) (empty : matrix r c' = 0)
+    (cross : matrix r' c < matrix r' c') :
+    (∀ i, size (rectangle matrix r r' c c' i) = size (matrix i)) ∧
+    (∀ j, size (fun i => rectangle matrix r r' c c' i j) = size (fun i => matrix i j)) ∧
+    cost (rectangle matrix r r' c c') < cost matrix := by
+  have dr : r ≠ r' := by intro same; subst r'; omega
+  have dc : c ≠ c' := by intro same; subst c'; omega
+  have at₁ : rectangle matrix r r' c c' r c = matrix r c - 1 := by simp [rectangle]
+  have at₂ : rectangle matrix r r' c c' r c' = 1 := by simp [rectangle, Ne.symm dc, empty]
+  have at₃ : rectangle matrix r r' c c' r' c = matrix r' c + 1 := by
+    simp [rectangle, Ne.symm dr]
+  have at₄ : rectangle matrix r r' c c' r' c' = matrix r' c' - 1 := by
+    simp [rectangle, Ne.symm dr, Ne.symm dc]
+  have row₁ := size_compare_pair (matrix r) (rectangle matrix r r' c c' r) c c' dc
+    (fun j first second => by simp [rectangle, first, second])
+  have row₂ := size_compare_pair (matrix r') (rectangle matrix r r' c c' r') c c' dc
+    (fun j first second => by simp [rectangle, first, second])
+  have col₁ := size_compare_pair (fun i => matrix i c)
+    (fun i => rectangle matrix r r' c c' i c) r r' dr
+    (fun i first second => by simp [rectangle, first, second])
+  have col₂ := size_compare_pair (fun i => matrix i c')
+    (fun i => rectangle matrix r r' c c' i c') r r' dr
+    (fun i first second => by simp [rectangle, first, second])
+  dsimp only at row₁ row₂ col₁ col₂
+  rw [at₁, at₂, empty] at row₁
+  rw [at₃, at₄] at row₂
+  rw [at₁, at₃] at col₁
+  rw [at₂, at₄, empty] at col₂
+  refine ⟨?_, ?_, ?_⟩
+  · intro i
+    by_cases first : i = r
+    · subst i; omega
+    by_cases second : i = r'
+    · subst i; omega
+    · have unchanged : rectangle matrix r r' c c' i = matrix i := by
+        funext j
+        simp [rectangle, first, second]
+      exact congrArg size unchanged
+  · intro j
+    by_cases first : j = c
+    · subst j; omega
+    by_cases second : j = c'
+    · subst j; omega
+    · have unchanged : (fun i => rectangle matrix r r' c c' i j) = (fun i => matrix i j) := by
+        funext i
+        simp [rectangle, first, second]
+      exact congrArg size unchanged
+  · have squares₁ := size_compare_pair (fun j => matrix r j * matrix r j)
+      (fun j => rectangle matrix r r' c c' r j * rectangle matrix r r' c c' r j) c c' dc
+      (fun j first second => by simp [rectangle, first, second])
+    have squares₂ := size_compare_pair (fun j => matrix r' j * matrix r' j)
+      (fun j => rectangle matrix r r' c c' r' j * rectangle matrix r r' c c' r' j) c c' dc
+      (fun j first second => by simp [rectangle, first, second])
+    have whole := size_compare_pair
+      (fun i => size (fun j => matrix i j * matrix i j))
+      (fun i => size (fun j => rectangle matrix r r' c c' i j * rectangle matrix r r' c c' i j))
+      r r' dr (fun i first second => by simp [rectangle, first, second])
+    dsimp only at squares₁ squares₂ whole
+    rw [at₁, at₂, empty] at squares₁
+    rw [at₃, at₄] at squares₂
+    simp only [Nat.zero_mul, Nat.one_mul, Nat.add_zero] at squares₁
+    have decreased := switch_cost_lt (matrix r c) (matrix r' c) (matrix r' c') large cross
+    unfold cost
+    omega
+
+/-- Number of occurrences having the same required multiplicity as this one.
+Grouping by totals may combine several variable labels; that only enlarges the
+class. Thus the document's label-count bounds imply these weaker bounds. -/
+def classCount {n} (totals : Vector n) (index : Fin n) : Nat :=
+  size (fun j => if totals j = totals index then 1 else 0)
+
+def PairBound {rows cols} (rowTotals : Vector rows) (colTotals : Vector cols) : Prop :=
+  ∀ r c, rowTotals r ≤ classCount colTotals c ∨ colTotals c ≤ classCount rowTotals r
+
+private theorem row_improvement {rows cols} (matrix : Matrix rows cols)
+    (rowTotals : Vector rows) (colTotals : Vector cols)
+    (margins : Margins matrix rowTotals colTotals) (r : Fin rows) (c : Fin cols)
+    (large : 2 ≤ matrix r c) (bound : rowTotals r ≤ classCount colTotals c) :
+    ∃ updated : Matrix rows cols,
+      Margins updated rowTotals colTotals ∧ cost updated < cost matrix := by
+  obtain ⟨c', same, empty⟩ := zero_in_column_class matrix colTotals r c
+    (by rw [margins.1 r]; exact bound) large
+  have equalColumns : size (fun i => matrix i c) = size (fun i => matrix i c') := by
+    rw [margins.2 c, margins.2 c', same]
+  obtain ⟨r', cross⟩ := crossing_row matrix r c c' equalColumns (by omega)
+  obtain ⟨rowsSame, colsSame, decreased⟩ := rectangle_improves matrix r r' c c' large empty cross
+  exact ⟨rectangle matrix r r' c c',
+    ⟨fun i => (rowsSame i).trans (margins.1 i), fun j => (colsSame j).trans (margins.2 j)⟩,
+    decreased⟩
+
+/-- A least-cost witness exists for any nonempty family of finite matrices.
+This is an internal classical metaproof, NOT an executable optimizer/certificate
+search, and introduces no axiom requiring a solver or a model author's proof. -/
+private theorem least_cost {rows cols} (P : Matrix rows cols → Prop)
+    (witness : ∃ matrix, P matrix) :
+    ∃ matrix, P matrix ∧ ∀ other, P other → cost matrix ≤ cost other := by
+  classical
+  obtain ⟨seed, valid⟩ := witness
+  refine Nat.strongRecOn (motive := fun k => ∀ seed : Matrix rows cols,
+    cost seed = k → P seed →
+      ∃ matrix, P matrix ∧ ∀ other, P other → cost matrix ≤ cost other)
+    (cost seed) ?_ seed rfl valid
+  intro k ih seed same valid
+  by_cases smaller : ∃ other, P other ∧ cost other < k
+  · obtain ⟨other, validOther, lower⟩ := smaller
+    exact ih (cost other) lower other rfl validOther
+  · refine ⟨seed, valid, ?_⟩
+    intro other validOther
+    have notLower : ¬ cost other < k := fun lower => smaller ⟨other, validOther, lower⟩
+    omega
+
+/-- GENERAL BOOLEAN-GRID THEOREM (the rounding step of Lemma 5.4).
+
+Equal finite margin totals plus the opposite-pair bound imply a zero/one matrix
+with EXACTLY those margins. Dimensions, degrees, and repetitions are arbitrary.
+Choose a least squared-cost transport. Any entry >=2 admits a decreasing
+rectangle, directly or after transposition, contradicting minimality.
+
+This proves existence of the Boolean support. Relating label-count bounds to
+minimal balance vectors and lifting their generated sums to native bags remain
+separate steps; this theorem alone is NOT an ACU certification algorithm.
+-/
+theorem boolean_transport_exists {rows cols} (rowTotals : Vector rows) (colTotals : Vector cols)
+    (same : size rowTotals = size colTotals) (bound : PairBound rowTotals colTotals) :
+    ∃ matrix : Matrix rows cols,
+      Margins matrix rowTotals colTotals ∧ ∀ i j, matrix i j ≤ 1 := by
+  obtain ⟨matrix, margins, minimal⟩ := least_cost
+    (fun matrix => Margins matrix rowTotals colTotals) (transport_exists rowTotals colTotals same)
+  refine ⟨matrix, margins, ?_⟩
+  intro r c
+  apply Classical.byContradiction
+  intro tooLarge
+  have large : 2 ≤ matrix r c := by omega
+  rcases bound r c with rowBound | colBound
+  · obtain ⟨updated, valid, lower⟩ := row_improvement matrix rowTotals colTotals margins r c large rowBound
+    have impossible := minimal updated valid
+    omega
+  · have swapped : Margins (transpose matrix) colTotals rowTotals := ⟨margins.2, margins.1⟩
+    obtain ⟨updated, valid, lower⟩ := row_improvement
+      (transpose matrix) colTotals rowTotals swapped c r large colBound
+    have restored : Margins (transpose updated) rowTotals colTotals := ⟨valid.2, valid.1⟩
+    have impossible := minimal (transpose updated) restored
+    rw [cost_transpose] at impossible lower
+    omega
+
+/-- Count occurrence positions carrying a given variable label. -/
+def labelCount {n positions} (labels : Fin positions → Fin n) (label : Fin n) : Nat :=
+  size (fun i => if labels i = label then 1 else 0)
+
+private theorem size_scale {n} (k : Nat) (v : Vector n) :
+    size (fun i => k * v i) = k * size v := by
+  induction n with
+  | zero => simp [size]
+  | succ n ih => simp only [size, ih, Nat.mul_add]
+
+/-- Expanding each variable into its occurrences preserves its weighted total.
+This connects actual coefficient vectors to the occurrence-grid margins. -/
+theorem size_labels {n positions} (labels : Fin positions → Fin n) (v : Vector n) :
+    size (fun i => v (labels i)) = dot (labelCount labels) v := by
+  have row : ∀ i, size (fun j => if labels i = j then v j else 0) = v (labels i) := by
+    intro i
+    have same : (fun j => if labels i = j then v j else 0) = spike (labels i) (v (labels i)) := by
+      funext j
+      by_cases equal : j = labels i
+      · subst j; simp [spike]
+      · simp [spike, equal, Ne.symm equal]
+    rw [same, size_spike]
+  have col : ∀ j, size (fun i => if labels i = j then v j else 0) = labelCount labels j * v j := by
+    intro j
+    have same : (fun i => if labels i = j then v j else 0) =
+        (fun i => v j * (if labels i = j then 1 else 0)) := by
+      funext i
+      by_cases equal : labels i = j <;> simp [equal]
+    rw [same, size_scale, Nat.mul_comm]
+    rfl
+  have swapped := size_swap (fun i j => if labels i = j then v j else 0)
+  simp only [row, col] at swapped
+  exact swapped
+
+private theorem label_count_positive {n positions} (labels : Fin positions → Fin n) (index : Fin positions) :
+    0 < labelCount labels (labels index) := by
+  have bound := coordinate_le_size (fun i => if labels i = labels index then 1 else 0) index
+  simpa [labelCount] using bound
+
+private theorem label_count_le_class_count {n positions}
+    (labels : Fin positions → Fin n) (v : Vector n) (index : Fin positions) :
+    labelCount labels (labels index) ≤ classCount (fun i => v (labels i)) index := by
+  apply size_mono
+  intro i
+  change (if labels i = labels index then 1 else 0) ≤
+    (if v (labels i) = v (labels index) then 1 else 0)
+  by_cases same : labels i = labels index <;> simp [same]
+
+/-- A minimal balance vector is represented by a Boolean occurrence matrix.
+
+The label counts are the original coefficients (e.g. two positions labelled X
+for 2X), while every such position has degree v(X). These GENERAL hypotheses
+describe the automatically constructed grid, not per-model/user registration.
+No occurrence is mistaken for an independent unification variable.
+-/
+theorem minimal_boolean_support {n rows cols} (left right v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right) (minimal : Minimal left right v) :
+    ∃ matrix : Matrix rows cols,
+      Margins matrix (fun r => v (rowLabels r)) (fun c => v (colLabels c)) ∧
+      ∀ r c, matrix r c ≤ 1 := by
+  have same : size (fun r => v (rowLabels r)) = size (fun c => v (colLabels c)) := by
+    rw [size_labels, size_labels]
+    have rowsSame : labelCount rowLabels = left := funext rowCounts
+    have colsSame : labelCount colLabels = right := funext colCounts
+    rw [rowsSame, colsSame]
+    exact minimal.2.1
+  apply boolean_transport_exists _ _ same
+  intro r c
+  have lp : 0 < left (rowLabels r) := by
+    rw [← rowCounts]
+    exact label_count_positive rowLabels r
+  have rp : 0 < right (colLabels c) := by
+    rw [← colCounts]
+    exact label_count_positive colLabels c
+  have rz : right (rowLabels r) = 0 := (disjoint _).resolve_left (Nat.ne_of_gt lp)
+  have lz : left (colLabels c) = 0 := (disjoint _).resolve_right (Nat.ne_of_gt rp)
+  rcases minimal_pair_bound minimal (rowLabels r) (colLabels c) rp rz lz with first | second
+  · left
+    have count := label_count_le_class_count colLabels v c
+    rw [colCounts] at count
+    exact Nat.le_trans first count
+  · right
+    have count := label_count_le_class_count rowLabels v r
+    rw [rowCounts] at count
+    exact Nat.le_trans second count
+
+private theorem label_count_exists {n positions} (labels : Fin positions → Fin n)
+    (label : Fin n) (positive : 0 < labelCount labels label) : ∃ i, labels i = label := by
+  classical
+  apply Classical.byContradiction
+  intro none
+  have zero : (fun i => if labels i = label then 1 else 0) = zeroVector := by
+    funext i
+    have different : labels i ≠ label := fun same => none ⟨i, same⟩
+    simp [different, zeroVector]
+  unfold labelCount at positive
+  rw [zero, size_zero] at positive
+  omega
+
+/-- COMPLETE OCCURRENCE REPRESENTATION of an active minimal balance vector.
+
+Every minimal vector has a NONEMPTY Boolean support with its exact degrees.
+The final hypothesis merely excludes inactive coordinates from this active
+vector; canceled/inactive unification variables are separate passthrough images,
+not silently forced to empty by the eventual unification rule.
+
+This is Lemma 5.4, for arbitrary finite coefficient vectors after cancellation.
+Combined with decompose_minimal, it represents EVERY balanced active vector as
+a finite sum of support-degree vectors. Enumerating the complete support family
+and rebuilding symbolic/native bag substitutions are still to be implemented.
+-/
+theorem minimal_nonempty_boolean_support {n rows cols} (left right v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right) (minimal : Minimal left right v)
+    (active : ∀ i, left i = 0 → right i = 0 → v i = 0) :
+    ∃ matrix : Matrix rows cols,
+      Margins matrix (fun r => v (rowLabels r)) (fun c => v (colLabels c)) ∧
+      (∀ r c, matrix r c ≤ 1) ∧ ∃ r c, matrix r c = 1 := by
+  obtain ⟨matrix, margins, boolean⟩ := minimal_boolean_support
+    left right v rowLabels colLabels rowCounts colCounts disjoint minimal
+  refine ⟨matrix, margins, boolean, ?_⟩
+  apply Classical.byContradiction
+  intro none
+  have allZero : ∀ r c, matrix r c = 0 := by
+    intro r c
+    have small := boolean r c
+    have notOne : matrix r c ≠ 1 := fun one => none ⟨r, c, one⟩
+    omega
+  have rowZero : ∀ r, v (rowLabels r) = 0 := by
+    intro r
+    have zero : matrix r = zeroVector := funext (allZero r)
+    have same := margins.1 r
+    rw [zero, size_zero] at same
+    exact same.symm
+  have colZero : ∀ c, v (colLabels c) = 0 := by
+    intro c
+    have zero : (fun r => matrix r c) = zeroVector := funext (fun r => allZero r c)
+    have same := margins.2 c
+    rw [zero, size_zero] at same
+    exact same.symm
+  apply minimal.1
+  funext i
+  change v i = 0
+  by_cases leftZero : left i = 0
+  · by_cases rightZero : right i = 0
+    · exact active i leftZero rightZero
+    · obtain ⟨c, same⟩ := label_count_exists colLabels i
+        (by rw [colCounts]; exact Nat.pos_of_ne_zero rightZero)
+      simpa only [same] using colZero c
+  · obtain ⟨r, same⟩ := label_count_exists rowLabels i
+      (by rw [rowCounts]; exact Nat.pos_of_ne_zero leftZero)
+    simpa only [same] using rowZero r
+
+private theorem member_below_total {n} {parts : List (Vector n)} {v : Vector n}
+    (member : v ∈ parts) : Below v (total parts) := by
+  induction parts with
+  | nil => cases member
+  | cons first rest ih =>
+    rcases List.mem_cons.mp member with same | member
+    · subst v
+      intro i
+      exact Nat.le_add_right _ _
+    · intro i
+      exact Nat.le_trans (ih member i) (Nat.le_add_left _ _)
+
+/-- Soundness of support-degree vectors: each cell contributes once to each
+side. Uniform label margins therefore satisfy the original balance equation.
+Boolean/nonempty conditions are not needed for this direction. -/
+theorem balanced_of_margins {n rows cols} (left right v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (matrix : Matrix rows cols)
+    (margins : Margins matrix (fun r => v (rowLabels r)) (fun c => v (colLabels c))) :
+    Balanced left right v := by
+  have same := size_swap matrix
+  simp only [margins.1, margins.2] at same
+  rw [size_labels, size_labels] at same
+  have rowsSame : labelCount rowLabels = left := funext rowCounts
+  have colsSame : labelCount colLabels = right := funext colCounts
+  rw [rowsSame, colsSame] at same
+  exact same
+
+/-- NUMERIC FINITE-SHARING COMPLETENESS, uniformly for arbitrary repetitions.
+
+Every balanced ACTIVE vector is a finite sum of degree vectors of nonempty
+Boolean supports, including the zero vector via the empty sum. The same input
+labels/coefficients are used by every summand. Inactive coordinates are handled
+outside this active balance by independent passthrough parameters.
+
+This establishes the multiplicity argument needed by Proposition 5.5. It is a
+general metatheorem, not a certificate-search implementation or an assumption
+that a particular enumerated support list is exhaustive.
+-/
+theorem decompose_boolean_supports {n rows cols} (left right v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right) (balanced : Balanced left right v)
+    (active : ∀ i, left i = 0 → right i = 0 → v i = 0) :
+    ∃ parts : List (Vector n), total parts = v ∧
+      ∀ w ∈ parts, ∃ matrix : Matrix rows cols,
+        Margins matrix (fun r => w (rowLabels r)) (fun c => w (colLabels c)) ∧
+        (∀ r c, matrix r c ≤ 1) ∧ ∃ r c, matrix r c = 1 := by
+  obtain ⟨parts, minimal, same⟩ := decompose_minimal left right v balanced
+  refine ⟨parts, same, ?_⟩
+  intro w member
+  have below := member_below_total member
+  rw [same] at below
+  have activePart : ∀ i, left i = 0 → right i = 0 → w i = 0 := by
+    intro i hl hr
+    have bound := below i
+    rw [active i hl hr] at bound
+    exact Nat.eq_zero_of_le_zero bound
+  exact minimal_nonempty_boolean_support left right w rowLabels colLabels
+    rowCounts colCounts disjoint (minimal w member) activePart
+
+/-- Both directions of the multiplicity-level finite-sharing rule.
+The representation is a solution SET; minimality is not required of the
+submitted supports, and redundant/overlapping generators do not invalidate it.
+The finite enumerable family and its native substitution images are not yet
+certificate constructors. This theorem supplies their once-for-all foundation.
+-/
+theorem boolean_supports_exact {n rows cols} (left right v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right)
+    (active : ∀ i, left i = 0 → right i = 0 → v i = 0) :
+    Balanced left right v ↔
+      ∃ parts : List (Vector n), total parts = v ∧
+        ∀ w ∈ parts, ∃ matrix : Matrix rows cols,
+          Margins matrix (fun r => w (rowLabels r)) (fun c => w (colLabels c)) ∧
+          (∀ r c, matrix r c ≤ 1) ∧ ∃ r c, matrix r c = 1 := by
+  constructor
+  · intro balanced
+    exact decompose_boolean_supports left right v rowLabels colLabels
+      rowCounts colCounts disjoint balanced active
+  · rintro ⟨parts, same, represented⟩
+    rw [← same]
+    apply total_balanced
+    intro w member
+    obtain ⟨matrix, margins, _boolean, _nonempty⟩ := represented w member
+    exact balanced_of_margins left right w rowLabels colLabels rowCounts colCounts matrix margins
 
 end FiniteSharing
 
@@ -2375,5 +2893,8 @@ theorem clash_exact_data :
 #print axioms clash_exact_data
 #print axioms Worklist.exact_system
 #print axioms multiplicity_cancel
+#print axioms FiniteSharing.boolean_transport_exists
+#print axioms FiniteSharing.minimal_nonempty_boolean_support
+#print axioms FiniteSharing.boolean_supports_exact
 
 end DirectCertification.Bakery

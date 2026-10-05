@@ -914,6 +914,23 @@ coverage aggregation. Its numeric finite-sharing namespace also proves minimal
 decomposition, opposite-pair bounds, integer transport existence, and the local
 rectangle cost decrease.
 
+The numeric finite-sharing argument is now proved in Lean:
+`boolean_transport_exists` rounds arbitrary finite transport margins to a
+zero/one matrix using the opposite-pair bound. `minimal_nonempty_boolean_support`
+connects original variable labels/coefficient counts to a nonempty support with
+uniform repeated-occurrence degrees. `boolean_supports_exact` proves that every
+balanced active multiplicity vector is a finite sum of these support-degree
+vectors, and conversely. Inactive coordinates are excluded only from the active
+balance; original canceled variables still require independent passthrough
+images. These are general metatheorems, not sampled coefficient cases or extra
+registration obligations.
+
+The proof groups equal required totals when finding a rectangle. This may merge
+several label classes, which only enlarges the available class and weakens the
+required bound. The label-count argument checks that the document's opposite-pair
+bound implies this rounding condition. A least squared-cost transport is used
+inside the classical existence proof, not as an executable runtime optimizer.
+
 The refactored prototype additionally proves positive-multiplicity cancellation
 for arbitrary `k > 0`, and admits checked cancellation/free decomposition inside
 conditional equation derivations. `Worklist.Complete.cover` implements
@@ -931,8 +948,8 @@ The old shape-specific recognizers and elaboration-time Maude search have been
 removed from this file; separate Maude experiment files remain historical work.
 
 Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. In
-particular, the Boolean-grid rounding theorem, complete native/open finite-sharing
-rule, exhaustive general solver, complete factor-search implementation, and their
+particular, exhaustive support-family enumeration, the complete native/open
+finite-sharing rule, exhaustive general solver, complete factor-search implementation, and their
 combined search-success theorem are not established by those existing examples.
 The retained semantic mutation/split rules are useful derived steps, not a
 complete fallback algorithm or a replacement for the finite-sharing theorem.
@@ -945,8 +962,9 @@ The final theorem is relatively straightforward once the component results are
 available: induction over the finite equation list, followed by symbolic CSU
 factorization and matching completeness. The difficult formalization lies in:
 
-1. Completing occurrence-grid rounding, support enumeration, and symbolic/native
-   bag reconstruction for Proposition 5.5.
+1. Completing exhaustive support enumeration and symbolic/native bag reconstruction
+   for Proposition 5.5; its numeric rounding and support-decomposition foundation
+   are now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
    propagation through postponed bag equations.
 3. Proving exhaustive singleton processing and single-bag solver exactness while
