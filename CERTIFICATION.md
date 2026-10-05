@@ -914,11 +914,28 @@ coverage aggregation. Its numeric finite-sharing namespace also proves minimal
 decomposition, opposite-pair bounds, integer transport existence, and the local
 rectangle cost decrease.
 
+The refactored prototype additionally proves positive-multiplicity cancellation
+for arbitrary `k > 0`, and admits checked cancellation/free decomposition inside
+conditional equation derivations. `Worklist.Complete.cover` implements
+EARLY-COVER directly: choose an answer and ONE factor, then prove the complete
+input vector equal to its images under the current equations. Constructor clash
+closes contradictory branches. `Worklist.exact_system` combines completeness and
+per-answer soundness for finite equation systems without trusting Maude.
+
+Explicit, tactic-free Bakery certificate terms demonstrate a two-answer atom
+split, early closure for `kP =B kQ` for every positive `k`, and an empty answer set
+justified by free-head clash. Their evidence is currently handwritten, not
+automatically searched or dumped. The profile generator checks the single-bag
+stratified frontend contract using existing registered constructor metadata.
+The old shape-specific recognizers and elaboration-time Maude search have been
+removed from this file; separate Maude experiment files remain historical work.
+
 Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. In
 particular, the Boolean-grid rounding theorem, complete native/open finite-sharing
 rule, exhaustive general solver, complete factor-search implementation, and their
 combined search-success theorem are not established by those existing examples.
-The existing bounded mutation/split search is not the strategy specified here.
+The retained semantic mutation/split rules are useful derived steps, not a
+complete fallback algorithm or a replacement for the finite-sharing theorem.
 
 ### 12.2 Is formalizing the search guarantee easy?
 
