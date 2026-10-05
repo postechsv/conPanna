@@ -750,6 +750,201 @@ theorem mutate (profile : Profile sig) {s} (op : sig.ACUOp s) (x y a b : Tree si
     rw [ex, ey, ea, eb]
     exact qadd_exchange op _ _ _ _
 
+namespace FiniteSharing
+/-!
+## General multiplicity lemmas for the future FiniteSharing rule
+
+This is a once-for-all PROOF auxiliary, not a Diophantine search backend,
+a user registration interface, or a claim that ACU certification is complete.
+For one atom class, a bag assignment induces a vector of multiplicities.
+The balance coefficients retain repeated occurrences of the original variables.
+
+The two established steps are:
+  Balanced(v) ==> v = m1 + ... + mk, with every mi minimal and nonzero.
+  Every minimal vector belongs to G, and every vector in G is balanced
+  ==================================================================
+                   Balanced(v) <==> Generated(G,v)
+
+The remaining finite-grid theorem must show that ALL balanced cell supports
+supply such a G. Its completeness is NOT assumed here as a new axiom or
+discharged by sample problems. After that theorem is proved, the existing
+flatten/rebuild lemmas lift these facts to registered NativeEq.
+
+The decomposition uses classical existence and strong induction. It is not
+executable certificate search, and no domain constraints or Bakery symbols
+occur in the statements.
+-/
+
+abbrev Vector (n : Nat) := Fin n → Nat
+def zeroVector {n} : Vector n := fun _ => 0
+def plus {n} (v w : Vector n) : Vector n := fun i => v i + w i
+def minus {n} (v w : Vector n) : Vector n := fun i => v i - w i
+def Below {n} (v w : Vector n) : Prop := ∀ i, v i ≤ w i
+def size : {n : Nat} → Vector n → Nat
+  | 0, _ => 0
+  | _ + 1, v => v 0 + size (fun i => v i.succ)
+theorem size_zero (n : Nat) : size (zeroVector (n := n)) = 0 := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simpa [size, zeroVector] using ih
+theorem size_plus {n} (v w : Vector n) :
+    size (plus v w) = size v + size w := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    simp only [size, plus]
+    have ht := ih (fun i => v i.succ) (fun i => w i.succ)
+    change size (fun i => v i.succ + w i.succ) = _ at ht
+    rw [ht]
+    omega
+theorem size_mono {n} {v w : Vector n} (h : Below v w) : size v ≤ size w := by
+  induction n with
+  | zero => exact Nat.le_refl _
+  | succ n ih =>
+    exact Nat.add_le_add (h 0) (ih (fun i => h i.succ))
+theorem eq_of_below_size_eq {n} {v w : Vector n}
+    (h : Below v w) (hs : size v = size w) : v = w := by
+  induction n with
+  | zero => funext i; exact Fin.elim0 i
+  | succ n ih =>
+    have ht : size (fun i => v i.succ) ≤ size (fun i => w i.succ) :=
+      size_mono (fun i => h i.succ)
+    have h0 := h 0
+    simp only [size] at hs
+    have first : v 0 = w 0 := by omega
+    have tail : size (fun i => v i.succ) = size (fun i => w i.succ) := by omega
+    have same := ih (fun i => h i.succ) tail
+    funext i
+    exact Fin.cases first (fun j => congrFun same j) i
+theorem size_pos {n} {v : Vector n} (h : v ≠ zeroVector) : 0 < size v := by
+  apply Nat.pos_of_ne_zero
+  intro hs
+  have same : zeroVector = v :=
+    eq_of_below_size_eq (fun _ => Nat.zero_le _) ((size_zero n).trans hs.symm)
+  exact h same.symm
+theorem split_below {n} {w v : Vector n} (h : Below w v) :
+    v = plus w (minus v w) :=
+  funext fun i => (Nat.add_sub_of_le (h i)).symm
+def dot {n} (coeff v : Vector n) : Nat := size (fun i => coeff i * v i)
+def Balanced {n} (left right v : Vector n) : Prop := dot left v = dot right v
+theorem dot_plus {n} (coeff v w : Vector n) :
+    dot coeff (plus v w) = dot coeff v + dot coeff w := by
+  unfold dot plus
+  simp only [Nat.mul_add]
+  exact size_plus _ _
+theorem balanced_minus {n} {left right v w : Vector n}
+    (hv : Balanced left right v) (hw : Balanced left right w) (hle : Below w v) :
+    Balanced left right (minus v w) := by
+  unfold Balanced at *
+  rw [split_below hle, dot_plus, dot_plus, hw] at hv
+  exact Nat.add_left_cancel hv
+/-- Minimality is componentwise: there is no smaller nonzero balanced vector.
+Zero is deliberately excluded; the empty decomposition accounts for it. -/
+def Minimal {n} (left right v : Vector n) : Prop :=
+  v ≠ zeroVector ∧ Balanced left right v ∧
+    ∀ w, Below w v → Balanced left right w → w ≠ zeroVector → w = v
+def total {n} : List (Vector n) → Vector n
+  | [] => zeroVector
+  | v :: rest => plus v (total rest)
+theorem total_append {n} (xs ys : List (Vector n)) :
+    total (xs ++ ys) = plus (total xs) (total ys) := by
+  induction xs with
+  | nil => funext i; simp [total, plus, zeroVector]
+  | cons x xs ih =>
+    simp only [List.cons_append, total, ih]
+    funext i
+    exact (Nat.add_assoc _ _ _).symm
+/-- Every balance solution is a finite sum of minimal balance solutions.
+Split off a proper balanced subvector when one exists. Both summands have
+strictly smaller total multiplicity, so the induction retains every solution.
+No positivity or linearity restriction on the coefficient vectors is needed. -/
+theorem decompose_minimal {n} (left right v : Vector n) (hv : Balanced left right v) :
+    ∃ parts : List (Vector n),
+      (∀ w ∈ parts, Minimal left right w) ∧ total parts = v := by
+  classical
+  refine Nat.strongRecOn (motive := fun k => ∀ v : Vector n,
+    size v = k → Balanced left right v →
+      ∃ parts : List (Vector n),
+        (∀ w ∈ parts, Minimal left right w) ∧ total parts = v)
+    (size v) ?_ v rfl hv
+  intro k ih current hk hc
+  by_cases hz : current = zeroVector
+  · exact ⟨[], fun _ h => False.elim (List.not_mem_nil h), hz.symm⟩
+  by_cases smaller : ∃ w, Below w current ∧ Balanced left right w ∧
+      w ≠ zeroVector ∧ w ≠ current
+  · obtain ⟨w, hle, hw, hnz, hne⟩ := smaller
+    have wlt : size w < k := by
+      have hleSize := size_mono hle
+      have hneSize : size w ≠ size current :=
+        fun h => hne (eq_of_below_size_eq hle h)
+      have hlt := Nat.lt_of_le_of_ne hleSize hneSize
+      omega
+    have sumSplit : size current = size w + size (minus current w) := by
+      exact (congrArg size (split_below hle)).trans (size_plus _ _)
+    have dlt : size (minus current w) < k := by
+      have positive := size_pos hnz
+      omega
+    obtain ⟨ws, hws, ews⟩ := ih (size w) wlt w rfl hw
+    obtain ⟨ds, hds, eds⟩ := ih (size (minus current w)) dlt
+      (minus current w) rfl (balanced_minus hc hw hle)
+    refine ⟨ws ++ ds, ?_, ?_⟩
+    · intro u member
+      rcases List.mem_append.mp member with member | member
+      · exact hws u member
+      · exact hds u member
+    · rw [total_append, ews, eds]
+      exact (split_below hle).symm
+  · refine ⟨[current], ?_, ?_⟩
+    · intro w member
+      have same : w = current := by simpa using member
+      subst w
+      refine ⟨hz, hc, ?_⟩
+      intro w hle hw hnz
+      exact Classical.byContradiction (fun hne => smaller ⟨w, hle, hw, hnz, hne⟩)
+    · funext i
+      simp [total, plus, zeroVector]
+
+
+def Generated {n} (generators : List (Vector n)) (v : Vector n) : Prop :=
+  ∃ parts : List (Vector n), (∀ w ∈ parts, w ∈ generators) ∧ total parts = v
+theorem balanced_zero {n} (left right : Vector n) :
+    Balanced left right zeroVector := by
+  unfold Balanced dot zeroVector
+  simp only [Nat.mul_zero]
+theorem balanced_plus {n} {left right v w : Vector n}
+    (hv : Balanced left right v) (hw : Balanced left right w) :
+    Balanced left right (plus v w) := by
+  unfold Balanced at *
+  rw [dot_plus, dot_plus, hv, hw]
+theorem total_balanced {n} (left right : Vector n) (parts : List (Vector n))
+    (h : ∀ w ∈ parts, Balanced left right w) :
+    Balanced left right (total parts) := by
+  induction parts with
+  | nil => exact balanced_zero left right
+  | cons w rest ih =>
+    exact balanced_plus (h w (List.mem_cons_self))
+      (ih (fun u hu => h u (List.mem_cons_of_mem w hu)))
+theorem generated_of_minimal_coverage {n} (left right : Vector n)
+    (generators : List (Vector n))
+    (covers : ∀ w, Minimal left right w → w ∈ generators)
+    {v : Vector n} (hv : Balanced left right v) : Generated generators v := by
+  obtain ⟨parts, minimal, sum⟩ := decompose_minimal left right v hv
+  exact ⟨parts, fun w member => covers w (minimal w member), sum⟩
+/-- General reduction of exact generation to coverage of minimal vectors.
+The hypotheses are proof obligations for the GENERAL grid metatheorem, not
+a per-model registration or a certificate supplied by the user/Maude. -/
+theorem generated_iff_balanced {n} (left right : Vector n)
+    (generators : List (Vector n))
+    (sound : ∀ w ∈ generators, Balanced left right w)
+    (covers : ∀ w, Minimal left right w → w ∈ generators)
+    (v : Vector n) : Generated generators v ↔ Balanced left right v := by
+  constructor
+  · rintro ⟨parts, member, rfl⟩
+    exact total_balanced left right parts (fun w hw => sound w (member w hw))
+  · exact generated_of_minimal_coverage left right generators covers
+
+end FiniteSharing
+
 end DirectCertification
 
 /-! ## Automatic syntactic metadata (prototype command, eventually library code)
