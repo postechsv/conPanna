@@ -9,6 +9,14 @@ This file contains four clearly separated parts:
 3. REPLAY: finite certificate data, dump format, and kernel-checked acceptance.
 4. CERTIFICATES: ordinary, tactic-free proof terms over Bakery's own datatypes.
 
+The new Substitution section supplies arbitrary many-sorted image vectors,
+finite ACU equality traces, and answer-indexed factorization/coverage data.
+Native export now preserves actual substitutions without template compaction.
+The one-tail and four-bag mutation examples certify those exported answers.
+Object-level Maude still emits the OLD restricted control traces; generating
+the new generic Factor/Soundness data in Maude is the next migration step.
+Both formats remain here as checked regression fixtures during that migration.
+
 The current milestone is answer-directed certification of ONE explicit atom
 and ONE bag tail per side, including a free frame that identifies head parameters.
 The generic coverage theorem below reduces an
@@ -31,10 +39,12 @@ encoding. Lists/quotients appear only inside proofs of the general metatheorems.
 A future Maude dump can name each general rule and its arguments. Reconstruction
 then builds the corresponding Lean application; it does not run a Lean tactic.
 The Bakery example fetches actual native answers and an accumulated Maude trace.
-The external boundary accepts ONLY the two exact canonical substitution shapes,
-up to parameter renaming and the order of the two ACU summands. It rejects all
-other bindings. This is a restricted experiment, not production narrowing.
-The only trusted proof step is the kernel's replay_exact, applied to fetched DATA.
+The OLD object-level search boundary accepts only the two canonical shapes,
+up to parameter renaming and binary-summand order. The independent general
+exporter accepts any well-sorted constructor substitution and retains EVERY
+image. Acceptance as an exact answer set still requires checked soundness and
+coverage data; exporting syntax is NOT certification. This is not production
+narrowing. Only kernel-checked semantic metatheorems certify fetched DATA.
 There is no custom proof tactic; object-level Maude rules do the trace search.
 
 References:
@@ -1161,6 +1171,335 @@ theorem exact_of_coverage (profile : Profile sig) (reg : Registration sig) {s}
   fun x y => ⟨(coverage_iff profile reg op a b G H ha hb).mpr guards x y,
     answers_sound profile reg op a b G H ha hb x y⟩
 
+/-! ## General substitution and coverage data
+
+An answer is now an explicit, many-sorted substitution, not a family tag.
+`parameters` lists its FRESH variables; `images` gives one term for EVERY input.
+Repeated occurrences refer to the same typed variable. An absent/empty sort
+does not require a dummy inhabitant: valuations are finite native argument tuples.
+
+The generic coverage leaf is the usual instantiation rule:
+
+  reference images τ =B proposed images σβ
+  ======================================== Factor
+         Instances(τ) ⊆ Instances(σ)
+
+β maps σ's fresh parameters into τ's parameter context. It is explicit finite
+syntax, not a Lean function or a semantic axiom. Equality derivations are also
+finite constructor data. A coverage certificate chooses an answer INDEX for
+each reference branch; it works for any number/shape of proposed substitutions.
+
+  original equation ⇒ some reference branch
+  every reference branch factors through a proposed answer
+  every proposed answer solves the original equation
+  ======================================================= Exact
+  original equation ⇔ some proposed answer
+
+The first premise is still supplied by the proved splitting/decomposition rules.
+Factor does NOT magically certify that all original solutions were enumerated.
+No new equality is exposed: every metatheorem concludes in registered NativeEq.
+-/
+namespace Substitution
+
+inductive Variable : List Sorts → Sorts → Type where
+  | here {s ss} : Variable (s :: ss) s
+  | there {s t ss} : Variable ss s → Variable (t :: ss) s
+
+def Variable.eval {C : Sorts → Type} {Γ s} : Variable Γ s → Args C Γ → C s
+  | .here, values => values.1
+  | .there v, values => v.eval values.2
+
+mutual
+  inductive Term (sig : Signature Sorts) (Γ : List Sorts) : Sorts → Type where
+    | var {s} : Variable Γ s → Term sig Γ s
+    | app {ss s} : sig.Symbol ss s → Terms sig Γ ss → Term sig Γ s
+  inductive Terms (sig : Signature Sorts) (Γ : List Sorts) : List Sorts → Type where
+    | nil : Terms sig Γ []
+    | cons {s ss} : Term sig Γ s → Terms sig Γ ss → Terms sig Γ (s :: ss)
+end
+
+mutual
+  def Term.eval (reg : Registration sig) {Γ s} (values : Args reg.Carrier Γ) :
+      Term sig Γ s → reg.Carrier s
+    | .var v => v.eval values
+    | .app f args => reg.apply f (args.eval reg values)
+  def Terms.eval (reg : Registration sig) {Γ ss} (values : Args reg.Carrier Γ) :
+      Terms sig Γ ss → Args reg.Carrier ss
+    | .nil => PUnit.unit
+    | .cons a rest => (a.eval reg values, rest.eval reg values)
+end
+
+def Terms.get {Γ ss s} : Terms sig Γ ss → Variable ss s → Term sig Γ s
+  | .cons a _, .here => a
+  | .cons _ rest, .there v => rest.get v
+
+def Terms.variables (Γ : List Sorts) : (Δ : List Sorts) →
+    (∀ {s}, Variable Δ s → Variable Γ s) → Terms sig Γ Δ
+  | [], _ => .nil
+  | _ :: ss, rename => .cons (.var (rename .here))
+      (Terms.variables Γ ss (fun v => rename (.there v)))
+
+def Terms.identity (Γ : List Sorts) : Terms sig Γ Γ := Terms.variables Γ Γ (fun v => v)
+
+mutual
+  def Term.subst {Γ Δ s} (images : Terms sig Δ Γ) : Term sig Γ s → Term sig Δ s
+    | .var v => images.get v
+    | .app f args => .app f (args.subst images)
+  def Terms.subst {Γ Δ ss} (terms : Terms sig Γ ss) (images : Terms sig Δ Γ) : Terms sig Δ ss :=
+    match terms with
+    | .nil => .nil
+    | .cons a rest => .cons (a.subst images) (rest.subst images)
+end
+
+theorem Variable.eval_get (reg : Registration sig) {Γ Δ s} (v : Variable Γ s)
+    (images : Terms sig Δ Γ) (values : Args reg.Carrier Δ) :
+    v.eval (images.eval reg values) = (images.get v).eval reg values := by
+  induction v with
+  | here => cases images; rfl
+  | there v ih => cases images with | cons a rest => exact ih rest
+
+theorem Term.eval_subst (reg : Registration sig) {Γ Δ s} (term : Term sig Γ s)
+    (images : Terms sig Δ Γ) (values : Args reg.Carrier Δ) :
+    (term.subst images).eval reg values = term.eval reg (images.eval reg values) := by
+  refine Term.rec
+    (motive_1 := fun {s} a => (a.subst images).eval reg values = a.eval reg (images.eval reg values))
+    (motive_2 := fun {ss} as => (as.subst images).eval reg values = as.eval reg (images.eval reg values))
+    ?_ ?_ ?_ ?_ term
+  · intro s v; exact (Variable.eval_get reg v images values).symm
+  · intro ss s f args ih; exact congrArg (reg.apply f) ih
+  · rfl
+  · intro s ss a rest ha hr; simp only [Terms.subst, Terms.eval, ha, hr]
+
+theorem Terms.eval_subst (reg : Registration sig) {Γ Δ ss} (terms : Terms sig Γ ss)
+    (images : Terms sig Δ Γ) (values : Args reg.Carrier Δ) :
+    (terms.subst images).eval reg values = terms.eval reg (images.eval reg values) := by
+  refine Terms.rec
+    (motive_1 := fun {_} _ => True)
+    (motive_2 := fun {ss} as => (as.subst images).eval reg values = as.eval reg (images.eval reg values))
+    ?_ ?_ ?_ ?_ terms
+  · intros; trivial
+  · intros; trivial
+  · rfl
+  · intro s ss a rest _ hr
+    simp only [Terms.subst, Terms.eval, Term.eval_subst, hr]
+
+def add {Γ s} (op : sig.ACUOp s) (a b : Term sig Γ s) : Term sig Γ s :=
+  .app (sig.add op) (.cons a (.cons b .nil))
+def zero {Γ s} (op : sig.ACUOp s) : Term sig Γ s := .app (sig.zero op) .nil
+
+/- Internal finite equality traces. These are DATA, not arbitrary Lean proofs.
+Their constructors mirror ordinary ACU/congruence rules in a Maude dump. -/
+mutual
+  inductive Equality (sig : Signature Sorts) (Γ : List Sorts) :
+      {s : Sorts} → Term sig Γ s → Term sig Γ s → Type where
+    | refl {s} (a : Term sig Γ s) : Equality sig Γ a a
+    | symm {s} {a b : Term sig Γ s} : Equality sig Γ a b → Equality sig Γ b a
+    | trans {s} {a b c : Term sig Γ s} :
+        Equality sig Γ a b → Equality sig Γ b c → Equality sig Γ a c
+    | congr {ss s} (f : sig.Symbol ss s) {a b : Terms sig Γ ss} :
+        Equalities sig Γ a b → Equality sig Γ (.app f a) (.app f b)
+    | comm {s} (op : sig.ACUOp s) (a b : Term sig Γ s) :
+        Equality sig Γ (add op a b) (add op b a)
+    | assoc {s} (op : sig.ACUOp s) (a b c : Term sig Γ s) :
+        Equality sig Γ (add op (add op a b) c) (add op a (add op b c))
+    | unit {s} (op : sig.ACUOp s) (a : Term sig Γ s) :
+        Equality sig Γ (add op (zero op) a) a
+  inductive Equalities (sig : Signature Sorts) (Γ : List Sorts) :
+      {ss : List Sorts} → Terms sig Γ ss → Terms sig Γ ss → Type where
+    | nil : Equalities sig Γ .nil .nil
+    | cons {s ss} {a b : Term sig Γ s} {as bs : Terms sig Γ ss} :
+        Equality sig Γ a b → Equalities sig Γ as bs →
+        Equalities sig Γ (.cons a as) (.cons b bs)
+end
+
+private theorem apply_congr (reg : Registration sig) {ss s} (f : sig.Symbol ss s)
+    {a b : Args reg.Carrier ss}
+    (h : ArgsRel (fun s => NativeEq sig reg (s := s)) ss a b) :
+    NativeEq sig reg (reg.apply f a) (reg.apply f b) := by
+  unfold NativeEq
+  rw [reg.quote_apply, reg.quote_apply]
+  exact .congr f ((quote_args_iff reg a b).mpr h)
+
+theorem Equality.sound (reg : Registration sig) {Γ s} {a b : Term sig Γ s}
+    (proof : Equality sig Γ a b) (values : Args reg.Carrier Γ) :
+    NativeEq sig reg (a.eval reg values) (b.eval reg values) := by
+  refine Equality.rec
+    (motive_1 := fun {s} a b _ => NativeEq sig reg (a.eval reg values) (b.eval reg values))
+    (motive_2 := fun {ss} as bs _ =>
+      ArgsRel (fun s => NativeEq sig reg (s := s)) ss (as.eval reg values) (bs.eval reg values))
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ proof
+  · intro s a; exact .refl _
+  · intro s a b h ih; exact .symm ih
+  · intro s a b c h k ih ik; exact .trans ih ik
+  · intro ss s f as bs h ih; exact apply_congr reg f ih
+  · intro s op a b; exact native_comm reg op _ _
+  · intro s op a b c
+    simp only [NativeEq, Term.eval, Terms.eval, add, reg.quote_apply, Args.quote]
+    exact .assoc op _ _ _
+  · intro s op a; exact native_unit reg op _
+  · trivial
+  · intro s ss a b as bs h k ih ik; exact ⟨ih, ik⟩
+
+theorem Equalities.sound (reg : Registration sig) {Γ ss} {a b : Terms sig Γ ss}
+    (proof : Equalities sig Γ a b) (values : Args reg.Carrier Γ) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) ss (a.eval reg values) (b.eval reg values) :=
+  match proof with
+  | .nil => True.intro
+  | .cons h rest => ⟨h.sound reg values, rest.sound reg values⟩
+
+/-- Derived equality rule: A+(B+R) =B B+(A+R). This is just a finite
+Assoc/Comm/Congruence derivation; it knows no constructor names or variable IDs. -/
+def Equality.swap_right {Γ s} (op : sig.ACUOp s) (a b rest : Term sig Γ s) :
+    Equality sig Γ (add op a (add op b rest)) (add op b (add op a rest)) :=
+  .trans (.symm (.assoc op a b rest))
+    (.trans (.congr (sig.add op) (.cons (.comm op a b) (.cons (.refl rest) .nil)))
+      (.assoc op b a rest))
+
+/-- Tail-first presentation of the same adjacent-head exchange. -/
+def Equality.exchange_tail {Γ s} (op : sig.ACUOp s) (a b rest : Term sig Γ s) :
+    Equality sig Γ (add op a (add op rest b)) (add op b (add op rest a)) :=
+  .trans (.congr (sig.add op) (.cons (.refl a) (.cons (.comm op rest b) .nil)))
+    (.trans
+      (.swap_right op a b rest)
+      (.congr (sig.add op) (.cons (.refl b) (.cons (.comm op a rest) .nil))))
+
+/-- The four-piece ACU equality used by Mutate, derived from the SAME small
+equality proof system. No Diophantine reasoning or free-atom dictionary. -/
+def Equality.matrix {Γ s} (op : sig.ACUOp s) (a b c d : Term sig Γ s) :
+    Equality sig Γ (add op (add op a b) (add op c d)) (add op (add op a c) (add op b d)) :=
+  .trans (.assoc op a b (add op c d))
+    (.trans (.congr (sig.add op) (.cons (.refl a) (.cons (.swap_right op b c d) .nil)))
+      (.symm (.assoc op a c (add op b d))))
+
+def Equalities.refl {Γ ss} (terms : Terms sig Γ ss) : Equalities sig Γ terms terms :=
+  match terms with
+  | .nil => .nil
+  | .cons a rest => .cons (.refl a) (.refl rest)
+
+private theorem args_trans (reg : Registration sig) {ss} {a b c : Args reg.Carrier ss}
+    (h : ArgsRel (fun s => NativeEq sig reg (s := s)) ss a b)
+    (k : ArgsRel (fun s => NativeEq sig reg (s := s)) ss b c) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) ss a c := by
+  induction ss with
+  | nil => trivial
+  | cons s ss ih => exact ⟨.trans h.1 k.1, ih h.2 k.2⟩
+
+structure Answer (sig : Signature Sorts) (inputs : List Sorts) where
+  parameters : List Sorts
+  images : Terms sig parameters inputs
+
+def Answer.Holds (reg : Registration sig) {inputs} (answer : Answer sig inputs)
+    (values : Args reg.Carrier inputs) : Prop :=
+  ∃ fresh : Args reg.Carrier answer.parameters,
+    ArgsRel (fun s => NativeEq sig reg (s := s)) inputs values (answer.images.eval reg fresh)
+
+def Solutions (reg : Registration sig) {inputs} (proposed : List (Answer sig inputs))
+    (values : Args reg.Carrier inputs) : Prop :=
+  ∃ answer, answer ∈ proposed ∧ answer.Holds reg values
+
+/-- A target answer may have different parameters, order, or number of bindings.
+The entire input-image vector is checked; no field/correlation is discarded. -/
+structure Factor {inputs} (source target : Answer sig inputs) where
+  parameters : Terms sig source.parameters target.parameters
+  images : Equalities sig source.parameters source.images (target.images.subst parameters)
+
+theorem Factor.sound (reg : Registration sig) {inputs} {source target : Answer sig inputs}
+    (factor : Factor source target) {values} (input : source.Holds reg values) :
+    target.Holds reg values := by
+  rcases input with ⟨fresh, images⟩
+  refine ⟨factor.parameters.eval reg fresh, ?_⟩
+  have matched := factor.images.sound reg fresh
+  rw [Terms.eval_subst] at matched
+  exact args_trans reg images matched
+
+/-- A finite list of answer-indexed coverage leaves. No semantic proof fields,
+family labels, unifier search, or problem-specific constructors. Fin's bound is
+a syntactic index check, discharged by the kernel when a dump is reconstructed. -/
+inductive Coverage {inputs : List Sorts} (proposed : List (Answer sig inputs)) : List (Answer sig inputs) → Type where
+  | nil : Coverage proposed []
+  | cons {source rest} (index : Fin proposed.length)
+      (factor : Factor source (proposed.get index)) (tail : Coverage proposed rest) :
+      Coverage proposed (source :: rest)
+
+theorem Coverage.sound (reg : Registration sig) {inputs}
+    {proposed reference : List (Answer sig inputs)} (proof : Coverage proposed reference)
+    {values} : Solutions reg reference values → Solutions reg proposed values := by
+  induction proof with
+  | nil => rintro ⟨_, impossible, _⟩; cases impossible
+  | @cons source rest index factor tail ih =>
+      rintro ⟨answer, member, input⟩
+      rcases List.mem_cons.mp member with same | member
+      · cases same
+        exact ⟨_, List.get_mem _ _, factor.sound reg input⟩
+      · exact ih ⟨answer, member, input⟩
+
+structure Problem (sig : Signature Sorts) (inputs : List Sorts) where
+  sort : Sorts
+  left : Term sig inputs sort
+  right : Term sig inputs sort
+
+def Problem.Holds (reg : Registration sig) {inputs} (problem : Problem sig inputs)
+    (values : Args reg.Carrier inputs) : Prop :=
+  NativeEq sig reg (problem.left.eval reg values) (problem.right.eval reg values)
+
+private theorem Variable.eval_congr (reg : Registration sig) {Γ s} (v : Variable Γ s)
+    {a b : Args reg.Carrier Γ}
+    (h : ArgsRel (fun s => NativeEq sig reg (s := s)) Γ a b) :
+    NativeEq sig reg (v.eval a) (v.eval b) := by
+  induction v with
+  | here => exact h.1
+  | there v ih => exact ih h.2
+
+theorem Term.eval_congr (reg : Registration sig) {Γ s} (term : Term sig Γ s)
+    {a b : Args reg.Carrier Γ}
+    (h : ArgsRel (fun s => NativeEq sig reg (s := s)) Γ a b) :
+    NativeEq sig reg (term.eval reg a) (term.eval reg b) := by
+  refine Term.rec
+    (motive_1 := fun {s} term => NativeEq sig reg (term.eval reg a) (term.eval reg b))
+    (motive_2 := fun {ss} terms =>
+      ArgsRel (fun s => NativeEq sig reg (s := s)) ss (terms.eval reg a) (terms.eval reg b))
+    ?_ ?_ ?_ ?_ term
+  · intro s v; exact v.eval_congr reg h
+  · intro ss s f args ih; exact apply_congr reg f ih
+  · trivial
+  · intro s ss first rest ih ir; exact ⟨ih, ir⟩
+
+/-- One finite equality trace for EACH proposed substitution. A proposal cannot
+be accepted merely because other members cover the problem: junk is rejected. -/
+inductive Soundness {inputs : List Sorts} (problem : Problem sig inputs) : List (Answer sig inputs) → Type where
+  | nil : Soundness problem []
+  | cons {answer rest}
+      (proof : Equality sig answer.parameters
+        (problem.left.subst answer.images) (problem.right.subst answer.images))
+      (tail : Soundness problem rest) : Soundness problem (answer :: rest)
+
+theorem Soundness.sound (reg : Registration sig) {inputs} {problem : Problem sig inputs}
+    {proposed : List (Answer sig inputs)} (proof : Soundness problem proposed) :
+    ∀ values, Solutions reg proposed values → problem.Holds reg values := by
+  induction proof with
+  | nil => rintro _ ⟨_, impossible, _⟩; cases impossible
+  | @cons answer rest equality tail ih =>
+      rintro values ⟨candidate, member, fresh, images⟩
+      rcases List.mem_cons.mp member with same | member
+      · cases same
+        have equation := equality.sound reg fresh
+        rw [Term.eval_subst, Term.eval_subst] at equation
+        exact .trans (problem.left.eval_congr reg images)
+          (.trans equation (.symm (problem.right.eval_congr reg images)))
+      · exact ih values ⟨candidate, member, fresh, images⟩
+
+/-- General semantic aggregation. The supplied reference completeness must
+come from semantic rule metatheorems, not a successful native unify command. -/
+theorem exact_of_coverage (reg : Registration sig) {inputs} (problem : Problem sig inputs)
+    (reference proposed : List (Answer sig inputs))
+    (complete : ∀ values, problem.Holds reg values → Solutions reg reference values)
+    (sound : Soundness problem proposed)
+    (cover : Coverage proposed reference) :
+    ∀ values, problem.Holds reg values ↔ Solutions reg proposed values :=
+  fun values => ⟨fun h => cover.sound reg (complete values h), sound.sound reg values⟩
+
+end Substitution
+
 /-! ## Finite certificates and native kernel replay
 
 Scope of this replay format: C(a)+X =B C(b)+Y, where C is a one-hole
@@ -1714,6 +2053,136 @@ theorem replay_frame_clash_exact (profile : Profile sig) (reg : Registration sig
   | none => simp [acceptsFrameClash, result] at accepted
   | some proof => exact proof.down
 
+/-! ### Connect the existing Exchange rule to generic substitution data
+
+These are reference BRANCHES generated by a proved rule, not a proposed/native
+answer list. The proposed list may have a different order, variable numbering,
+or redundant answers. Generic Factor leaves establish its coverage below.
+-/
+namespace Reference
+
+open Substitution
+
+mutual
+  def treeTerm {Γ s} : Tree sig s → Term sig Γ s
+    | .app f args => .app f (treeTerms args)
+  def treeTerms {Γ ss} : Trees sig ss → Terms sig Γ ss
+    | .nil => .nil
+    | .cons first rest => .cons (treeTerm first) (treeTerms rest)
+end
+
+mutual
+  def plug {Γ r s} (context : Context sig r s) (term : Term sig Γ r) : Term sig Γ s :=
+    match context with
+    | .hole => term
+    | .app f args => .app f (plugArgs args term)
+  def plugArgs {Γ r ss} (args : ArgumentContext sig r ss) (term : Term sig Γ r) : Terms sig Γ ss :=
+    match args with
+    | .focus context rest => .cons (plug context term) (treeTerms rest)
+    | .before first rest => .cons (treeTerm first) (plugArgs rest term)
+end
+
+theorem treeTerm_eval (reg : Registration sig) {Γ s} (term : Tree sig s)
+    (values : Args reg.Carrier Γ) : (treeTerm term).eval reg values = term.eval reg.toAlgebra := by
+  refine Tree.rec
+    (motive_1 := fun {s} a => (treeTerm a).eval reg values = a.eval reg.toAlgebra)
+    (motive_2 := fun {ss} as => (treeTerms as).eval reg values = as.eval reg.toAlgebra)
+    ?_ ?_ ?_ term
+  · intro ss s f args ih; exact congrArg (reg.apply f) ih
+  · rfl
+  · intro s ss a rest ha hr; simp only [treeTerms, Terms.eval, Trees.eval, ha, hr]
+
+theorem plug_eval (reg : Registration sig) {Γ r s} (context : Context sig r s)
+    (term : Term sig Γ r) (values : Args reg.Carrier Γ) :
+    (plug context term).eval reg values = context.eval reg (term.eval reg values) := by
+  refine Context.rec
+    (motive_1 := fun {s} c => (plug c term).eval reg values = c.eval reg (term.eval reg values))
+    (motive_2 := fun {ss} args => (plugArgs args term).eval reg values = args.eval reg (term.eval reg values))
+    ?_ ?_ ?_ ?_ context
+  · rfl
+  · intro ss s f args ih; exact congrArg (reg.apply f) ih
+  · intro s ss c rest ih
+    have fixed : (treeTerms (Γ := Γ) rest).eval reg values = rest.eval reg.toAlgebra := by
+      induction ss with
+      | nil => cases rest; rfl
+      | cons s ss ih => cases rest with
+        | cons first tail => simp only [treeTerms, Terms.eval, Trees.eval, treeTerm_eval, ih tail]
+    simp only [plugArgs, Terms.eval, ArgumentContext.eval, ih, fixed]
+  · intro s ss first rest ih
+    simp only [plugArgs, Terms.eval, ArgumentContext.eval, treeTerm_eval, ih]
+
+def exchangeProblem {r s} (context : Context sig r s) (op : sig.ACUOp s) :
+    Problem sig [r, s, r, s] where
+  sort := s
+  left := Substitution.add op (plug context (.var .here)) (.var (.there .here))
+  right := Substitution.add op (plug context (.var (.there (.there .here))))
+    (.var (.there (.there (.there .here))))
+
+def exchangeMatched {r s} : Answer sig [r, s, r, s] where
+  parameters := [r, s]
+  images := .cons (.var .here) (.cons (.var (.there .here))
+    (.cons (.var .here) (.cons (.var (.there .here)) .nil)))
+
+def exchangeCrossed {r s} (context : Context sig r s) (op : sig.ACUOp s) : Answer sig [r, s, r, s] where
+  parameters := [r, s, r]
+  images := .cons (.var .here)
+    (.cons (Substitution.add op (.var (.there .here)) (plug context (.var (.there (.there .here)))))
+      (.cons (.var (.there (.there .here)))
+        (.cons (Substitution.add op (.var (.there .here)) (plug context (.var .here))) .nil)))
+
+def exchangeBranches {r s} (context : Context sig r s) (op : sig.ACUOp s) : List (Answer sig [r, s, r, s]) :=
+  [exchangeMatched, exchangeCrossed context op]
+
+theorem exchange_complete (profile : Profile sig) (reg : Registration sig) {r s}
+    (context : Context sig r s) (op : sig.ACUOp s)
+    (head : ∀ a b, NativeEq sig reg (context.eval reg a) (context.eval reg b) ↔ a = b)
+    (atom : ∀ a, mass profile (reg.quote s (context.eval reg a)) = 1) :
+    ∀ values, (exchangeProblem context op).Holds reg values →
+      Substitution.Solutions reg (exchangeBranches context op) values := by
+  rintro ⟨a, x, b, y, _⟩ input
+  simp only [Problem.Holds, exchangeProblem, Substitution.add, Term.eval, Terms.eval,
+    Variable.eval, plug_eval] at input
+  rcases (exchange_native profile reg op (context.eval reg a) (context.eval reg b)
+    x y (atom a) (atom b)).mp input with ⟨heads, tails⟩ | ⟨rest, hx, hy⟩
+  · have hab := (head a b).mp heads
+    refine ⟨exchangeMatched, List.mem_cons_self, (a, x, PUnit.unit), ?_⟩
+    subst b
+    exact ⟨.refl _, .refl _, .refl _, .symm tails, True.intro⟩
+  · refine ⟨exchangeCrossed context op, List.mem_cons_of_mem _ List.mem_cons_self,
+      (a, rest, b, PUnit.unit), ?_⟩
+    simpa only [exchangeCrossed, Substitution.add, Term.eval, Terms.eval, Variable.eval,
+      plug_eval] using
+      (show NativeEq sig reg a a ∧
+        NativeEq sig reg x (reg.apply (sig.add op) (rest, context.eval reg b, PUnit.unit)) ∧
+        NativeEq sig reg b b ∧
+        NativeEq sig reg y (reg.apply (sig.add op) (rest, context.eval reg a, PUnit.unit)) ∧ True from
+        ⟨.refl _, .trans hx (native_comm reg op _ _), .refl _,
+          .trans hy (native_comm reg op _ _), True.intro⟩)
+
+def mutationProblem {s} (op : sig.ACUOp s) : Problem sig [s, s, s, s] where
+  sort := s
+  left := Substitution.add op (.var .here) (.var (.there .here))
+  right := Substitution.add op (.var (.there (.there .here)))
+    (.var (.there (.there (.there .here))))
+
+def mutationAnswer {s} (op : sig.ACUOp s) : Answer sig [s, s, s, s] where
+  parameters := [s, s, s, s]
+  images := .cons (Substitution.add op (.var .here) (.var (.there .here)))
+    (.cons (Substitution.add op (.var (.there (.there .here))) (.var (.there (.there (.there .here)))))
+      (.cons (Substitution.add op (.var .here) (.var (.there (.there .here))))
+        (.cons (Substitution.add op (.var (.there .here)) (.var (.there (.there (.there .here))))) .nil)))
+
+theorem mutation_complete (profile : Profile sig) (reg : Registration sig) {s}
+    (op : sig.ACUOp s) :
+    ∀ values, (mutationProblem op).Holds reg values →
+      Substitution.Solutions reg [mutationAnswer op] values := by
+  rintro ⟨x, y, a, rest, _⟩ input
+  rcases (mutate_native profile reg op x y a rest).mp input with ⟨p, q, r, t, hx, hy, ha, hr⟩
+  exact ⟨mutationAnswer op, List.mem_cons_self, (p, q, r, t, PUnit.unit),
+    hx, hy, ha, hr, True.intro⟩
+
+end Reference
+
 /-! ## External data boundary — no semantic proofs or search in Lean
 
 Native Maude proposes actual substitutions. We recognize EVERY image, including
@@ -1726,7 +2195,7 @@ Unsupported native answers fail explicitly rather than being dropped.
 -/
 namespace External
 
-open Lean Maude
+open Lean Lean.Meta Maude
 
 /-- A native one-tail query, inferred from the two translated input terms. -/
 structure Input where
@@ -1934,6 +2403,7 @@ def searchReply (request stdout : String) : Except String Certificate := do
 structure Fetched where
   families : List Family
   trace : Certificate
+  unifiers : Array MaudeUnifier
   -- Kept only for diagnostics/tamper tests; emit does not persist these strings.
   request : String
   nativeOutput : String
@@ -1959,7 +2429,123 @@ def fetch (model engine : String) (sorts : Array SortDecl)
   let result ← Maude.runMaude engine
     s!"search [1, 64] in DIRECT-CERTIFICATION : start({request}) =>! R:Reply ."
   let trace ← IO.ofExcept (searchReply request result)
-  return { families, trace, request, nativeOutput := stdout, searchOutput := result }
+  let unifiers ← IO.ofExcept (Maude.parseUnifiers sorts spec.variables stdout)
+  return { families, trace, unifiers, request, nativeOutput := stdout, searchOutput := result }
+
+/- General reification: inspect the registered quote function to recover the
+native sort/constructor identities. No c0/c1 numbering, carrier table, Bakery
+name, family classification, or semantic bridge proof is hardcoded here. -/
+private structure Layout where
+  sortType : Expr
+  signature : Expr
+  sorts : Array (Name × Expr)
+  symbols : Array (Name × Expr)
+
+private def layout (reg : Expr) : MetaM Layout := do
+  let ty ← whnf (← inferType reg)
+  let #[sortType, signature] := ty.getAppArgs | throwError "expected an indexed registration"
+  let some sortName := sortType.constName? | throwError "expected a finite generated sort datatype"
+  let tags := (← getConstInfoInduct sortName).ctors
+  let algebra ← mkAppM ``Structural.Indexed.Registration.toAlgebra #[reg]
+  let mut sorts := #[]
+  let mut symbols := #[]
+  for tagName in tags do
+    let tag := mkConst tagName
+    let nativeType ← whnf (← mkAppM ``Structural.Indexed.Algebra.Carrier #[algebra, tag])
+    let some nativeName := nativeType.constName? | throwError "expected a native datatype sort"
+    sorts := sorts.push (nativeName, tag)
+    for ctor in (← getConstInfoInduct nativeName).ctors do
+      let symbol ← forallTelescopeReducing (← getConstInfo ctor).type fun args _ => do
+        let native := mkAppN (mkConst ctor) args
+        let quoted ← whnf (← mkAppM ``Structural.Indexed.Registration.quote #[reg, tag, native])
+        unless quoted.getAppFn.constName? == some ``Structural.Indexed.Tree.app do
+          throwError "registration quote did not expose a constructor"
+        let fields := quoted.getAppArgs
+        return fields[fields.size - 2]!
+      symbols := symbols.push (ctor, symbol)
+  return { sortType, signature, sorts, symbols }
+
+private def Layout.tag (l : Layout) (name : Name) : MetaM Expr := do
+  let some (_, tag) := l.sorts.find? (·.1 == name) | throwError "unregistered sort {name}"
+  return tag
+
+private def sortList (l : Layout) (names : Array Name) : MetaM Expr := do
+  mkListLit l.sortType (← names.toList.mapM l.tag)
+
+private def variableExpr (l : Layout) (names : Array Name) (index : Nat) : MetaM Expr := do
+  let some name := names[index]? | throwError "variable index out of bounds"
+  let tag ← l.tag name
+  let tail ← sortList l (names.extract 1 names.size)
+  if _h : index = 0 then
+    return mkAppN (mkConst ``Substitution.Variable.here) #[l.sortType, tag, tail]
+  else
+    let child ← variableExpr l (names.extract 1 names.size) (index - 1)
+    return mkAppN (mkConst ``Substitution.Variable.there)
+      #[l.sortType, tag, ← l.tag names[0]!, tail, child]
+termination_by index
+decreasing_by omega
+
+private def terms (l : Layout) (Γ : Expr) (items : Array (Expr × Expr)) : MetaM Expr := do
+  let mut result := mkAppN (mkConst ``Substitution.Terms.nil) #[l.sortType, l.signature, Γ]
+  let mut rest := []
+  for (sort, term) in items.toList.reverse do
+    result := mkAppN (mkConst ``Substitution.Terms.cons)
+      #[l.sortType, l.signature, Γ, sort, ← mkListLit l.sortType rest, term, result]
+    rest := sort :: rest
+  return result
+
+private partial def reify (l : Layout) (variables : Array (String × Name))
+    (Γ : Expr) : MaudeTerm → MetaM (Expr × Expr)
+  | .variable name sort => do
+      let some index := variables.findIdx? (·.1 == name) | throwError "unknown variable {name}"
+      unless variables[index]!.2 == sort do throwError "variable sort changed for {name}"
+      let tag ← l.tag sort
+      let v ← variableExpr l (variables.map (·.2)) index
+      return (tag, mkAppN (mkConst ``Substitution.Term.var) #[l.sortType, l.signature, Γ, tag, v])
+  | .application ctor result args => do
+      let some (_, symbol) := l.symbols.find? (·.1 == ctor) | throwError "unregistered constructor {ctor}"
+      let args ← args.mapM (reify l variables Γ)
+      let argSorts ← mkListLit l.sortType (args.toList.map (·.1))
+      let tag ← l.tag result
+      return (tag, mkAppN (mkConst ``Substitution.Term.app)
+        #[l.sortType, l.signature, Γ, argSorts, tag, symbol, ← terms l Γ args])
+
+private partial def freshVariables (term : MaudeTerm) (known : Array (String × Name)) :
+    MetaM (Array (String × Name)) := do
+  match term with
+  | .variable name sort =>
+      if let some (_, otherSort) := known.find? (·.1 == name) then
+        unless sort == otherSort do throwError "fresh variable {name} used at two sorts"
+        return known
+      return known.push (name, sort)
+  | .application _ _ args => args.foldlM (fun known arg => freshVariables arg known) known
+
+private def answerExpr (l : Layout) (inputs : Array MaudeVariable) (candidate : MaudeUnifier) : MetaM Expr := do
+  let domains := candidate.bindings.map (·.domain.maudeName)
+  unless domains.toList.eraseDups.length == domains.size &&
+      candidate.bindings.all (fun b => inputs.any fun v =>
+        v.maudeName == b.domain.maudeName && v.sort == b.domain.sort) do
+    throwError "unknown, repeated, or wrongly sorted substitution domain"
+  let images := inputs.map fun v => image candidate (.variable v.maudeName v.sort)
+  let fresh ← images.foldlM (fun known term => freshVariables term known) #[]
+  let Γ ← sortList l (fresh.map (·.2))
+  let inputsΓ ← sortList l (inputs.map (·.sort))
+  let images ← images.mapM (reify l fresh Γ)
+  let value := mkAppN (mkConst ``Substitution.Answer.mk)
+    #[l.sortType, l.signature, inputsΓ, Γ, ← terms l Γ images]
+  -- inferType determines the emitted type. emitDefinition's kernel check then
+  -- validates the entire value, including constructor arities and image sorts.
+  let _ ← inferType value
+  return value
+
+private def problemExpr (l : Layout) (left right : TranslatedPattern) : MetaM Expr := do
+  let inputs := left.variables ++ right.variables
+  let variables := inputs.map fun v => (v.maudeName, v.sort)
+  let Γ ← sortList l (inputs.map (·.sort))
+  let (s, a) ← reify l variables Γ left.term
+  let (t, b) ← reify l variables Γ right.term
+  unless ← isDefEq s t do throwError "input equation has different result sorts"
+  return mkAppN (mkConst ``Substitution.Problem.mk) #[l.sortType, l.signature, Γ, s, a, b]
 
 private def familyExpr : Family → Expr
   | .matched => mkConst ``Family.matched
@@ -1979,16 +2565,34 @@ private def certificateExpr : Certificate → Expr
   | .frameClash first second apart family => mkApp4 (mkConst ``Certificate.frameClash)
       (headExpr first) (headExpr second) (headExpr apart) (familyExpr family)
 
+private def emitDefinition (name : Name) (value : Expr) : MetaM Unit := do
+  Lean.addAndCompile <| .defnDecl {
+    name, levelParams := []
+    type := ← Lean.Meta.inferType value, value, hints := .regular 0, safety := .safe }
+  Lean.enableRealizationsForConst name
+
+/-- Export an arbitrary native answer set, independently of legacy family
+recognition/search. Every image is retained, including identity bindings. -/
+def emitAnswers (pre : Name) (reg : Expr) (left right : TranslatedPattern)
+    (unifiers : Array MaudeUnifier) : MetaM Unit := do
+  let l ← layout reg
+  let inputs := left.variables ++ right.variables
+  unless (inputs.map (·.maudeName)).toList.eraseDups.length == inputs.size do
+    throwError "input variable names are not disjoint/unique"
+  let answerType := mkAppN (mkConst ``Substitution.Answer)
+    #[l.sortType, l.signature, ← sortList l (inputs.map (·.sort))]
+  let answers ← unifiers.toList.mapM (answerExpr l inputs)
+  emitDefinition (pre ++ `answers) (← mkListLit answerType answers)
+  emitDefinition (pre ++ `problem) (← problemExpr l left right)
+
 /-- Emit proofless constants ONLY. The theorem below must still kernel-check
 acceptance against its typed context, with ordinary rfl, not native_decide. -/
-def emit (pre : Name) (fetched : Fetched) : Lean.MetaM Unit := do
+def emit (pre : Name) (fetched : Fetched) (reg : Expr) (left right : TranslatedPattern) : Lean.MetaM Unit := do
+  emitAnswers pre reg left right fetched.unifiers
   let trace := certificateExpr fetched.trace
   for (name, value) in [(pre ++ `families, ← Lean.Meta.mkListLit (mkConst ``Family)
       (fetched.families.map familyExpr)), (pre ++ `trace, trace)] do
-    Lean.addAndCompile <| .defnDecl {
-      name, levelParams := []
-      type := ← Lean.Meta.inferType value, value, hints := .regular 0, safety := .safe }
-    Lean.enableRealizationsForConst name
+    emitDefinition name value
 
 end External
 
@@ -2049,7 +2653,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
   let context := Replay.External.contextDump profile oneTailContext
   let fetched ← Replay.External.fetch model engine sorts left right context
-  Replay.External.emit `DirectCertification.Bakery.fetched fetched
+  Replay.External.emit `DirectCertification.Bakery.fetched fetched (Lean.mkConst ``registration) left right
   Lean.logInfo s!"Native families: {fetched.families.map Replay.Family.dump}; fetched trace: {fetched.trace.dump}"
 
   -- Tamper with actual native bindings, not a toy mock parser input.
@@ -2129,7 +2733,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let engine ← IO.FS.readFile (source.parent.getD (System.FilePath.mk ".") / "certification.maude")
   let context := Replay.External.contextDump profile criticalHeadContext
   let result ← Replay.External.fetch model engine sorts left right context true
-  Replay.External.emit `DirectCertification.Bakery.fetchedExitCritical result
+  Replay.External.emit `DirectCertification.Bakery.fetchedExitCritical result (Lean.mkConst ``registration) left right
   Lean.logInfo s!"Exit/critical native query: {left.term.render} =? {right.term.render}"
   Lean.logInfo s!"Native families: {result.families.map Replay.Family.dump}; fetched trace: {result.trace.dump}"
 
@@ -2206,7 +2810,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let context := Replay.External.contextDump profile heads.outer
     let result ← Replay.External.fetch model engine sorts left right context true
       (some (heads.left.code profile, heads.right.code profile))
-    Replay.External.emit pre result
+    Replay.External.emit pre result (Lean.mkConst ``registration) left right
     Lean.logInfo s!"{pre}: {left.term.render} =? {right.term.render}"
     Lean.logInfo s!"Native families: {result.families.map Replay.Family.dump}; fetched trace: {result.trace.dump}"
     -- An oriented crossed answer must not be accepted with its tails swapped.
@@ -2241,6 +2845,24 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 #guard !(Replay.acceptsFrameClash profile registration Symbol.c8
   { enterCriticalHeads with right := .unary Symbol.c3 } Operator.acu
   [.crossed] fetchedEnterCritical.trace)
+
+/- This query is OUTSIDE the legacy matched/crossed recognizer. General export
+   preserves Maude's actual four fresh parameters and every union image. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let sorts ← Maude.collectSignature (Lean.mkConst ``Conf)
+  let model := Maude.renderModule sorts (← Maude.inspectTheory (Lean.mkConst ``BakeryTheory))
+  let lhs ← Lean.Elab.Term.elabTerm (← `(fun (X Y : ProcSet) => ProcSet.union X Y)) none
+  let rhs ← Lean.Elab.Term.elabTerm (← `(fun (A R : ProcSet) => ProcSet.union A R)) none
+  let left ← Maude.translatePattern sorts "L" (← Unification.Problem.saturatePattern lhs)
+  let right ← Maude.translatePattern sorts "R" (← Unification.Problem.saturatePattern rhs)
+  let output ← Maude.runMaude model s!"unify in LEAN-MODEL : {left.term.render} =? {right.term.render} ."
+  let answers ← Lean.ofExcept (Maude.parseUnifiers sorts (left.variables ++ right.variables) output)
+  Replay.External.emitAnswers `DirectCertification.Bakery.fetchedMutation
+    (Lean.mkConst ``registration) left right answers
+  Lean.logInfo s!"Four-variable native query produced {answers.size} answer(s)."
+
+#guard fetchedMutation.answers.length == 1
+#guard (fetchedMutation.answers.get ⟨0, of_decide_eq_true rfl⟩).parameters.length == 4
 
 /- Checker regression tests, not helper lemmas for the certification proof.
    None of these checks is relied on as an oracle: replay_exact is proved above
@@ -2402,6 +3024,73 @@ theorem wake_critical_certificate (next serving next' serving' : Nat) (P Q : Pro
   Replay.replay_frame_clash_exact profile registration Symbol.c8 wakeCriticalHeads Operator.acu
     fetchedWakeCritical.families fetchedWakeCritical.trace rfl next next' serving serving' P Q
 
+/- The two ACTUAL native substitutions, without replacing them by family tags.
+   Reference Exchange emits matched then crossed. Native Maude emits crossed
+   then matched, so Factor selects answer indices 1 then 0. Each β is identity
+   here, and ALL input images are checked by the generic Equalities.refl rule.
+
+   Soundness checks the actual substituted equation for BOTH proposals:
+     crossed: the derived Assoc/Comm equality exchange_tail;
+     matched: reflexivity.
+   Completeness combines the general Exchange metatheorem and those two Factor
+   leaves. The proof is an ordinary term; no tactic/semantic user bridge/hole.
+   This milestone writes the generic certificate data here by hand. Moving its
+   generation/dump to object-level Maude is separate from proving its semantics.
+-/
+theorem one_tail_native_certificate :
+    ∀ values, fetched.problem.Holds registration values ↔
+      Substitution.Solutions registration fetched.answers values :=
+  Substitution.exact_of_coverage registration fetched.problem
+    (Replay.Reference.exchangeBranches oneTailContext Operator.acu) fetched.answers
+    (Replay.Reference.exchange_complete profile registration oneTailContext Operator.acu
+      ((Replay.replayHead profile registration oneTailContext
+        (.decompose 0 (.decompose 0 .rigid))).get (of_decide_eq_true rfl)).down
+      ((Replay.atomic profile registration oneTailContext).get (of_decide_eq_true rfl)).down)
+    (.cons (Substitution.Equality.exchange_tail (sig := Sig) Operator.acu _ _ _) (.cons (.refl _) .nil))
+    (.cons ⟨1, of_decide_eq_true rfl⟩
+      ⟨Substitution.Terms.identity _, .refl _⟩
+      (.cons ⟨0, of_decide_eq_true rfl⟩ ⟨Substitution.Terms.identity _, .refl _⟩ .nil))
+
+-- The same general soundness-data constructors check the full framed answers.
+-- There is no special soundness rule for exit, enter, wake, Conf, or ProcSet.
+example : Substitution.Soundness fetchedExitCritical.problem fetchedExitCritical.answers :=
+  .cons (.refl _) (.cons (.refl _) .nil)
+
+example : Substitution.Soundness fetchedEnterCritical.problem fetchedEnterCritical.answers :=
+  .cons (Substitution.Equality.congr (sig := Sig) Symbol.c8 (.cons (.refl _) (.cons (.refl _)
+    (.cons (Substitution.Equality.exchange_tail (sig := Sig) Operator.acu _ _ _) .nil)))) .nil
+
+example : Substitution.Soundness fetchedWakeCritical.problem fetchedWakeCritical.answers :=
+  .cons (Substitution.Equality.congr (sig := Sig) Symbol.c8 (.cons (.refl _) (.cons (.refl _)
+    (.cons (Substitution.Equality.exchange_tail (sig := Sig) Operator.acu _ _ _) .nil)))) .nil
+
+/- A NON-IDENTITY factorization: native exit's redundant crossed answer (0)
+   is an instance of its general matched answer (1). β maps the third target
+   parameter to the source's WHOLE process image, not just to another variable.
+   This uses only the generic Factor constructor. No matched/crossed flag is
+   inspected by Factor or its semantic theorem. -/
+example : Substitution.Factor
+    (fetchedExitCritical.answers.get ⟨0, of_decide_eq_true rfl⟩)
+    (fetchedExitCritical.answers.get ⟨1, of_decide_eq_true rfl⟩) :=
+  ⟨.cons (.var .here) (.cons (.var (.there .here))
+    (.cons ((fetchedExitCritical.answers.get ⟨0, of_decide_eq_true rfl⟩).images.get
+      (.there (.there .here))) .nil)), .refl _⟩
+
+/- A further native problem that the old two-template recognizer cannot accept:
+     X+Y =B A+R.
+   Mutate supplies one complete reference branch with FOUR fresh bags.
+   Native Maude supplies its actual answer, preserved by the general exporter.
+   The same soundness and answer-indexed Factor rules certify it; no extension
+   of the family-tag parser or new semantic proof rule is required. -/
+theorem mutation_native_certificate :
+    ∀ values, fetchedMutation.problem.Holds registration values ↔
+      Substitution.Solutions registration fetchedMutation.answers values :=
+  Substitution.exact_of_coverage registration fetchedMutation.problem
+    [Replay.Reference.mutationAnswer Operator.acu] fetchedMutation.answers
+    (Replay.Reference.mutation_complete profile registration Operator.acu)
+    (.cons (Substitution.Equality.matrix (sig := Sig) Operator.acu _ _ _ _) .nil)
+    (.cons ⟨0, of_decide_eq_true rfl⟩ ⟨Substitution.Terms.identity _, .refl _⟩ .nil)
+
 /- Decompose also works when a free constructor contains NON-rigid payloads.
    Conf is not rigid: its process-field equality must stay modulo ACU.
    This is a regression against incorrectly replacing every free-head equality
@@ -2447,6 +3136,10 @@ theorem missing_matched_rejected (n : Nat) :
       (.refl _)
 
 -- Axiom audits should report only Lean's standard axioms, never sorryAx.
+#print axioms one_tail_native_certificate
+#print axioms mutation_native_certificate
+#print axioms Substitution.Coverage.sound
+#print axioms Substitution.Soundness.sound
 #print axioms atomic_certificate
 #print axioms refinement_certificate
 #print axioms one_tail_certificate
