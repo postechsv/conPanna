@@ -19,9 +19,16 @@ the WHOLE input vector and every residual equation, preserving skipped sorts and
 inactive inputs. nonlinear_replay_certificate checks 2P =B 3Q in the mixed scope
 [ticket, P, Q], with generated images [ticket, 3Z, 2Z], by explicit finite data.
 Full-file LSP checks and axiom audits pass without errors, warnings, or sorryAx.
+Coefficient-aware singleton/zero rules (CERTIFICATION.md §4.4) now have general
+IFF metatheorems AtomProcessing.sum_atom/sum_zero and typed Complete.atom/zero
+replay. Every coefficient-one supplier requires a child; inactive fields are
+not constrained. Explicit atoms yield payload equations via Derives.decompose;
+Complete.nonempty rejects atom =B unit. Four Bakery proof terms check two
+suppliers, payload equality, inactive passthroughs, and an empty answer family.
 No general automated search is claimed. Follow TODO.md's current checkbox list
-and CERTIFICATION.md §12.1. Next implement exhaustive singleton/payload equation
-processing and sorted equation-system composition. Do not touch narrowing yet.
+and CERTIFICATION.md §12.1. Next implement sorted BIND/variable elimination with
+whole-state substitution propagation, then purification/equation scheduling.
+Do not touch narrowing yet.
 The older capability descriptions below remain historical context.
 
 - Active experiment: `certification.lean`, not `certification2.lean`. It imports

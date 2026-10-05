@@ -964,6 +964,22 @@ slots remain behind the fresh parameters; unused active slots are harmless.
 General search remains unimplemented. These rule-validity proofs alone do not
 establish that an automatic reconstruction procedure always succeeds.
 
+The coefficient-aware rules of §4.4 also have general semantic IFF proofs:
+`AtomProcessing.sum_atom` characterizes ALL singleton suppliers for arbitrary
+coefficient sums; `sum_zero` characterizes exactly the empty contributing terms.
+Their proofs use natural-number mass, not a solver or a Diophantine oracle.
+`Worklist.Complete.atom` requires a child for EVERY coefficient-one index;
+`Complete.zero` requires one child with every positive-coefficient term empty.
+Both retain the same residual equation context and original-variable images.
+Coefficient-zero entries add only reflexive equations and remain unrestricted.
+`Complete.nonempty` closes free-atom/unit contradictions. Explicit singletons
+are allowed among the summands, so the selected supplier equation decomposes
+to payload equations modulo B using the existing free-head rule. This implements
+the semantic branching content of ATOM-ONE/CHOOSE/MANY and ZERO, not the complete
+purification, variable-binding, or equation-scheduling algorithm.
+The equality-data constructors `Equality.copies_zero`, `sum_zero`, and
+`sum_choice` generate finite ACU soundness traces without search.
+
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
 required bound. The label-count argument checks that the document's opposite-pair
@@ -991,6 +1007,13 @@ mixed original scope `(ticket, P, Q)`: the generated answer images are
 `(ticket, 3Z, 2Z)`. Its proof is a sharing step followed by identity-factor cover,
 paired with the soundness sharing step, not a problem-specific semantic lemma.
 Their evidence is currently handwritten, not automatically searched or dumped.
+Further explicit Bakery replay certificates prove:
+`2P+Q+R =B [wait(n)]` has two supplier families;
+`[wait(n)]+2P =B [wait(m)]` yields `P=0` and `n =B m`;
+`0P+2Q =B 0` leaves P unrestricted; and `2P =B [wait(n)]` has no solution.
+The last result is justified by the absence of coefficient-one suppliers, NOT
+an external solver's failure to find an answer. The top-level proofs consist
+only of general replay/equality constructors, without problem-specific lemmas.
 The profile generator checks the single-bag
 stratified frontend contract using existing registered constructor metadata.
 The old shape-specific recognizers and elaboration-time Maude search have been
@@ -1015,8 +1038,9 @@ factorization and matching completeness. The difficult formalization lies in:
    reconstruction, and the typed substitution replay rule are now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
    propagation through postponed bag equations.
-3. Proving exhaustive singleton processing and single-bag solver exactness while
-   tracking all parameter contexts and shared images.
+3. Composing the now-proved exhaustive singleton/zero replay rules with
+   purification and variable elimination, and proving single-bag solver exactness
+   while tracking all parameter contexts and shared images.
 4. Implementing and proving a complete whole-vector matcher and its equality-trace
    construction, rather than assuming that a successful external query supplies it.
 5. Connecting these constructive algorithms to certificate data and native replay.

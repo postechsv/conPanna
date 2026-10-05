@@ -341,8 +341,16 @@ Constrained narrowing will consume this only after unification certification wor
   replay checks 2P =B 3Q with images (ticket, 3Z, 2Z), preserving ticket.
   Full-file LSP diagnostics/axiom audits pass without errors, warnings, or
   sorryAx. This is checked handwritten replay, NOT automatic search success.
-- [ ] Implement exhaustive singleton/payload processing and sorted substitution
-  composition for finite equation systems (not just handwritten examples).
+- [x] Prove coefficient-aware singleton/zero rules and add typed exhaustive
+  replay. AtomProcessing.sum_atom/sum_zero are semantic IFF metatheorems for
+  arbitrary coefficients/terms. Complete.atom requires EVERY coefficient-one
+  child; Complete.zero preserves inactive fields; Complete.nonempty rejects
+  free atom =B unit. All residual equations remain shared. General equality
+  trace generation supports soundness. Bakery replay examples cover two
+  suppliers, payload decomposition modulo B, inactive variables, and no supplier.
+- [ ] Implement purification, sorted variable elimination/BIND, and equation
+  scheduling/composition. Singleton/zero replay and payload decomposition are
+  checked, but no complete automatic equation-system solver is implemented.
 - [ ] Implement complete whole-vector factor search and native-answer-guided
   early closure, with the complete finite fallback on shortcut failure.
 - [ ] Connect finite dump/replay data to actual Maude certification search; validate
@@ -350,7 +358,8 @@ Constrained narrowing will consume this only after unification certification wor
 - [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
   completeness holes. Production narrowing is deliberately unchanged so far.
 
-NEXT: exhaustive singleton/payload processing and sorted equation-system composition.
+NEXT: sorted variable elimination/BIND and whole-state substitution composition,
+then purification and equation scheduling.
 The numeric proof is general; the overall automatic ACU certifier is NOT finished.
 
 ### Historical integration notes

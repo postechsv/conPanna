@@ -1590,8 +1590,8 @@ not silently forced to empty by the eventual unification rule.
 
 This is Lemma 5.4, for arbitrary finite coefficient vectors after cancellation.
 Combined with decompose_minimal, it represents EVERY balanced active vector as
-a finite sum of support-degree vectors. Enumerating the complete support family
-and rebuilding symbolic/native bag substitutions are still to be implemented.
+a finite sum of support-degree vectors. The later supportGenerators and Sharing
+sections enumerate that family and rebuild checked symbolic/native substitutions.
 -/
 theorem minimal_nonempty_boolean_support {n rows cols} (left right v : Vector n)
     (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
@@ -1704,8 +1704,8 @@ theorem decompose_boolean_supports {n rows cols} (left right v : Vector n)
 /-- Both directions of the multiplicity-level finite-sharing rule.
 The representation is a solution SET; minimality is not required of the
 submitted supports, and redundant/overlapping generators do not invalidate it.
-The finite enumerable family and its native substitution images are not yet
-certificate constructors. This theorem supplies their once-for-all foundation.
+This theorem supplies the once-for-all numeric foundation for the later computed
+support family, native image reconstruction, and typed sharing replay constructors.
 -/
 theorem boolean_supports_exact {n rows cols} (left right v : Vector n)
     (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
@@ -2328,6 +2328,126 @@ theorem bags_generated (profile : Profile sig) {s n rows cols}
   (fun c : Fin 0 => c.elim0) (n := 0)).length == 0
 
 end FiniteSharing
+
+/-! ## Exhaustive singleton requirements (CERTIFICATION.md §4.4)
+
+Input: a coefficient sum of arbitrary bag terms, after finite sharing.
+ZERO: every positive-coefficient term must be empty; coefficient zero is ignored.
+ATOM-CHOOSE: exactly one coefficient-ONE term supplies the target singleton;
+every other positive-coefficient term is empty. Enumerate ALL such indices.
+This includes explicit singleton terms: their surviving equation with the target
+is decomposed by the existing free-head rule, yielding a payload equation modulo B.
+Repeated variables belong in the coefficients, not an assumption of linearity.
+
+The rules are exhaustive because mass is a natural-number invariant: a singleton
+has mass one, and c copies contribute c times the term's mass. They terminate
+locally: finitely many indices, and the search can mark that requirement processed.
+Replay may retain the original equation as a hypothesis; that is not a search loop.
+These are general semantic metatheorems, not an automatic whole-system solver.
+-/
+namespace AtomProcessing
+
+theorem mass_copies (profile : Profile sig) {s} (op : sig.ACUOp s)
+    (k : Nat) (a : Tree sig s) : mass profile (bagCopies op k a) = k * mass profile a := by
+  induction k with
+  | zero => simp only [bagCopies, mass_zero, Nat.zero_mul]
+  | succ k ih => simp only [bagCopies, mass_add, ih, Nat.succ_mul, Nat.add_comm]
+
+theorem copies_zero (profile : Profile sig) {s} (op : sig.ACUOp s)
+    (k : Nat) (a : Tree sig s) :
+    Structural.Indexed.Eq sig (bagCopies op k a) (zero sig op) ↔
+      (k ≠ 0 → Structural.Indexed.Eq sig a (zero sig op)) := by
+  constructor
+  · intro same positive
+    have count := mass_congr profile same
+    rw [mass_copies, mass_zero] at count
+    have empty : mass profile a = 0 := (Nat.mul_eq_zero.mp count).resolve_left positive
+    exact zero_of_mass profile a op empty
+  · intro empty
+    by_cases hk : k = 0
+    · subst k; exact .refl _
+    · have count := mass_congr profile (empty hk)
+      rw [mass_zero] at count
+      apply zero_of_mass profile _ op
+      rw [mass_copies, count, Nat.mul_zero]
+
+theorem copies_atom (profile : Profile sig) {s} (op : sig.ACUOp s)
+    (k : Nat) (a target : Tree sig s) (atom : mass profile target = 1) :
+    Structural.Indexed.Eq sig (bagCopies op k a) target ↔
+      k = 1 ∧ Structural.Indexed.Eq sig a target := by
+  have one : Structural.Indexed.Eq sig (bagCopies op 1 a) a :=
+    .trans (.comm op a (zero sig op)) (.unit op a)
+  constructor
+  · intro same
+    have count := mass_congr profile same
+    rw [mass_copies, atom] at count
+    have hk : k = 1 := Nat.eq_one_of_mul_eq_one_right count
+    exact ⟨hk, one.symm.trans (hk ▸ same)⟩
+  · rintro ⟨rfl, same⟩; exact one.trans same
+
+theorem sum_zero (profile : Profile sig) {s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (values : Fin n → Tree sig s) :
+    Structural.Indexed.Eq sig (FiniteSharing.bagSum op coeff values) (zero sig op) ↔
+      ∀ i, coeff i ≠ 0 → Structural.Indexed.Eq sig (values i) (zero sig op) := by
+  induction n with
+  | zero => exact ⟨fun _ i => Fin.elim0 i, fun _ => .refl _⟩
+  | succ n ih =>
+    constructor
+    · intro same
+      have count := mass_congr profile same
+      rw [FiniteSharing.bagSum, mass_add, mass_zero] at count
+      have hl : mass profile (bagCopies op (coeff 0) (values 0)) = 0 := by omega
+      have hr : mass profile (FiniteSharing.bagSum op (fun i => coeff i.succ)
+          (fun i => values i.succ)) = 0 := by omega
+      exact Fin.cases ((copies_zero profile op _ _).mp (zero_of_mass profile _ op hl))
+        ((ih _ _).mp (zero_of_mass profile _ op hr))
+    · intro empty
+      exact .trans (.congr (sig.add op)
+        (.cons ((copies_zero profile op _ _).mpr (empty 0))
+          (.cons ((ih _ _).mpr (fun i => empty i.succ)) .nil))) (.unit op _)
+
+theorem sum_atom (profile : Profile sig) {s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (values : Fin n → Tree sig s)
+    (target : Tree sig s) (atom : mass profile target = 1) :
+    Structural.Indexed.Eq sig (FiniteSharing.bagSum op coeff values) target ↔
+      ∃ j, coeff j = 1 ∧ Structural.Indexed.Eq sig (values j) target ∧
+        ∀ i, i ≠ j → coeff i ≠ 0 → Structural.Indexed.Eq sig (values i) (zero sig op) := by
+  induction n with
+  | zero =>
+    constructor
+    · intro same
+      have count := mass_congr profile same
+      simp only [FiniteSharing.bagSum, mass_zero, atom] at count
+      exact False.elim (Nat.noConfusion count)
+    · rintro ⟨j, _⟩; exact Fin.elim0 j
+  | succ n ih =>
+    have casesRule := split_atom profile op (bagCopies op (coeff 0) (values 0))
+      (FiniteSharing.bagSum op (fun i => coeff i.succ) (fun i => values i.succ)) target atom
+    constructor
+    · intro same
+      rcases casesRule.mp same with ⟨hl, hr⟩ | ⟨hl, hr⟩
+      · obtain ⟨j, degree, chosen, others⟩ := (ih _ _).mp hr
+        refine ⟨j.succ, degree, chosen, ?_⟩
+        exact Fin.cases (fun _ => (copies_zero profile op _ _).mp hl)
+          (fun i different => others i (fun equal => different (congrArg Fin.succ equal)))
+      · obtain ⟨degree, chosen⟩ := (copies_atom profile op _ _ _ atom).mp hl
+        refine ⟨0, degree, chosen, ?_⟩
+        exact Fin.cases (fun different => False.elim (different rfl))
+          (fun i _ => (sum_zero profile op _ _).mp hr i)
+    · rintro ⟨j, degree, chosen, others⟩
+      refine Fin.cases (motive := fun j => coeff j = 1 → Structural.Indexed.Eq sig (values j) target →
+        (∀ i, i ≠ j → coeff i ≠ 0 → Structural.Indexed.Eq sig (values i) (zero sig op)) →
+        Structural.Indexed.Eq sig (FiniteSharing.bagSum op coeff values) target) ?_ ?_ j degree chosen others
+      · intro degree chosen others
+        exact casesRule.mpr (.inr ⟨(copies_atom profile op _ _ _ atom).mpr ⟨degree, chosen⟩,
+          (sum_zero profile op _ _).mpr (fun i => others i.succ (Fin.succ_ne_zero i))⟩)
+      · intro j degree chosen others
+        exact casesRule.mpr (.inl ⟨(copies_zero profile op _ _).mpr
+          (others 0 (Ne.symm (Fin.succ_ne_zero j))),
+          (ih _ _).mpr ⟨j, degree, chosen, fun i different =>
+            others i.succ (fun equal => different (Fin.succ_inj.mp equal))⟩⟩)
+
+end AtomProcessing
 
 end DirectCertification
 
@@ -3145,6 +3265,41 @@ def Equality.copies {Γ s} (op : sig.ACUOp s) (k : Nat) {a b : Term sig Γ s}
   | 0 => .refl (zero op)
   | k + 1 => .congr (sig.add op) (.cons proof (.cons (.copies op k proof) .nil))
 
+/-- Generated equality DATA for any number of copies of the unit. -/
+def Equality.copies_zero {Γ s} (op : sig.ACUOp s) : (k : Nat) →
+    Equality sig Γ (Substitution.copies op k (zero op)) (zero op)
+  | 0 => .refl _
+  | k + 1 => .trans (.unit op _) (.copies_zero op k)
+
+def Equality.sum_zero {Γ s} (op : sig.ACUOp s) : {n : Nat} → (coeff : FiniteSharing.Vector n) →
+    Equality sig Γ (Sharing.sum op coeff (fun _ => zero op)) (zero op)
+  | 0, _ => .refl _
+  | _ + 1, coeff => .trans (.congr (sig.add op)
+      (.cons (.copies_zero op (coeff 0))
+        (.cons (.sum_zero op (fun i => coeff i.succ)) .nil))) (.unit op _)
+
+/-- Finite soundness trace for a chosen coefficient-one supplier. This only
+builds Congruence/Unit/Comm traces; it does not perform proof search. -/
+def Equality.sum_choice {Γ s} (op : sig.ACUOp s) (target : Term sig Γ s) :
+    {n : Nat} → (coeff : FiniteSharing.Vector n) → (j : Fin n) → coeff j = 1 →
+    Equality sig Γ (Sharing.sum op coeff (fun i => if i = j then target else zero op)) target
+  | 0, _, j, _ => Fin.elim0 j
+  | _ + 1, coeff, j, degree =>
+      Fin.cases (motive := fun j => coeff j = 1 →
+        Equality sig Γ (Sharing.sum op coeff (fun i => if i = j then target else zero op)) target)
+        (fun degree => by
+          simp only [Sharing.sum, if_true, Fin.succ_ne_zero, if_false, degree, Substitution.copies]
+          exact .trans (.congr (sig.add op)
+            (.cons (.trans (.comm op target _) (.unit op target))
+              (.cons (.sum_zero op (fun i => coeff i.succ)) .nil)))
+            (.trans (.comm op target _) (.unit op target)))
+        (fun j degree => by
+          simp only [Sharing.sum, Ne.symm (Fin.succ_ne_zero j), if_false, Fin.succ_inj]
+          exact .trans (.congr (sig.add op)
+            (.cons (.copies_zero op (coeff 0))
+              (.cons (.sum_choice op target (fun i => coeff i.succ) j degree) .nil)))
+            (.unit op target)) j degree
+
 /-- General substitution/congruence rule. The rewrite is a theorem about
 syntax, not an extra equality assumption or problem-specific proof lemma. -/
 def Equality.copies_substitution {Γ Δ s} (op : sig.ACUOp s) (k : Nat)
@@ -3413,6 +3568,14 @@ and the child receives ALL residual equations and original images substituted
 with it. The canonical support list is computed internally, never supplied as
 an unchecked "complete" table. Soundness.sharing certifies this same generated
 family. These replay constructors still do not constitute certificate search.
+
+ATOM-CHOOSE is Complete.atom: EVERY coefficient-one index needs a child, with
+all selected-component constraints added to the SAME original equation context.
+ZERO is Complete.zero: one child with all positive-coefficient terms empty.
+Coefficient-zero fields receive only reflexive equations. Complete.nonempty
+closes a free atom =B empty contradiction. Explicit singleton terms in an atom
+branch are decomposed modulo B by Derives.decompose, exposing their payloads.
+The general variable-binding/search schedule is not implemented by these rules.
 -/
 namespace Worklist
 
@@ -3508,11 +3671,66 @@ def mutated {Γ s} (op : sig.ACUOp s) (a b c d : Term sig Γ s)
 def substituteEquations {Γ Δ} (images : Terms sig Δ Γ) (eqs : List (Problem sig Γ)) :
     List (Problem sig Δ) := eqs.map fun e => equation (e.left.subst images) (e.right.subst images)
 
+/- Finite branch constraints. A coefficient-zero entry contributes only t=t,
+so it remains a genuine passthrough rather than being silently forced empty.
+Terms may include explicit singletons, whose equations then yield payload
+equations by Derives.decompose. No constructor name or arity is hardcoded. -/
+def zeroRequirements {Γ s n} (op : sig.ACUOp s) (coeff : FiniteSharing.Vector n)
+    (terms : Fin n → Term sig Γ s) : List (Problem sig Γ) :=
+  List.ofFn fun i => equation (terms i) (if coeff i = 0 then terms i else zero op)
+
+def atomRequirements {Γ s n} (op : sig.ACUOp s) (coeff : FiniteSharing.Vector n)
+    (terms : Fin n → Term sig Γ s) (target : Term sig Γ s) (chosen : Fin n) :
+    List (Problem sig Γ) :=
+  List.ofFn fun i => equation (terms i)
+    (if coeff i = 0 then terms i else if i = chosen then target else zero op)
+
+theorem zeroRequirements_holds (reg : Registration sig) {Γ s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (terms : Fin n → Term sig Γ s)
+    (values : Args reg.Carrier Γ)
+    (empty : ∀ i, coeff i ≠ 0 → NativeEq sig reg ((terms i).eval reg values)
+      ((zero op).eval reg values)) : Holds reg (zeroRequirements op coeff terms) values := by
+  intro e member
+  obtain ⟨i, rfl⟩ := List.mem_ofFn.mp member
+  by_cases h : coeff i = 0
+  · simp only [Problem.Holds, equation, if_pos h]; exact .refl _
+  · simpa only [Problem.Holds, equation, if_neg h] using empty i h
+
+theorem atomRequirements_holds (reg : Registration sig) {Γ s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (terms : Fin n → Term sig Γ s)
+    (target : Term sig Γ s) (chosen : Fin n) (values : Args reg.Carrier Γ)
+    (same : NativeEq sig reg ((terms chosen).eval reg values) (target.eval reg values))
+    (empty : ∀ i, i ≠ chosen → coeff i ≠ 0 → NativeEq sig reg ((terms i).eval reg values)
+      ((zero op).eval reg values)) : Holds reg (atomRequirements op coeff terms target chosen) values := by
+  intro e member
+  obtain ⟨i, rfl⟩ := List.mem_ofFn.mp member
+  by_cases h : coeff i = 0
+  · simp only [Problem.Holds, equation, if_pos h]; exact .refl _
+  · by_cases selected : i = chosen
+    · subst i; simpa only [Problem.Holds, equation, if_neg h, if_true] using same
+    · simpa only [Problem.Holds, equation, if_neg h, if_neg selected] using empty i selected h
+
 inductive Complete (profile : Profile sig) {inputs} (proposed : List (Answer sig inputs)) :
     {Γ : List Sorts} → Terms sig Γ inputs → List (Problem sig Γ) → Type where
   | cover {Γ images eqs} (index : Fin proposed.length)
       (bindings : Terms sig Γ (proposed.get index).parameters)
       (derived : DerivesArgs profile eqs images ((proposed.get index).images.subst bindings)) :
+      Complete profile proposed images eqs
+  | atom {Γ images eqs s n ss} (op : sig.ACUOp s) (coeff : FiniteSharing.Vector n)
+      (terms : Fin n → Term sig Γ s) (f : sig.Symbol ss s)
+      (free : profile.view f = .atom f) (args : Terms sig Γ ss)
+      (selected : Derives profile eqs (Sharing.sum op coeff terms) (.app f args))
+      (children : ∀ j, coeff j = 1 → Complete profile proposed images
+        (atomRequirements op coeff terms (.app f args) j ++ eqs)) :
+      Complete profile proposed images eqs
+  | zero {Γ images eqs s n} (op : sig.ACUOp s) (coeff : FiniteSharing.Vector n)
+      (terms : Fin n → Term sig Γ s)
+      (selected : Derives profile eqs (Sharing.sum op coeff terms) (zero op))
+      (child : Complete profile proposed images (zeroRequirements op coeff terms ++ eqs)) :
+      Complete profile proposed images eqs
+  | nonempty {Γ images eqs s ss} (op : sig.ACUOp s) (f : sig.Symbol ss s)
+      (free : profile.view f = .atom f) (args : Terms sig Γ ss)
+      (selected : Derives profile eqs (.app f args) (zero op)) :
       Complete profile proposed images eqs
   | sharing {Γ images eqs s n rows cols} (op : sig.ACUOp s) (slots : Sharing.Slots s Γ n)
       (left right : FiniteSharing.Vector n)
@@ -3554,6 +3772,44 @@ theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs 
     intro values input
     refine ⟨_, List.get_mem _ _, bindings.eval reg values, ?_⟩
     simpa only [Terms.eval_subst] using derived.sound reg values input
+  | @atom Γ images eqs s n ss op coeff terms f free args selected children ih =>
+    intro values input
+    have count : mass profile (reg.quote s ((Term.app f args).eval reg values)) = 1 := by
+      simp [Term.eval, reg.quote_apply, mass, Tree.eval, measure, free]
+    have selected := selected.sound reg values input
+    rw [NativeEq, Sharing.sum_quote] at selected
+    obtain ⟨j, degree, same, empty⟩ := (AtomProcessing.sum_atom profile op coeff
+      (fun i => reg.quote s ((terms i).eval reg values)) _ count).mp selected
+    have constraints := atomRequirements_holds reg op coeff terms (.app f args) j values
+      same (fun i different positive => by
+        simpa only [NativeEq, Substitution.zero, Structural.Indexed.zero,
+          Term.eval, Terms.eval, reg.quote_apply, Args.quote]
+          using empty i different positive)
+    apply ih j degree values
+    intro e member
+    rcases List.mem_append.mp member with member | member
+    · exact constraints e member
+    · exact input e member
+  | @zero Γ images eqs s n op coeff terms selected child ih =>
+    intro values input
+    have selected := selected.sound reg values input
+    simp only [NativeEq, Sharing.sum_quote, Substitution.zero, Term.eval, Terms.eval,
+      reg.quote_apply, Args.quote] at selected
+    have empty := (AtomProcessing.sum_zero profile op coeff
+      (fun i => reg.quote s ((terms i).eval reg values))).mp selected
+    have constraints := zeroRequirements_holds reg op coeff terms values (fun i positive => by
+      simpa only [NativeEq, Substitution.zero, Structural.Indexed.zero,
+        Term.eval, Terms.eval, reg.quote_apply, Args.quote] using empty i positive)
+    apply ih values
+    intro e member
+    rcases List.mem_append.mp member with member | member
+    · exact constraints e member
+    · exact input e member
+  | nonempty op f free args selected =>
+    intro values input
+    have count := mass_congr profile (selected.sound reg values input)
+    simp [Substitution.zero, Term.eval, Terms.eval, reg.quote_apply, mass, Tree.eval,
+      measure, free, profile.view_zero] at count
   | @sharing Γ images eqs s n nr nc op slots left right rows cols rowCounts colCounts disjoint selected child ih =>
     intro values input
     obtain ⟨fresh, imagesSame⟩ := Sharing.complete profile reg op slots left right rows cols
@@ -3899,6 +4155,134 @@ theorem nonlinear_replay_certificate :
       (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
       (Fin.cases (Or.inr rfl) (fun i => Fin.cases (Or.inl rfl) (fun j => Fin.elim0 j) i)) .nil)
 
+/- Coefficient-aware ATOM-CHOOSE with TWO answers, not two handpicked branches:
+
+   2P + Q + R =B singleton(wait(n))
+   → j=Q: P=0, Q=singleton(wait(n)), R=0
+   → j=R: P=0, Q=0, R=singleton(wait(n))
+
+Complete.atom requests a child for EVERY coefficient-one index. There is no
+P branch (its coefficient is two), and no external supplied-list coverage premise.
+Soundness is the general, generated sum_choice equality trace for each answer.
+-/
+def choiceSlots : Sharing.Slots Tag.s2 [Tag.s0, Tag.s2, Tag.s2, Tag.s2] 3 :=
+  .skip (.take (.take (.take .nil)))
+
+def choiceCoefficients : FiniteSharing.Vector 3 := fun i => if i = 0 then 2 else 1
+
+def choiceTerms (i : Fin 3) : Term Sig [Tag.s0, Tag.s2, Tag.s2, Tag.s2] Tag.s2 :=
+  .var (choiceSlots.variable i)
+
+def choiceProblem : Problem Sig [Tag.s0, Tag.s2, Tag.s2, Tag.s2] :=
+  equation (Sharing.sum Operator.acu choiceCoefficients choiceTerms) (waitingAtom (.var .here))
+
+def choiceAnswers : List (Answer Sig [Tag.s0, Tag.s2, Tag.s2, Tag.s2]) :=
+  [{ parameters := [Tag.s0]
+     images := .cons (.var .here) (.cons (zero Operator.acu)
+       (.cons (waitingAtom (.var .here)) (.cons (zero Operator.acu) .nil))) },
+   { parameters := [Tag.s0]
+     images := .cons (.var .here) (.cons (zero Operator.acu)
+       (.cons (zero Operator.acu) (.cons (waitingAtom (.var .here)) .nil))) }]
+
+theorem coefficient_choice_certificate :
+    ∀ values, choiceProblem.Holds registration values ↔ Solutions registration choiceAnswers values :=
+  Worklist.exact registration (profile := profile) choiceProblem choiceAnswers
+    (.atom Operator.acu choiceCoefficients choiceTerms Symbol.c6 rfl
+      (.cons (.app Symbol.c3 (.cons (.var .here) .nil)) .nil)
+      (.hyp ⟨0, of_decide_eq_true rfl⟩)
+      (Fin.cases (fun impossible => False.elim ((of_decide_eq_true rfl : (2 : Nat) ≠ 1) impossible))
+        (Fin.cases (fun _ =>
+          .cover ⟨0, of_decide_eq_true rfl⟩ (.cons (.var .here) .nil)
+            (.cons (.axiom (.refl _)) (.cons (.hyp ⟨0, of_decide_eq_true rfl⟩)
+              (.cons (.hyp ⟨1, of_decide_eq_true rfl⟩) (.cons (.hyp ⟨2, of_decide_eq_true rfl⟩) .nil)))))
+          (Fin.cases (fun _ =>
+            .cover ⟨1, of_decide_eq_true rfl⟩ (.cons (.var .here) .nil)
+              (.cons (.axiom (.refl _)) (.cons (.hyp ⟨0, of_decide_eq_true rfl⟩)
+                (.cons (.hyp ⟨1, of_decide_eq_true rfl⟩) (.cons (.hyp ⟨2, of_decide_eq_true rfl⟩) .nil)))))
+            (fun j => Fin.elim0 j)))))
+    (.cons (.sum_choice Operator.acu (waitingAtom (.var .here)) choiceCoefficients
+      ⟨1, of_decide_eq_true rfl⟩ rfl)
+      (.cons (.sum_choice Operator.acu (waitingAtom (.var .here)) choiceCoefficients
+        ⟨2, of_decide_eq_true rfl⟩ rfl) .nil))
+
+/- ATOM-ONE exposes a payload equation, not a literal-equality shortcut:
+
+   singleton(wait(n)) + 2P =B singleton(wait(m))
+   → P=0 and singleton(wait(n)) =B singleton(wait(m))
+   → wait(n) =B wait(m) → n =B m → cover (N,N,0).
+
+All stages are existing/general rule data. No separate problem proof lemma.
+-/
+def payloadCoefficients : FiniteSharing.Vector 2 := fun i => if i = 0 then 1 else 2
+
+def payloadTerms : Fin 2 → Term Sig [Tag.s0, Tag.s0, Tag.s2] Tag.s2 :=
+  Fin.cases (waitingAtom (.var .here)) (Fin.cases (.var (.there (.there .here))) Fin.elim0)
+
+def payloadProblem : Problem Sig [Tag.s0, Tag.s0, Tag.s2] :=
+  equation (Sharing.sum Operator.acu payloadCoefficients payloadTerms)
+    (waitingAtom (.var (.there .here)))
+
+def payloadAnswers : List (Answer Sig [Tag.s0, Tag.s0, Tag.s2]) :=
+  [{ parameters := [Tag.s0]
+     images := .cons (.var .here) (.cons (.var .here) (.cons (zero Operator.acu) .nil)) }]
+
+theorem payload_requirement_certificate :
+    ∀ values, payloadProblem.Holds registration values ↔ Solutions registration payloadAnswers values :=
+  Worklist.exact registration (profile := profile) payloadProblem payloadAnswers
+    (.atom Operator.acu payloadCoefficients payloadTerms Symbol.c6 rfl
+      (.cons (.app Symbol.c3 (.cons (.var (.there .here)) .nil)) .nil)
+      (.hyp ⟨0, of_decide_eq_true rfl⟩)
+      (Fin.cases (fun _ =>
+        .cover ⟨0, of_decide_eq_true rfl⟩ (.cons (.var .here) .nil)
+          (.cons (.axiom (.refl _))
+            (.cons (.symm (.decompose (profile := profile) (Γ := [Tag.s0, Tag.s0, Tag.s2]) Symbol.c3 rfl
+              (.cons (.var .here) .nil) (.cons (.var (.there .here)) .nil) .here
+              (.decompose (profile := profile) (Γ := [Tag.s0, Tag.s0, Tag.s2]) Symbol.c6 rfl
+                (.cons (.app Symbol.c3 (.cons (.var .here) .nil)) .nil)
+                (.cons (.app Symbol.c3 (.cons (.var (.there .here)) .nil)) .nil) .here
+                (.hyp ⟨0, of_decide_eq_true rfl⟩))))
+              (.cons (.hyp ⟨1, of_decide_eq_true rfl⟩) .nil))))
+        (Fin.cases (fun impossible => False.elim ((of_decide_eq_true rfl : (2 : Nat) ≠ 1) impossible))
+          (fun i => Fin.elim0 i))))
+    (.cons (.sum_choice Operator.acu (waitingAtom (.var .here)) payloadCoefficients
+      ⟨0, of_decide_eq_true rfl⟩ rfl) .nil)
+
+/- ZERO preserves a canceled/inactive variable:
+   0P + 2Q =B empty → Q=empty, P arbitrary. -/
+def zeroCoefficients : FiniteSharing.Vector 2 := fun i => if i = 0 then 0 else 2
+
+def zeroTerms : Fin 2 → Term Sig [Tag.s2, Tag.s2] Tag.s2 :=
+  Fin.cases (.var .here) (Fin.cases (.var (.there .here)) Fin.elim0)
+
+def zeroProblem : Problem Sig [Tag.s2, Tag.s2] :=
+  equation (Sharing.sum Operator.acu zeroCoefficients zeroTerms) (zero Operator.acu)
+
+def zeroAnswers : List (Answer Sig [Tag.s2, Tag.s2]) :=
+  [{ parameters := [Tag.s2]
+     images := .cons (.var .here) (.cons (zero Operator.acu) .nil) }]
+
+theorem zero_requirement_certificate :
+    ∀ values, zeroProblem.Holds registration values ↔ Solutions registration zeroAnswers values :=
+  Worklist.exact registration (profile := profile) zeroProblem zeroAnswers
+    (.zero Operator.acu zeroCoefficients zeroTerms (.hyp ⟨0, of_decide_eq_true rfl⟩)
+      (.cover ⟨0, of_decide_eq_true rfl⟩ (.cons (.var .here) .nil)
+        (.cons (.axiom (.refl _)) (.cons (.hyp ⟨1, of_decide_eq_true rfl⟩) .nil))))
+    (.cons (Equality.sum_zero (sig := Sig) (Γ := [Tag.s2]) Operator.acu zeroCoefficients) .nil)
+
+/- No coefficient-one supplier: 2P =B singleton(wait(n)) has NO solution.
+No bounded search failure or assumption that Maude reported no answers is used. -/
+theorem impossible_requirement_certificate :
+    ∀ values, (equation (Sharing.sum Operator.acu (fun _ : Fin 1 => 2)
+      (fun _ => (.var (.there .here) : Term Sig [Tag.s0, Tag.s2] Tag.s2)))
+      (waitingAtom (.var .here))).Holds registration values ↔
+      Solutions registration ([] : List (Answer Sig [Tag.s0, Tag.s2])) values :=
+  Worklist.exact registration (profile := profile) _ []
+    (.atom Operator.acu (fun _ : Fin 1 => 2) (fun _ => .var (.there .here)) Symbol.c6 rfl
+      (.cons (.app Symbol.c3 (.cons (.var .here) .nil)) .nil)
+      (.hyp ⟨0, of_decide_eq_true rfl⟩)
+      (fun _ impossible => False.elim ((of_decide_eq_true rfl : (2 : Nat) ≠ 1) impossible)))
+    .nil
+
 -- Kernel audits: standard Lean axioms are acceptable; sorryAx is not.
 #print axioms atomic_exact_data
 #print axioms repeated_exact_data
@@ -3915,5 +4299,11 @@ theorem nonlinear_replay_certificate :
 #print axioms Sharing.complete
 #print axioms Sharing.sound
 #print axioms nonlinear_replay_certificate
+#print axioms AtomProcessing.sum_zero
+#print axioms AtomProcessing.sum_atom
+#print axioms coefficient_choice_certificate
+#print axioms payload_requirement_certificate
+#print axioms zero_requirement_certificate
+#print axioms impossible_requirement_certificate
 
 end DirectCertification.Bakery
