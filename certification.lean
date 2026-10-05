@@ -793,8 +793,9 @@ The two established steps are:
 Below, boolean_supports_exact proves the numerical exactness: every balanced
 active vector is a sum of nonempty Boolean support degrees, and every such sum
 is balanced. Minimal occurrence-level rounding is fully proved, not assumed.
-Still pending: exhaustive support enumeration, and lifting these multiplicity
-facts with the existing flatten/rebuild lemmas to symbolic/native bag images.
+supportGenerators_exact additionally proves exactness of the EXECUTABLE exhaustive
+support list. Still pending: lifting these multiplicity facts with the existing
+flatten/rebuild lemmas to symbolic/native bag images.
 
 The decomposition uses classical existence and strong induction. It is not
 executable certificate search, and no domain constraints or Bakery symbols
@@ -1726,6 +1727,236 @@ theorem boolean_supports_exact {n rows cols} (left right v : Vector n)
     intro w member
     obtain ⟨matrix, margins, _boolean, _nonempty⟩ := represented w member
     exact balanced_of_margins left right w rowLabels colLabels rowCounts colCounts matrix margins
+
+/-! ### Executable exhaustive support family
+
+The grid dimensions come from the input occurrences, not a search bound.
+Enumerate every zero/one grid; retain precisely the nonempty grids whose row
+and column degrees agree at repeated labels. Equal degree vectors from different
+grids may remain duplicated. No supplied support table is trusted complete.
+-/
+
+def booleanVectors : (n : Nat) → List (Vector n)
+  | 0 => [zeroVector]
+  | n + 1 => (booleanVectors n).flatMap fun tail =>
+      [Fin.cases 0 tail, Fin.cases 1 tail]
+
+theorem mem_booleanVectors {n} (v : Vector n) :
+    v ∈ booleanVectors n ↔ ∀ i, v i ≤ 1 := by
+  induction n with
+  | zero =>
+    have same : v = zeroVector := funext fun i => Fin.elim0 i
+    subst v
+    simp [booleanVectors]
+  | succ n ih =>
+    constructor
+    · intro member
+      obtain ⟨tail, member, same⟩ := List.mem_flatMap.mp member
+      have small := (ih tail).mp member
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at same
+      rcases same with same | same
+      · subst v
+        exact Fin.cases (Nat.zero_le _) small
+      · subst v
+        exact Fin.cases (Nat.le_refl _) small
+    · intro small
+      let tail : Vector n := fun i => v i.succ
+      have member := (ih tail).mpr (fun i => small i.succ)
+      apply List.mem_flatMap.mpr
+      refine ⟨tail, member, ?_⟩
+      have head := small 0
+      have shape : v = Fin.cases (v 0) tail :=
+        funext (Fin.cases rfl (fun _ => rfl))
+      rw [shape]
+      have cases : v 0 = 0 ∨ v 0 = 1 := by omega
+      rcases cases with zero | one
+      · rw [zero]
+        exact List.mem_cons_self
+      · rw [one]
+        exact List.mem_cons_of_mem _ List.mem_cons_self
+
+def booleanMatrices : (rows cols : Nat) → List (Matrix rows cols)
+  | 0, _ => [fun i => Fin.elim0 i]
+  | rows + 1, cols => (booleanVectors cols).flatMap fun first =>
+      (booleanMatrices rows cols).map fun rest => Fin.cases first rest
+
+theorem mem_booleanMatrices {rows cols} (matrix : Matrix rows cols) :
+    matrix ∈ booleanMatrices rows cols ↔ ∀ r c, matrix r c ≤ 1 := by
+  induction rows with
+  | zero =>
+    have same : matrix = fun i => Fin.elim0 i := funext fun i => Fin.elim0 i
+    subst matrix
+    simp [booleanMatrices]
+  | succ rows ih =>
+    constructor
+    · intro member
+      obtain ⟨first, firstMember, member⟩ := List.mem_flatMap.mp member
+      obtain ⟨rest, restMember, same⟩ := List.mem_map.mp member
+      subst matrix
+      exact Fin.cases ((mem_booleanVectors first).mp firstMember)
+        ((ih rest).mp restMember)
+    · intro small
+      let rest : Matrix rows cols := fun r => matrix r.succ
+      refine List.mem_flatMap.mpr ⟨matrix 0,
+        (mem_booleanVectors _).mpr (small 0), List.mem_map.mpr ⟨rest,
+          (ih rest).mpr (fun r => small r.succ), ?_⟩⟩
+      exact funext (Fin.cases rfl (fun _ => rfl))
+
+private def peak : {n : Nat} → Vector n → Nat
+  | 0, _ => 0
+  | _ + 1, v => max (v 0) (peak (fun i => v i.succ))
+
+private theorem peak_le {n} (v : Vector n) (bound : Nat) (small : ∀ i, v i ≤ bound) :
+    peak v ≤ bound := by
+  induction n with
+  | zero => exact Nat.zero_le _
+  | succ n ih =>
+    exact Nat.max_le.mpr ⟨small 0, ih _ (fun i => small i.succ)⟩
+
+private theorem coordinate_le_peak {n} (v : Vector n) (i : Fin n) : v i ≤ peak v := by
+  induction n with
+  | zero => exact Fin.elim0 i
+  | succ n ih =>
+    exact Fin.cases (Nat.le_max_left _ _)
+      (fun j => Nat.le_trans (ih (fun i => v i.succ) j) (Nat.le_max_right _ _)) i
+
+/-- Recover a variable's degree from its occurrences. Max is only a convenient
+computable projection: the subsequent margin check requires ALL its occurrences
+to have that same degree. Absent variables have degree zero here, and are later
+represented by separate passthrough parameters in the native substitution. -/
+def supportDegrees {n rows cols}
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (matrix : Matrix rows cols) : Vector n := fun i =>
+  max (peak (fun r => if rowLabels r = i then size (matrix r) else 0))
+    (peak (fun c => if colLabels c = i then size (fun r => matrix r c) else 0))
+
+theorem supportDegrees_eq {n rows cols} (v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (matrix : Matrix rows cols)
+    (margins : Margins matrix (fun r => v (rowLabels r)) (fun c => v (colLabels c)))
+    (active : ∀ i, labelCount rowLabels i = 0 → labelCount colLabels i = 0 → v i = 0) :
+    supportDegrees rowLabels colLabels matrix = v := by
+  funext i
+  have upper : supportDegrees rowLabels colLabels matrix i ≤ v i := by
+    apply Nat.max_le.mpr
+    constructor
+    · apply peak_le
+      intro r
+      split
+      · rename_i same
+        simpa only [same] using Nat.le_of_eq (margins.1 r)
+      · exact Nat.zero_le _
+    · apply peak_le
+      intro c
+      split
+      · rename_i same
+        simpa only [same] using Nat.le_of_eq (margins.2 c)
+      · exact Nat.zero_le _
+  apply Nat.le_antisymm upper
+  by_cases rowZero : labelCount rowLabels i = 0
+  · by_cases colZero : labelCount colLabels i = 0
+    · rw [active i rowZero colZero]
+      exact Nat.zero_le _
+    · obtain ⟨c, same⟩ := label_count_exists colLabels i (Nat.pos_of_ne_zero colZero)
+      have bound := coordinate_le_peak
+        (fun c => if colLabels c = i then size (fun r => matrix r c) else 0) c
+      simp only [margins.2 c, same] at bound
+      exact Nat.le_trans bound (Nat.le_max_right _ _)
+  · obtain ⟨r, same⟩ := label_count_exists rowLabels i (Nat.pos_of_ne_zero rowZero)
+    have bound := coordinate_le_peak
+      (fun r => if rowLabels r = i then size (matrix r) else 0) r
+    simp only [margins.1 r, same] at bound
+    exact Nat.le_trans bound (Nat.le_max_left _ _)
+
+def ValidSupport {n rows cols}
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (matrix : Matrix rows cols) : Prop :=
+  Margins matrix
+    (fun r => supportDegrees rowLabels colLabels matrix (rowLabels r))
+    (fun c => supportDegrees rowLabels colLabels matrix (colLabels c)) ∧
+  ∃ r c, matrix r c = 1
+
+instance {n rows cols} (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (matrix : Matrix rows cols) : Decidable (ValidSupport rowLabels colLabels matrix) :=
+  inferInstanceAs (Decidable ((_ ∧ _) ∧ ∃ r c, matrix r c = 1))
+
+/-- All finite balanced supports, computed from occurrence labels only. -/
+def supportGenerators {n rows cols}
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n) : List (Vector n) :=
+  ((booleanMatrices rows cols).filter
+    (fun matrix => decide (ValidSupport rowLabels colLabels matrix))).map
+      (supportDegrees rowLabels colLabels)
+
+theorem supportGenerators_sound {n rows cols} (left right : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (v : Vector n) (member : v ∈ supportGenerators rowLabels colLabels) :
+    Balanced left right v := by
+  obtain ⟨matrix, member, same⟩ := List.mem_map.mp member
+  have valid := of_decide_eq_true (List.mem_filter.mp member).2
+  rw [← same]
+  exact balanced_of_margins left right _ rowLabels colLabels rowCounts colCounts matrix valid.1
+
+theorem supportGenerators_cover {n rows cols} (v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (active : ∀ i, labelCount rowLabels i = 0 → labelCount colLabels i = 0 → v i = 0)
+    (matrix : Matrix rows cols)
+    (margins : Margins matrix (fun r => v (rowLabels r)) (fun c => v (colLabels c)))
+    (boolean : ∀ r c, matrix r c ≤ 1) (nonempty : ∃ r c, matrix r c = 1) :
+    v ∈ supportGenerators rowLabels colLabels := by
+  have same := supportDegrees_eq v rowLabels colLabels matrix margins active
+  apply List.mem_map.mpr
+  refine ⟨matrix, List.mem_filter.mpr ⟨(mem_booleanMatrices matrix).mpr boolean, ?_⟩, same⟩
+  apply decide_eq_true
+  exact ⟨by simpa only [same] using margins, nonempty⟩
+
+/-- EXACTNESS OF THE COMPUTED LIST. No completeness hypothesis about a proposed
+list remains: Boolean enumeration and its filter are proved exhaustive. This is
+numeric exactness, not yet a native bag rule or a general certification solver.
+All coefficients and dimensions are arbitrary; repetitions are not bounded. -/
+theorem supportGenerators_exact {n rows cols} (left right v : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right)
+    (active : ∀ i, left i = 0 → right i = 0 → v i = 0) :
+    Generated (supportGenerators rowLabels colLabels) v ↔ Balanced left right v := by
+  constructor
+  · rintro ⟨parts, members, same⟩
+    rw [← same]
+    exact total_balanced left right parts (fun w member =>
+      supportGenerators_sound left right rowLabels colLabels rowCounts colCounts w (members w member))
+  · intro balanced
+    obtain ⟨parts, same, supports⟩ := decompose_boolean_supports left right v
+      rowLabels colLabels rowCounts colCounts disjoint balanced active
+    refine ⟨parts, ?_, same⟩
+    intro w member
+    obtain ⟨matrix, margins, boolean, nonempty⟩ := supports w member
+    apply supportGenerators_cover w rowLabels colLabels _ matrix margins boolean nonempty
+    intro i hl hr
+    have bound := member_below_total member i
+    rw [same, active i (by rw [← rowCounts]; exact hl)
+      (by rw [← colCounts]; exact hr)] at bound
+    exact Nat.eq_zero_of_le_zero bound
+
+/- Computational regressions, NOT evidence for the general completeness theorem:
+   2X = 3Y gives X = 3Z, Y = 2Z, including Z = empty.
+   2X = A+Y retains every balanced support, including redundant presentations.
+   A one-sided or empty occurrence grid has no nonempty support.
+   No external solver is invoked while elaborating this file. -/
+#guard ((supportGenerators (fun _ : Fin 2 => (0 : Fin 2))
+  (fun _ : Fin 3 => (1 : Fin 2))).map
+    (fun v => (List.finRange 2).map v)) == [[3, 2]]
+#guard ((supportGenerators (fun _ : Fin 2 => (0 : Fin 3))
+  (fun c : Fin 2 => (if c = 0 then 1 else 2 : Fin 3))).map
+    (fun v => (List.finRange 3).map v)) ==
+      [[1, 2, 0], [1, 1, 1], [1, 1, 1], [1, 0, 2], [2, 2, 2]]
+#guard (booleanMatrices 2 3).length == 64
+#guard (supportGenerators (fun _ : Fin 1 => (0 : Fin 1))
+  (fun c : Fin 0 => c.elim0)).length == 0
+#guard (supportGenerators (fun r : Fin 0 => r.elim0)
+  (fun c : Fin 0 => c.elim0) (n := 0)).length == 0
 
 end FiniteSharing
 
@@ -2896,5 +3127,6 @@ theorem clash_exact_data :
 #print axioms FiniteSharing.boolean_transport_exists
 #print axioms FiniteSharing.minimal_nonempty_boolean_support
 #print axioms FiniteSharing.boolean_supports_exact
+#print axioms FiniteSharing.supportGenerators_exact
 
 end DirectCertification.Bakery

@@ -925,6 +925,16 @@ balance; original canceled variables still require independent passthrough
 images. These are general metatheorems, not sampled coefficient cases or extra
 registration obligations.
 
+`supportGenerators` now computes the canonical finite family: enumerate every
+Boolean grid, keep only nonempty grids with uniform repeated-label degrees, and
+extract their degree vectors. `mem_booleanMatrices` proves that no Boolean grid
+is omitted; `supportDegrees_eq` recovers the unique active vector from its margins.
+`supportGenerators_exact` proves that the computed list generates exactly every
+balanced active multiplicity vector. The proof no longer assumes that a supplied
+generator list covers all minimal solutions. Duplicate degree vectors are harmless
+and may remain. This is an exponential exhaustive fallback, not a polynomial-time
+claim, and it still needs lifting to native/open bag substitution images.
+
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
 required bound. The label-count argument checks that the document's opposite-pair
@@ -948,8 +958,8 @@ The old shape-specific recognizers and elaboration-time Maude search have been
 removed from this file; separate Maude experiment files remain historical work.
 
 Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. In
-particular, exhaustive support-family enumeration, the complete native/open
-finite-sharing rule, exhaustive general solver, complete factor-search implementation, and their
+particular, the complete native/open finite-sharing rule, exhaustive general
+solver, complete factor-search implementation, and their
 combined search-success theorem are not established by those existing examples.
 The retained semantic mutation/split rules are useful derived steps, not a
 complete fallback algorithm or a replacement for the finite-sharing theorem.
@@ -962,9 +972,9 @@ The final theorem is relatively straightforward once the component results are
 available: induction over the finite equation list, followed by symbolic CSU
 factorization and matching completeness. The difficult formalization lies in:
 
-1. Completing exhaustive support enumeration and symbolic/native bag reconstruction
-   for Proposition 5.5; its numeric rounding and support-decomposition foundation
-   are now proved.
+1. Completing symbolic/native bag reconstruction for Proposition 5.5; its numeric
+   rounding, support decomposition, and exhaustive computed-family exactness are
+   now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
    propagation through postponed bag equations.
 3. Proving exhaustive singleton processing and single-bag solver exactness while

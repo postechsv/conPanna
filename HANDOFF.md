@@ -6,6 +6,17 @@ This document records the design decisions and current implementation state need
 
 Read THIS section first; the older NEXT SESSION plan below is historical.
 
+**Current override (2026-10-05):** certification.lean was refactored to reusable
+native rules, typed equality/factor data, and handwritten certificate examples.
+The old bounded shape recognizers and elaboration-time Maude harness are gone.
+Its FiniteSharing namespace now PROVES numeric decomposition, Boolean rounding,
+and exactness of an EXECUTABLY enumerated support family for arbitrary repeated
+labels/coefficients. No native bag reconstruction or general automated search is
+claimed. Follow TODO.md's current checkbox list and CERTIFICATION.md §12.1.
+Next lift that computed family to native/open bag substitutions, preserving
+inactive variables as passthrough parameters. Do not touch narrowing yet.
+The older capability descriptions below remain historical context.
+
 - Active experiment: `certification.lean`, not `certification2.lean`. It imports
   only `examples/bakery_acu.lean` (model-only, no Mathlib or safety proofs).
   The older indirect encoding/calculus remains untouched for comparison.

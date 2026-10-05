@@ -26,9 +26,10 @@ correctness argument are credible at technical-report level.
 - Explain the mechanism with concrete small equations and plain language.
   Separate proved checker soundness from missing search completeness/termination.
   Keep research/design ahead of implementation and discuss unresolved gaps.
-- Current implementation is evidence for replay and semantic rule correctness,
-  NOT a general ACU algorithm: the worklist search uses one mutation/split and a
-  fixed bound. No production narrowing changes during this design milestone.
+- Current implementation proves replay rules and numeric finite sharing, NOT a
+  general ACU certification algorithm. The old bounded shape-specific search was
+  removed; no general replacement search is implemented yet. No production
+  narrowing changes during this milestone.
 
 ### Design checkpoint: finite sharing, not unrestricted mutation
 
@@ -267,7 +268,8 @@ Next proof boundary:
   Only after these arguments are secure should the completeness-tree checker
   gain FiniteSharing/contradiction nodes or Maude gain new search control.
 
-Implementation checkpoint: the first general proof auxiliary is now in the
+Historical first proof checkpoint (superseded by the current checklist below):
+the first general proof auxiliary is now in the
 EXISTING certification.lean, namespace DirectCertification.FiniteSharing.
 
 - decompose_minimal proves that EVERY balanced natural multiplicity vector is
@@ -283,7 +285,7 @@ EXISTING certification.lean, namespace DirectCertification.FiniteSharing.
   complete, and no native bag exactness/search-success theorem is claimed.
   Prove that representation theorem next, then lift through existing NativeEq.
 
-Second proof checkpoint (same file, no solver/library changes):
+Historical second proof checkpoint (rounding/enumeration are now proved below):
 
 - minimal_pair_bound proves that opposite-side minimal multiplicities cannot
   both exceed the elementary two-variable solution. No coefficient/arity bound.
@@ -305,9 +307,44 @@ Second proof checkpoint (same file, no solver/library changes):
 
 ## Short-term goal: certified constrained narrowing
 
-**Active milestone:** direct native certification, with native Maude `unify` as
-candidate producer and answer-guided certificate reconstruction. Read the CURRENT
-MILESTONE section of HANDOFF.md first; older stages below are historical.
+### Current progress (authoritative; older checkpoints below are historical)
+
+Goal: native Maude proposes unifiers; answer-guided search supplies a kernel-checked
+soundness/completeness certificate, with no nontrivial user registration/proofs.
+Constrained narrowing will consume this only after unification certification works.
+
+- [x] State the restricted modeling contract and the informal complete fallback /
+  targeted early-closure argument in CERTIFICATION.md. This is NOT a formal Lean
+  search-success theorem or a claim of universal speedup.
+- [x] Generate native constructor metadata; retain existing indexed structural
+  semantics. Model-only Bakery declarations need no semantic bridge proof.
+- [x] Prove reusable cancellation, free decomposition/clash, singleton splitting,
+  sorted whole-vector factors, and soundness/completeness aggregation.
+- [x] Prove numeric finite sharing for arbitrary coefficients and repeated labels:
+  minimal decomposition, Boolean rounding, and nonempty support representation.
+- [x] Enumerate EVERY Boolean occurrence grid and filter uniform repeated-label
+  degrees. Prove supportGenerators_exact: the computed finite list generates
+  exactly the balanced ACTIVE multiplicity vectors. No supplied-list coverage
+  premise, fixed search bound, Mathlib import, or proof admission.
+- [ ] Lift the enumerated family to exact native/open bag substitutions using
+  flatten/rebuild; preserve canceled variables as independent passthrough inputs.
+- [ ] Implement exhaustive singleton/payload processing and sorted substitution
+  composition for finite equation systems (not just handwritten examples).
+- [ ] Implement complete whole-vector factor search and native-answer-guided
+  early closure, with the complete finite fallback on shortcut failure.
+- [ ] Connect finite dump/replay data to actual Maude certification search; validate
+  the exact signature, input, original-variable scopes, and WHOLE answer family.
+- [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
+  completeness holes. Production narrowing is deliberately unchanged so far.
+
+NEXT: native/open bag reconstruction for the proved enumerated support family.
+The numeric proof is general; the overall automatic ACU certifier is NOT finished.
+
+### Historical integration notes
+
+The following checkpoints describe earlier experiments, not the current executable
+capabilities of certification.lean. Its old elaboration-time Maude harness and
+bounded shape recognizers were removed; see the checklist above for active status.
 
 - Restricted `deriving ACU` and explicit-root `structural T for Conf` implemented.
   Model-only example: examples/bakery_acu.lean. No nontrivial user registration.
