@@ -742,6 +742,11 @@ The proof does not say “the reference and Maude answer lists look the same.”
 Their lengths, orderings, parameter counts, and redundant families may differ.
 Checked factorization of whole vectors is what relates them.
 
+This baseline reconstructs a complete reference family before comparing answers.
+Native proposals guide the factor search, but do not by themselves reduce the
+reference unification work. The search-level acceleration is the optional
+early-closure extension in Section 9, not this baseline alone.
+
 ### Theorem 8.4 — Accepted-certificate correctness
 
 Any well-checked reference derivation, factor list, and soundness traces establish
@@ -797,6 +802,37 @@ that cannot starve it. Unrestricted rewriting/search is not the prescribed contr
 There is no general claim that proposed answers avoid reconstructing a complete
 reference derivation in the worst case. They provide genuine checked early
 closure opportunities; a uniform speedup is a separate question.
+
+### 9.1 Concrete efficiency benefit and its limits
+
+The target is a coverage proof, not rediscovery of the proposed answers. Once
+EARLY-COVER proves that EVERY solution of a current branch factors through an
+answer, that branch needs no further unification splits. This can save both
+search and the corresponding exhaustive certificate subtree. Merely prioritizing
+the choices suggested by an answer would not suffice: unexplored alternatives
+would still need coverage evidence.
+
+For example, consider `kX =B kY`, where `k > 0` counts repeated bag-variable
+occurrences. Native unification proposes `X:=Z, Y:=Z`. Choose `β(Z):=X`;
+MULTIPLICITY-CANCEL proves `Y =B X`, so one checked conditional factor closes the
+whole problem. Soundness of the proposed answer is checked separately.
+
+In contrast, the specified exhaustive sharing fallback has a `k × k` occurrence
+grid. It includes at least `k!` balanced supports: every permutation matrix is
+a support with degree one at every occurrence. Early closure avoids enumerating
+these redundant supports altogether, rather than enumerating them and comparing
+the final answers afterwards. Its work here is reading the finite terms and
+checking the multiplicity-cancellation/factor evidence, not traversing that grid.
+
+This comparison is with our enumerative fallback, NOT a lower bound on solving
+the equation from scratch. An optimized independent solver can use the same
+multiplicity rule. Proposed answers supply a concrete coverage hypothesis and
+factor to attempt; they do not create a new algebraic shortcut or ensure that
+such a shortcut exists for every problem. When checked early closure fails, the
+complete fallback may still perform all the original search, plus the failed
+shortcut attempts. The document therefore specifies a genuine branch-pruning
+mechanism, but no measured speedup, general complexity improvement, or fully
+implemented targeted reconstruction engine is claimed yet.
 
 ## 10. Example with two necessary families
 
@@ -967,3 +1003,275 @@ The document does not establish novelty of the underlying unification algorithm.
 Potential research contributions are the semantic registration/replay framework,
 checked answer-guided certification, and its integration with the existing Lean
 semantics; those require implementation and evaluation beyond this design note.
+
+## 14. Related work, rule provenance, and differences
+
+### 14.1 How to read the attribution
+
+The calculus is a combination and adaptation of established ideas, not a claim
+to have invented ACU unification. The following categories distinguish its
+provenance:
+
+- **Reused:** a standard mathematical rule or definition, restated with sorted
+  contexts and our structural relation.
+- **Inspired/adapted:** a mechanism based on a cited result, but changed for this
+  contract, semantics, or certification purpose.
+- **Derived:** a consequence of the free-bag semantics proved in this document;
+  no particular paper is claimed as its exclusive source. This does not imply
+  that the mathematical fact is new.
+- **Project-specific proposal:** a proposed organization or certificate interface,
+  whose novelty has not been established by a comprehensive literature review.
+
+“Reused” concerns mathematical rule patterns, not a claim that source code or
+verbatim text was copied. This is a provenance account of the proposed calculus,
+not a licensing audit of every existing prototype implementation.
+
+### 14.2 Rule-by-rule provenance
+
+| Rule or mechanism in this document | Provenance | Adaptation and limits of the claim |
+| --- | --- | --- |
+| `DELETE`, `ORIENT`, `DECOMPOSE`, `CLASH`, `BIND` (§4.1) | Reused free first-order unification transformations; Martelli–Montanari, §2. | Sorted contexts, modulo equality, and postponed bag equations are our setting. Raw free-head clash is not used on ACU roots. These are not new rules. |
+| `FREE-OCCURS` (§4.1) | Reused free occurs checking, with an equational guard. | Its use is restricted to free-constructor cycles. Stratification justifies the mandatory non-bag phase. Ordinary syntactic occurs checking is deliberately not used for bag cycles. |
+| Equality evidence and `NORMALIZE` (§4.2, §8.2) | Reused equational logic and standard ACU normalization. | Reconstructed evidence targets the registered relation. Neither normalization nor proof-producing equality checking is claimed novel; certified AC reasoning already exists (§14.4). |
+| `CANCEL` (§4.2) | Standard flattened AC cancellation; it already appears in Stickel's AC algorithm. | Our justification uses the constructor-generated free bag algebra, including empty remainders. It is not valid merely from assuming an arbitrary ACU interpretation. |
+| `MULTIPLICITY-CANCEL` (§9) | Derived from equality of generator multiplicities in a free commutative monoid. | Used as a general checked shortcut; no claim that the algebraic fact is new or that it is the cited papers' specific trace rule. |
+| `PURIFY` (§4.2) | Inspired by standard variable abstraction/purification in equational unification and theory combination. | We name singleton terms and retain their equations. We do not import the entire Baader–Schulz combination algorithm or its general combination theorem (§14.5). |
+| `FINITE-SHARING` (§4.3) | Adapted from Boudet–Contejean's finite-support theorem and occurrence-sharing treatment of nonlinear AC equations. | We collect all balanced supports into one parameterized pure-balance family, allow empty parameters, and later enforce singleton requirements. This is not a literal copy of their mutation/merge/pruning algorithm. |
+| Minimal decomposition and opposite-pair bound (§5.2–§5.3) | Standard nonnegative-balance arguments; the pair bound is part of the reasoning behind Boudet–Contejean's Theorem 2. | Internal completeness arguments, not a separate runtime Diophantine solver or per-problem arithmetic certificate. No novelty claim. |
+| Rectangle rounding (§5.4) | Our explicit proof organization for the required finite-support property. | It makes repeated occurrence degrees explicit. We claim neither a new finite-support theorem nor priority for this matrix argument. |
+| `ATOM-MANY`, `ATOM-ONE`, `ATOM-CHOOSE`, `ZERO` (§4.4) | Derived from free-bag multiplicities and singleton injectivity. | The exact branching formulation is tailored to the three-constructor fragment. These are elementary ACU consequences, not rules taken from an order-sorted membership calculus. |
+| Shared substitution propagation and composition (§4.1, §7) | Reused substitution composition and complete-unifier-set reasoning. | The finite free/bag/payload schedule is justified by our stratification, not a claim about arbitrary interacting theories. |
+| `COVER` and whole-vector factorization (§4.5, §8.1) | Reused instantiation preorder and the standard definition of a complete set of unifiers. | We make the factor a checked certificate object on every original input. Comparing complete vectors preserves correlations; the mathematical factorization principle is not new. |
+| `EARLY-COVER` (§9) | Project-specific proposed control, built from standard factorization and checked consequence derivations. | It can avoid expanding a branch when coverage is already proved. This is not a claimed new general subsumption theorem, nor a guarantee that native answers always accelerate reconstruction. |
+| Proposed-answer soundness plus coverage aggregation (§8.4) | Reused logical inclusion in both directions; architecturally inspired by skeptical external-solver certification, notably SMTCoq. | The target is exactness of a symbolic unifier set over registered constructor semantics, rather than a SAT/SMT result. The native solver remains outside the trust boundary. |
+| Exhaustive sharing/atom dumps (§11) | Standard explicit case-tree certification, organized for the proposed calculus. | Both branches or checked alternatives must be accounted for. A positive native computation trace alone is not completeness evidence. The wire format is still future work. |
+
+### 14.3 Classical AC unification and the nonlinear sharing foundation
+
+Stickel's **A Complete Unification Algorithm for Associative-Commutative
+Functions** (1975) already flattens AC terms and removes common arguments before
+solving. It also gives the substitution/generalization viewpoint. These are
+classical foundations, not contributions of our framework.
+[Original proceedings paper](https://www.ijcai.org/Proceedings/75/Papers/011.pdf).
+
+Boudet and Contejean's **“Syntactic” AC-Unification** (1994) is the closest source
+for our nonlinear sharing mechanism. Their Theorem 2 represents minimal balance
+solutions by subsets of occurrence-pair generators. Their subsequent algorithm
+uses linearization, reconciliation of repeated occurrences, and a restriction on
+substitutions of introduced variables to preserve completeness while controlling
+search. [Author-hosted paper](https://www.lri.fr/~contejea/publis/1994ccl/main.pdf).
+
+Our changes are explicit:
+
+1. The initial model contract is narrower: one stratified bag component, not a
+   general mixed AC signature.
+2. It is ACU: parameters may be empty. Thus the pure balance can use all balanced
+   supports simultaneously; there is no obligation to choose only nonempty
+   contributions to every input variable.
+3. Explicit singleton requirements are discharged separately by exhaustive
+   cardinality cases and free payload unification.
+4. A complete finite reference family is used to certify an independently
+   proposed answer set, which may have a different representation.
+
+The occurrence grid is still an arithmetic balance construction in mathematical
+substance. Saying “no explicit Diophantine solver” is a statement about the search
+and certificate interface, not a claim to have removed the arithmetic foundation
+or its worst-case combinatorial cost. We do not claim that enumerating all
+supports improves on optimized classical AC/ACU unification.
+
+### 14.4 Existing certified AC algorithms and proof-assistant tactics
+
+Ayala-Rincón, Fernández, Ferreira Silva, and Nantes Sobrinho's **A Certified
+Algorithm for AC-Unification** (FSCD 2022) formalizes an adjusted Stickel algorithm
+in PVS and proves termination, soundness, and completeness. Its extended account,
+**Certified First-Order AC-Unification and Applications**, supplies further details
+and revises a completeness-proof hypothesis. These are important precedents: we
+must not claim that formal certification of AC unification is new.
+[FSCD paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.FSCD.2022.8),
+[extended account](https://www3.risc.jku.at/publications/download/risc_7111/main.pdf).
+
+The difference is the intended artifact. Those works certify an AC-unification
+algorithm itself. Our target is a reusable Lean replay interface for certifying
+the exact answer set proposed by a separate native engine, against registered
+user constructor semantics. Our initial contract is deliberately restricted and
+includes a unit law; their AC correctness results do not automatically establish
+this ACU replay theorem. Conversely, our informal argument is not a stronger
+result than their completed formal verification. Their proof rules and PVS
+development have not been ported into our prototype.
+
+Contejean's **A Certified AC Matching Algorithm** (RTA 2004) proves inference
+rules for free/C/AC matching sound, complete, and decreasing in Coq, with a
+corresponding CiME algorithm. This directly supports the feasibility of a checked
+matching component. It does not, by itself, prove completeness of an ACU unifier
+set or the composition argument of §7. Its rules are related work, not the rules
+already implemented by our generic matching fallback.
+[Author's abstract](https://www.lri.fr/~contejea/publis/2004rta/abstract.html).
+
+Braibant and Pous's **Tactics for Reasoning modulo AC in Coq** (CPP 2011) combines
+a certified equality decision procedure with untrusted matching. It supports
+units, multiple operations, and user-defined equivalence relations. This is a
+particularly close precedent for the acceptance principle used in `COVER`:
+a matcher proposes a substitution, and checked equality validates it.
+[Paper](https://arxiv.org/abs/1106.4448).
+
+The additional obligation in our work is exhaustive coverage of ALL unifiers.
+Validating one rewriting match requires soundness of that match, not a proof that
+the matcher returned every possibility. Hence our reference derivation and
+coverage factors cannot be replaced by equality checks on proposed unifiers.
+The earlier work also shows that registration and reasoning under an equivalence
+relation are not new in themselves. Our free-constructor contract is needed for
+exhaustiveness, cancellation, and contradiction rules; successful equality proofs
+can work under much more general registered associative/commutative operations.
+
+### 14.5 Purification and combination of equational theories
+
+Baader and Schulz's **Unification in the Union of Disjoint Equational Theories:
+Combining Decision Procedures** (1991 technical report; 1996 journal version)
+studies general combination under component-theory requirements, including
+unification with constant restrictions. This is a standard background for
+purification and for the eventual multiple-theory extension.
+[Author-affiliated report entry](https://iccl.inf.tu-dresden.de/web/LATPub24/en),
+[journal DOI](https://doi.org/10.1006/jsco.1996.0009).
+
+Our phase ordering is a special-purpose simplification justified by the sort
+dependency contract. It is not a newly invented general combination method:
+no payload equation can lead back to a bag equation, so we avoid the general
+cross-component interaction problem. We do not claim to implement that paper's
+variable-identification, constant-restriction, or full combination machinery.
+Allowing bags inside payloads, or multiple interacting structural components,
+requires revisiting this boundary rather than citing general combination as if
+its hypotheses and proof had already been instantiated.
+
+### 14.6 The supplied order-sorted paper is a different wrapper
+
+The local `ACU-certification.pdf` is Hendrix and Meseguer's **Order-sorted
+Equational Unification Revisited** (journal version, 2012). It wraps an unsorted
+equational unification engine with rule-based sort-constraint processing. The
+author-hosted version presents Intersection, Propagation, and Subsumption rules
+for membership constraints and describes Maude/CiME integration.
+[Author-hosted version](https://maude.cs.illinois.edu/papers/pdf/hendrix-meseguer-os-unify.pdf),
+[journal DOI](https://doi.org/10.1016/j.entcs.2012.11.010).
+
+It inspired the general external-engine-plus-rule-based-wrapper direction, but
+**none of those three membership rules is the FINITE-SHARING or atom calculus
+in this document**. Our contexts are many-sorted with fixed tags; there are no
+subsort choices or membership refinements. More importantly, repairing the sort
+information of an external unifier is different from proving that its proposed
+unifier set exhausts all solutions. The paper is not an existing Lean-style
+soundness/completeness checker for arbitrary external ACU answer sets.
+
+### 14.7 SMTCoq: the trust architecture, not the ACU proof rules
+
+Armand et al.'s **A Modular Integration of SAT/SMT Solvers to Coq through Proof
+Witnesses** (CPP 2011) describes a modular certified checker for external solver
+witnesses. It is the main architectural inspiration for separating expensive
+search from trusted acceptance.
+[Author-hosted paper](https://www-sop.inria.fr/marelle/Laurent.Thery/pub1.pdf).
+
+Our proposed pipeline follows that skeptical principle:
+
+```text
+native engine proposes answers
+→ untrusted certification search produces evidence
+→ Lean validates evidence against the original semantic proposition.
+```
+
+The differences matter. Native Maude unifier output does not already include the
+required completeness evidence. We must add a coverage derivation and factors,
+not just parse the answers. The target is a finite symbolic representation of an
+entire solution set, not solely a satisfiable/unsatisfiable formula. Also, our
+prototype uses finite typed proof data and semantic replay; choosing a fully
+reflective Boolean checker versus proof-term reconstruction remains a design
+decision. SMTCoq's Coq checker is not code or an ACU calculus we have copied.
+
+### 14.8 Proof-relevant unification: evidence without importing its metatheory
+
+Cockx's **Dependent Pattern Matching and Proof-Relevant Unification** (2017),
+Chapter 3, is related through evidence-producing rule transformations and their
+composition. Its applications and correctness requirements concern dependent
+pattern matching. E-unification appears as a possible extension, not a supplied
+ACU completeness algorithm.
+[Thesis](https://jesper.sikanda.be/files/thesis-final-digital.pdf).
+
+We adopt neither its dependent-telescope infrastructure nor its stronger
+requirements on proof-relevant equivalences. Our goal is propositional equality
+of solution sets, with existential factor witnesses and possibly overlapping
+answer families. We do not need invertible witnesses between all proof objects.
+The connection is methodological; it is not the source of FINITE-SHARING and
+does not discharge our search guarantee.
+
+### 14.9 Disunification and complement methods: considered, not adopted
+
+An alternative completeness formulation asks whether a solution outside every
+proposed answer exists:
+
+```text
+exists ρ,
+  E₀ρ holds
+  and, for every i, there is NO β with ρ =B σᵢβ.
+```
+
+Refuting this formula would establish completeness. However, negating family
+membership introduces quantification over substitution parameters. It is not
+equivalent to adding a finite list of ordinary term disequalities with the
+parameters left free.
+
+Fernández's **AC Complement Problems: Satisfiability and Negation Elimination**
+(1996) studies ground-instance complements modulo AC, with a rule-based
+negation-elimination result for linear complement problems and additional
+restricted nonlinear cases. This is directly related to that alternative
+formulation, but its hypotheses do not yield our arbitrary-repetition ACU
+coverage theorem automatically.
+[Author's publication entry](https://nms.kcl.ac.uk/maribel.fernandez/allpapers.html).
+
+Comon's **Unification et disunification : théorie et applications** (1988) is
+broader background on equational-formula and disunification methods; it is not
+claimed as the source of any named rule adopted here.
+[Thesis record](https://theses.hal.science/tel-00331263v1).
+
+No disequality, complement, or quantifier-elimination rule from those works is
+currently part of this calculus. Positive complete reference families and
+checked factorization establish coverage instead. We therefore do not claim
+that a candidate answer set makes general disunification easy, nor that this
+document implements a targeted complement/refutation algorithm.
+
+### 14.10 Generalized rewrite theories: application motivation only
+
+Meseguer's **Generalized Rewrite Theories and Coherence Completion** provides
+the symbolic-execution background for the broader narrowing project. It studies
+rewrite theories with background constraints and coherence/executability
+conditions, rather than this unconstrained unifier-set replay problem.
+[Paper](https://www.ideals.illinois.edu/items/105518/bitstreams/334027/data.pdf).
+
+Its role here is motivation for a reliable structural unification component
+inside later symbolic reasoning. No coherence-completion, constrained-narrowing,
+or feasibility rule from that work is adopted in the present certificate
+calculus. Neither its application results nor its executability assumptions
+replace our coverage argument.
+
+### 14.11 What can responsibly be claimed as different
+
+The intended project-specific contribution is the combination of:
+
+1. Registration of ordinary many-sorted user constructor datatypes, with checked
+   structural semantics and no nontrivial per-model certification proof.
+2. Untrusted native proposals plus rule-based, whole-family coverage certificates
+   for a supported ACU modeling contract.
+3. A rule-dump/replay interface whose accepted proposition states soundness and
+   completeness of the proposed set against the existing native semantics.
+4. Optional answer-guided early closure, backed by a finite complete fallback
+   whose success argument does not depend on bounded experiments.
+
+These are intended integration/certification contributions, not established
+priority claims. General substitution composition, CSU factorization, skeptical
+checking, proof-producing AC equality, and the finite-support foundation all have
+precedents. A publication must compare the completed pipeline with the certified
+AC algorithms and matching tactics above, not only with raw hand proofs.
+
+In particular, we must not claim “the first certified AC/ACU unification system,”
+“a new complete ACU algorithm,” or “native answers always make completeness
+checking cheaper” on the basis of this note. The current defensible claim is an
+explicit restricted calculus and an informal conditional reconstruction-success
+argument; practical automatic replay, registration coverage, and performance
+advantages remain implementation/evaluation obligations. Deferring the formal
+Lean search-success proof does not change that distinction.
