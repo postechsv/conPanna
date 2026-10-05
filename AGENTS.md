@@ -26,3 +26,5 @@
   of accumulating code.
 - End substantial work reports with the remaining boundary and a concrete next
   step. Avoid implementation details unless they help explain that boundary.
+- Include the short-term certification checklist in milestone reports, marking
+  completed work, the next step, and remaining work.

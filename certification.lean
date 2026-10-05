@@ -6,7 +6,7 @@ import examples.bakery_acu
 Specification and provenance: CERTIFICATION.md, especially §§4–9 and §14.
 This is ONE prototype, with four parts:
 1. GENERAL SEMANTIC RULES over the existing registered structural equality.
-2. EXHAUSTIVE FINITE SHARING: numeric, tree, and native semantic exactness.
+2. EXHAUSTIVE FINITE SHARING: semantic exactness and typed substitution generation.
 3. TYPED CERTIFICATE DATA and acceptance (soundness plus complete coverage).
 4. BAKERY CERTIFICATES: explicit proof terms, without custom proof tactics.
 
@@ -795,7 +795,8 @@ active vector is a sum of nonempty Boolean support degrees, and every such sum
 is balanced. Minimal occurrence-level rounding is fully proved, not assumed.
 supportGenerators_exact additionally proves exactness of the EXECUTABLE exhaustive
 support list. bags_generated and finiteSharing_native lift this to tree/native
-bag images. Typed open-substitution replay/search integration remains pending.
+bag images. Sharing generates typed open substitutions and checked replay nodes.
+General certificate search remains pending.
 
 The decomposition uses classical existence and strong induction. It is not
 executable certificate search, and no domain constraints or Bakery symbols
@@ -1003,7 +1004,7 @@ The repair argument for that final theorem is:
   boolean_transport_exists proves this argument in Lean below.
 
 Matrix rounding, exhaustive support enumeration, and native bag instantiation
-are now proved below. Typed replay/search integration remains pending. No new
+are now proved below. Typed replay is connected; general search remains pending. No new
 search control or user registration is introduced by these metatheorems.
 -/
 
@@ -2830,6 +2831,17 @@ def Terms.variables (Γ : List Sorts) : (Δ : List Sorts) →
 
 def Terms.identity (Γ : List Sorts) : Terms sig Γ Γ := Terms.variables Γ Γ (fun v => v)
 
+private theorem variables_eval (reg : Registration sig) {Γ Δ}
+    (rename : ∀ {s}, Variable Δ s → Variable Γ s)
+    (old : Args reg.Carrier Δ) (fresh : Args reg.Carrier Γ)
+    (same : ∀ {s} (v : Variable Δ s), (rename v).eval fresh = v.eval old) :
+    (Terms.variables Γ Δ rename : Terms sig Γ Δ).eval reg fresh = old := by
+  induction Δ with
+  | nil => cases old; rfl
+  | cons s ss ih =>
+    exact Prod.ext (same .here) (ih (fun v => rename (.there v)) old.2
+      (fun v => same (.there v)))
+
 mutual
   def Term.subst {Γ Δ s} (images : Terms sig Δ Γ) : Term sig Γ s → Term sig Δ s
     | .var v => images.get v
@@ -2893,6 +2905,148 @@ theorem copies_eval (reg : Registration sig) {Γ s} (op : sig.ACUOp s)
   induction k with
   | zero => rfl
   | succ k ih => simp only [copies, add, Term.eval, Terms.eval, nativeRepeat, ih]
+
+/-! ### Generated typed finite-sharing substitution
+
+Slots is a finite selection table over the ORIGINAL sorted context. take selects
+a variable of the designated bag sort; skip preserves any sort. Each variable
+is visited once, so repetitions are coefficients, not duplicated selections.
+The generated scope prepends one shared bag parameter per canonical support.
+Unselected variables and inactive selected variables retain their old indices.
+No sort-equality oracle or semantic proof field is needed in a dumped selection.
+-/
+namespace Sharing
+
+inductive Slots (s : Sorts) : List Sorts → Nat → Type where
+  | nil : Slots s [] 0
+  | skip {t Γ n} : Slots s Γ n → Slots s (t :: Γ) n
+  | take {Γ n} : Slots s Γ n → Slots s (s :: Γ) (n + 1)
+
+def Slots.variable {s} : {Γ : List Sorts} → {n : Nat} → Slots s Γ n → Fin n → Variable Γ s
+  | _, _, .nil, i => Fin.elim0 i
+  | _, _, .skip rest, i => .there (rest.variable i)
+  | _, _, .take rest, i => Fin.cases .here (fun j => .there (rest.variable j)) i
+
+def Slots.replace {s Δ} : {Γ : List Sorts} → {n : Nat} → Slots s Γ n →
+    (Fin n → Term sig Δ s) → Terms sig Δ Γ → Terms sig Δ Γ
+  | _, _, .nil, _, .nil => .nil
+  | _, _, .skip rest, replacement, .cons a tail => .cons a (rest.replace replacement tail)
+  | _, _, .take rest, replacement, .cons _ tail =>
+      .cons (replacement 0) (rest.replace (fun i => replacement i.succ) tail)
+
+theorem Slots.get_replace {s Γ n Δ} (slots : Slots s Γ n)
+    (replacement : Fin n → Term sig Δ s) (others : Terms sig Δ Γ) (i : Fin n) :
+    (slots.replace replacement others).get (slots.variable i) = replacement i := by
+  induction slots with
+  | nil => exact Fin.elim0 i
+  | skip rest ih => cases others with | cons a tail => exact ih replacement tail i
+  | take rest ih =>
+    cases others with
+    | cons a tail => exact Fin.cases rfl (fun j => ih _ tail j) i
+
+def weaken (s : Sorts) : (k : Nat) → {Γ : List Sorts} → {t : Sorts} →
+    Variable Γ t → Variable (List.replicate k s ++ Γ) t
+  | 0, _, _, v => v
+  | k + 1, _, _, v => .there (weaken s k v)
+
+def parameter {Γ} (s : Sorts) : (k : Nat) → Fin k → Variable (List.replicate k s ++ Γ) s
+  | 0, i => Fin.elim0 i
+  | k + 1, i => Fin.cases .here (fun j => .there (parameter s k j)) i
+
+def extend {C : Sorts → Type} {Γ s} : {k : Nat} →
+    (Fin k → C s) → Args C Γ → Args C (List.replicate k s ++ Γ)
+  | 0, _, values => values
+  | _ + 1, parameters, values => (parameters 0, extend (fun i => parameters i.succ) values)
+
+theorem weaken_eval {C : Sorts → Type} {Γ s t k} (v : Variable Γ t)
+    (parameters : Fin k → C s) (values : Args C Γ) :
+    (weaken s k v).eval (extend parameters values) = v.eval values := by
+  induction k with
+  | zero => rfl
+  | succ k ih => exact ih (fun i => parameters i.succ)
+
+theorem parameter_eval {C : Sorts → Type} {Γ s k} (i : Fin k)
+    (parameters : Fin k → C s) (values : Args C Γ) :
+    (parameter (Γ := Γ) s k i).eval (extend parameters values) = parameters i := by
+  induction k with
+  | zero => exact Fin.elim0 i
+  | succ k ih => exact Fin.cases rfl (fun j => ih j (fun i => parameters i.succ)) i
+
+def lift {Γ s} (k : Nat) : Terms sig (List.replicate k s ++ Γ) Γ :=
+  Terms.variables _ Γ (weaken s k)
+
+theorem lift_eval (reg : Registration sig) {Γ s k} (parameters : Fin k → reg.Carrier s)
+    (values : Args reg.Carrier Γ) :
+    (lift (sig := sig) (Γ := Γ) (s := s) k).eval reg (extend parameters values) = values :=
+  variables_eval reg _ values _ (fun v => weaken_eval v parameters values)
+
+def sum {Γ s} (op : sig.ACUOp s) : {n : Nat} → FiniteSharing.Vector n →
+    (Fin n → Term sig Γ s) → Term sig Γ s
+  | 0, _, _ => zero op
+  | _ + 1, coeff, values => add op (copies op (coeff 0) (values 0))
+      (sum op (fun i => coeff i.succ) (fun i => values i.succ))
+
+theorem sum_quote (reg : Registration sig) {Γ s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (terms : Fin n → Term sig Γ s) (values : Args reg.Carrier Γ) :
+    reg.quote s ((sum op coeff terms).eval reg values) =
+      FiniteSharing.bagSum op coeff (fun i => reg.quote s ((terms i).eval reg values)) := by
+  induction n with
+  | zero =>
+    simp only [sum, zero, Term.eval, Terms.eval, reg.quote_apply, Args.quote, FiniteSharing.bagSum]
+    rfl
+  | succ n ih =>
+    simp only [sum, add, Term.eval, Terms.eval, copies_eval, reg.quote_apply, Args.quote,
+      quote_nativeRepeat, FiniteSharing.bagSum, ih]
+    rfl
+
+theorem sum_eval (reg : Registration sig) {Γ s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (terms : Fin n → Term sig Γ s) (values : Args reg.Carrier Γ) :
+    (sum op coeff terms).eval reg values = nativeBagSum reg op coeff (fun i => (terms i).eval reg values) :=
+  (reg.eval_quote _ _).symm.trans (congrArg (fun tree => tree.eval reg.toAlgebra)
+    (sum_quote reg op coeff terms values))
+
+def replacement {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
+    (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n)) :
+    Fin n → Term sig (List.replicate generators.length s ++ Γ) s := fun i =>
+  if left i = 0 ∧ right i = 0 then .var (weaken s generators.length (slots.variable i))
+  else sum op (fun j => generators.get j i) (fun j => .var (parameter s generators.length j))
+
+def substitution {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
+    (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n)) :
+    Terms sig (List.replicate generators.length s ++ Γ) Γ :=
+  slots.replace (replacement op slots left right generators) (lift generators.length)
+
+theorem Slots.replace_congr (reg : Registration sig) {Γ s n Δ} (slots : Slots s Γ n)
+    (replacement : Fin n → Term sig Δ s) (others : Terms sig Δ Γ)
+    (values : Args reg.Carrier Γ) (fresh : Args reg.Carrier Δ)
+    (preserved : ArgsRel (fun t => NativeEq sig reg (s := t)) Γ values (others.eval reg fresh))
+    (selected : ∀ i, NativeEq sig reg ((slots.variable i).eval values) ((replacement i).eval reg fresh)) :
+    ArgsRel (fun t => NativeEq sig reg (s := t)) Γ values
+      ((slots.replace replacement others).eval reg fresh) := by
+  induction slots with
+  | nil => trivial
+  | skip rest ih =>
+    cases others with
+    | cons a tail => exact ⟨preserved.1, ih replacement tail values.2 preserved.2
+        (fun i => selected i)⟩
+  | take rest ih =>
+    cases others with
+    | cons a tail => exact ⟨selected 0, ih (fun i => replacement i.succ) tail values.2 preserved.2
+        (fun i => selected i.succ)⟩
+
+theorem replacement_eval (reg : Registration sig) {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
+    (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n))
+    (fresh : Args reg.Carrier (List.replicate generators.length s ++ Γ)) (i : Fin n) :
+    ((replacement op slots left right generators) i).eval reg fresh =
+      nativeSharingImages reg op left right generators
+        (fun j => (parameter s generators.length j).eval fresh)
+        (fun j => (weaken s generators.length (slots.variable j)).eval fresh) i := by
+  unfold replacement nativeSharingImages FiniteSharing.sharingImages
+  split
+  · exact (reg.eval_quote _ _).symm
+  · exact sum_eval reg op _ _ fresh
+
+end Sharing
 
 /- Internal finite equality traces. These are DATA, not arbitrary Lean proofs.
 Their constructors mirror ordinary ACU/congruence rules in a Maude dump. -/
@@ -3089,21 +3243,114 @@ theorem Term.eval_congr (reg : Registration sig) {Γ s} (term : Term sig Γ s)
   · trivial
   · intro s ss first rest ih ir; exact ⟨ih, ir⟩
 
+theorem Terms.eval_congr (reg : Registration sig) {Γ ss} (terms : Terms sig Γ ss)
+    {a b : Args reg.Carrier Γ}
+    (h : ArgsRel (fun s => NativeEq sig reg (s := s)) Γ a b) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) ss (terms.eval reg a) (terms.eval reg b) := by
+  induction ss with
+  | nil => cases terms; trivial
+  | cons s ss ih =>
+    cases terms with
+    | cons a rest => exact ⟨a.eval_congr reg h, ih rest⟩
+
+namespace Sharing
+
+def problem {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
+    (left right : FiniteSharing.Vector n) : Problem sig Γ :=
+  ⟨s, sum op left (fun i => .var (slots.variable i)),
+    sum op right (fun i => .var (slots.variable i))⟩
+
+def answer {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
+    (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n)) : Answer sig Γ :=
+  ⟨List.replicate generators.length s ++ Γ, substitution op slots left right generators⟩
+
+private theorem args_refl (reg : Registration sig) {Γ} (values : Args reg.Carrier Γ) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) Γ values values := by
+  induction Γ with
+  | nil => trivial
+  | cons s ss ih => exact ⟨.refl _, ih values.2⟩
+
+theorem image_eval (reg : Registration sig) {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
+    (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n))
+    (fresh : Args reg.Carrier (List.replicate generators.length s ++ Γ)) (i : Fin n) :
+    (slots.variable i).eval ((substitution op slots left right generators).eval reg fresh) =
+      nativeSharingImages reg op left right generators
+        (fun j => (parameter s generators.length j).eval fresh)
+        (fun j => (weaken s generators.length (slots.variable j)).eval fresh) i := by
+  rw [Variable.eval_get]
+  simp only [substitution, Slots.get_replace, replacement_eval]
+
+/-- Completeness of the generated OPEN substitution on a MANY-SORTED context.
+Original payload/configuration variables are retained; ONLY selected bag variables
+are replaced. This produces one common fresh valuation for the entire image vector.
+The existential proof uses the native metatheorem, not an external solver result. -/
+theorem complete (profile : Profile sig) (reg : Registration sig) {Γ s n rows cols}
+    (op : sig.ACUOp s) (slots : Slots s Γ n) (left right : FiniteSharing.Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, FiniteSharing.labelCount rowLabels i = left i)
+    (colCounts : ∀ i, FiniteSharing.labelCount colLabels i = right i)
+    (disjoint : FiniteSharing.Disjoint left right) (values : Args reg.Carrier Γ)
+    (input : (problem op slots left right).Holds reg values) :
+    (answer op slots left right (FiniteSharing.supportGenerators rowLabels colLabels)).Holds reg values := by
+  have equation : NativeEq sig reg
+      (nativeBagSum reg op left (fun i => (slots.variable i).eval values))
+      (nativeBagSum reg op right (fun i => (slots.variable i).eval values)) := by
+    simpa only [problem, Problem.Holds, sum_eval, Term.eval] using input
+  obtain ⟨parameters, passthrough, images⟩ := (finiteSharing_native profile reg op left right
+    rowLabels colLabels rowCounts colCounts disjoint _).mp equation
+  refine ⟨extend parameters values, ?_⟩
+  apply slots.replace_congr reg
+  · rw [lift_eval]
+    exact args_refl reg values
+  · intro i
+    rw [replacement_eval]
+    simp only [parameter_eval, weaken_eval]
+    by_cases inactive : left i = 0 ∧ right i = 0
+    · simp only [nativeSharingImages, FiniteSharing.sharingImages, if_pos inactive, reg.eval_quote]
+      exact .refl _
+    · simpa only [nativeSharingImages, FiniteSharing.sharingImages, if_neg inactive] using images i
+
+/-- Soundness of EVERY assignment to the generated parameter scope. No residual
+structural condition or payload constraint is hidden in this unifier family. -/
+theorem sound (profile : Profile sig) (reg : Registration sig) {Γ s n rows cols}
+    (op : sig.ACUOp s) (slots : Slots s Γ n) (left right : FiniteSharing.Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, FiniteSharing.labelCount rowLabels i = left i)
+    (colCounts : ∀ i, FiniteSharing.labelCount colLabels i = right i)
+    (disjoint : FiniteSharing.Disjoint left right)
+    (fresh : Args reg.Carrier (List.replicate (FiniteSharing.supportGenerators rowLabels colLabels).length s ++ Γ)) :
+    (problem op slots left right).Holds reg
+      ((substitution op slots left right (FiniteSharing.supportGenerators rowLabels colLabels)).eval reg fresh) := by
+  simp only [problem, Problem.Holds, sum_eval, Term.eval, image_eval]
+  apply (finiteSharing_native profile reg op left right rowLabels colLabels rowCounts colCounts disjoint _).mpr
+  exact ⟨_, _, fun _ => .refl _⟩
+
+end Sharing
+
 /-- One finite equality trace for EACH proposed substitution. A proposal cannot
 be accepted merely because other members cover the problem: junk is rejected. -/
-inductive Soundness {inputs : List Sorts} (problem : Problem sig inputs) : List (Answer sig inputs) → Type where
-  | nil : Soundness problem []
-  | cons {answer rest}
+inductive Soundness {inputs : List Sorts} : Problem sig inputs → List (Answer sig inputs) → Type where
+  | nil {problem} : Soundness problem []
+  | cons {problem answer rest}
       (proof : Equality sig answer.parameters
         (problem.left.subst answer.images) (problem.right.subst answer.images))
       (tail : Soundness problem rest) : Soundness problem (answer :: rest)
+  | sharing {s n rows cols rest} (profile : Profile sig) (op : sig.ACUOp s)
+      (slots : Sharing.Slots s inputs n) (left right : FiniteSharing.Vector n)
+      (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+      (rowCounts : ∀ i, FiniteSharing.labelCount rowLabels i = left i)
+      (colCounts : ∀ i, FiniteSharing.labelCount colLabels i = right i)
+      (disjoint : FiniteSharing.Disjoint left right)
+      (tail : Soundness (Sharing.problem op slots left right) rest) :
+      Soundness (Sharing.problem op slots left right)
+        (Sharing.answer op slots left right (FiniteSharing.supportGenerators rowLabels colLabels) :: rest)
 
 theorem Soundness.sound (reg : Registration sig) {inputs} {problem : Problem sig inputs}
     {proposed : List (Answer sig inputs)} (proof : Soundness problem proposed) :
     ∀ values, Solutions reg proposed values → problem.Holds reg values := by
   induction proof with
   | nil => rintro _ ⟨_, impossible, _⟩; cases impossible
-  | @cons answer rest equality tail ih =>
+  | @cons problem answer rest equality tail ih =>
       rintro values ⟨candidate, member, fresh, images⟩
       rcases List.mem_cons.mp member with same | member
       · cases same
@@ -3111,6 +3358,14 @@ theorem Soundness.sound (reg : Registration sig) {inputs} {problem : Problem sig
         rw [Term.eval_subst, Term.eval_subst] at equation
         exact .trans (problem.left.eval_congr reg images)
           (.trans equation (.symm (problem.right.eval_congr reg images)))
+      · exact ih values ⟨candidate, member, fresh, images⟩
+  | sharing profile op slots left right rows cols rowCounts colCounts disjoint tail ih =>
+      rintro values ⟨candidate, member, fresh, images⟩
+      rcases List.mem_cons.mp member with same | member
+      · cases same
+        have equation := Sharing.sound profile reg op slots left right rows cols rowCounts colCounts disjoint fresh
+        exact .trans ((Sharing.problem op slots left right).left.eval_congr reg images)
+          (.trans equation (.symm ((Sharing.problem op slots left right).right.eval_congr reg images)))
       · exact ih values ⟨candidate, member, fresh, images⟩
 
 /-- General semantic aggregation. The supplied reference completeness must
@@ -3152,8 +3407,12 @@ for EVERY solution of E; a single satisfying instance cannot close a branch.
 and positive-multiplicity cancellation. `Complete.cover` is the answer-guided
 closure rule: it need not first materialize a reference CSU or solve E completely.
 Mutate/Split are optional proved derived rules, NOT the documented finite-grid
-fallback or a claim of complete search control. No certificate constructor for
-FINITE-SHARING is admitted until its semantic completeness theorem is proved.
+fallback or a claim of complete search control. FINITE-SHARING now uses its
+proved semantic rule: a typed Slots table generates ONE correlated substitution,
+and the child receives ALL residual equations and original images substituted
+with it. The canonical support list is computed internally, never supplied as
+an unchecked "complete" table. Soundness.sharing certifies this same generated
+family. These replay constructors still do not constitute certificate search.
 -/
 namespace Worklist
 
@@ -3225,17 +3484,6 @@ def equation {Γ s} (a b : Term sig Γ s) : Problem sig Γ := ⟨s, a, b⟩
 def lift4 {Γ s} : Terms sig (s :: s :: s :: s :: Γ) Γ :=
   Terms.variables _ Γ (fun v => .there (.there (.there (.there v))))
 
-private theorem variables_eval (reg : Registration sig) {Γ Δ}
-    (rename : ∀ {s}, Variable Δ s → Variable Γ s)
-    (old : Args reg.Carrier Δ) (fresh : Args reg.Carrier Γ)
-    (same : ∀ {s} (v : Variable Δ s), (rename v).eval fresh = v.eval old) :
-    (Terms.variables Γ Δ rename : Terms sig Γ Δ).eval reg fresh = old := by
-  induction Δ with
-  | nil => cases old; rfl
-  | cons s ss ih =>
-    exact Prod.ext (same .here) (ih (fun v => rename (.there v)) old.2
-      (fun v => same (.there v)))
-
 theorem lift4_eval (reg : Registration sig) {Γ s} (p q r t : reg.Carrier s)
     (values : Args reg.Carrier Γ) :
     (lift4 (sig := sig) (Γ := Γ) (s := s)).eval (Γ := s :: s :: s :: s :: Γ)
@@ -3257,11 +3505,27 @@ def mutated {Γ s} (op : sig.ACUOp s) (a b c d : Term sig Γ s)
    equation (d.subst lift4) (add op (.var (.there .here)) (.var (.there (.there (.there .here)))))] ++
     liftEquations eqs
 
+def substituteEquations {Γ Δ} (images : Terms sig Δ Γ) (eqs : List (Problem sig Γ)) :
+    List (Problem sig Δ) := eqs.map fun e => equation (e.left.subst images) (e.right.subst images)
+
 inductive Complete (profile : Profile sig) {inputs} (proposed : List (Answer sig inputs)) :
     {Γ : List Sorts} → Terms sig Γ inputs → List (Problem sig Γ) → Type where
   | cover {Γ images eqs} (index : Fin proposed.length)
       (bindings : Terms sig Γ (proposed.get index).parameters)
       (derived : DerivesArgs profile eqs images ((proposed.get index).images.subst bindings)) :
+      Complete profile proposed images eqs
+  | sharing {Γ images eqs s n rows cols} (op : sig.ACUOp s) (slots : Sharing.Slots s Γ n)
+      (left right : FiniteSharing.Vector n)
+      (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+      (rowCounts : ∀ i, FiniteSharing.labelCount rowLabels i = left i)
+      (colCounts : ∀ i, FiniteSharing.labelCount colLabels i = right i)
+      (disjoint : FiniteSharing.Disjoint left right)
+      (selected : Derives profile eqs (Sharing.problem op slots left right).left
+        (Sharing.problem op slots left right).right)
+      (child : Complete profile proposed
+        (images.subst (Sharing.substitution op slots left right (FiniteSharing.supportGenerators rowLabels colLabels)))
+        (substituteEquations (Sharing.substitution op slots left right
+          (FiniteSharing.supportGenerators rowLabels colLabels)) eqs)) :
       Complete profile proposed images eqs
   | mutate {Γ images eqs s} (op : sig.ACUOp s) (a b c d : Term sig Γ s)
       (selected : Derives profile eqs (add op a b) (add op c d))
@@ -3290,6 +3554,22 @@ theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs 
     intro values input
     refine ⟨_, List.get_mem _ _, bindings.eval reg values, ?_⟩
     simpa only [Terms.eval_subst] using derived.sound reg values input
+  | @sharing Γ images eqs s n nr nc op slots left right rows cols rowCounts colCounts disjoint selected child ih =>
+    intro values input
+    obtain ⟨fresh, imagesSame⟩ := Sharing.complete profile reg op slots left right rows cols
+      rowCounts colCounts disjoint values (selected.sound reg values input)
+    have residual : Holds reg (substituteEquations (Sharing.substitution op slots left right
+        (FiniteSharing.supportGenerators rows cols)) eqs) fresh := by
+      intro e inResidual
+      obtain ⟨original, inOriginal, same⟩ := List.mem_map.mp inResidual
+      cases same
+      simp only [Problem.Holds, equation, Term.eval_subst]
+      exact .trans (.symm (original.left.eval_congr reg imagesSame))
+        (.trans (input original inOriginal) (original.right.eval_congr reg imagesSame))
+    obtain ⟨answer, member, parameters, covered⟩ := ih fresh residual
+    refine ⟨answer, member, parameters, ?_⟩
+    rw [Terms.eval_subst] at covered
+    exact args_trans reg (images.eval_congr reg imagesSame) covered
   | @mutate Γ images eqs s op a b c d selected child ih =>
     intro values input
     have selected := selected.sound reg values input
@@ -3571,6 +3851,54 @@ theorem clash_exact_data :
         .here (.hyp ⟨0, of_decide_eq_true rfl⟩)))
     .nil
 
+/- Actual typed replay, not just the semantic rule instantiated in a theorem.
+
+Original scope = [ticket : Nat, P : ProcSet, Q : ProcSet].
+The Slots table skips ticket and selects P,Q ONCE. The occurrence coefficients
+are 2P =B 3Q. One support gives Z, so the generated open image vector is
+  (ticket, 3Z, 2Z), modulo trailing registered units.
+The generated context retains the old scope after Z; unused old P,Q indices are
+harmless internal passthrough slots, not extra constraints or extra solutions.
+
+COMPLETENESS dump: FiniteSharing -> Cover(the sole generated answer, identity β).
+SOUNDNESS dump: FiniteSharing(the SAME layout/Slots) -> end.
+The top proof is exactly these data constructors. General rule metatheorems above
+handle the semantic reasoning; no problem-specific supporting lemma/tactic/hole.
+-/
+def nonlinearSlots : Sharing.Slots Tag.s2 [Tag.s0, Tag.s2, Tag.s2] 2 :=
+  .skip (.take (.take .nil))
+
+def nonlinearLeft : FiniteSharing.Vector 2 := fun i => if i = 0 then 2 else 0
+def nonlinearRight : FiniteSharing.Vector 2 := fun i => if i = 0 then 0 else 3
+
+def nonlinearProblem : Problem Sig [Tag.s0, Tag.s2, Tag.s2] :=
+  Sharing.problem Operator.acu nonlinearSlots nonlinearLeft nonlinearRight
+
+def nonlinearAnswers : List (Answer Sig [Tag.s0, Tag.s2, Tag.s2]) :=
+  [Sharing.answer Operator.acu nonlinearSlots nonlinearLeft nonlinearRight
+    (FiniteSharing.supportGenerators (fun _ : Fin 2 => (0 : Fin 2)) (fun _ : Fin 3 => (1 : Fin 2)))]
+
+theorem nonlinear_replay_certificate :
+    ∀ values, nonlinearProblem.Holds registration values ↔ Solutions registration nonlinearAnswers values :=
+  Worklist.exact registration (profile := profile) nonlinearProblem nonlinearAnswers
+    (.sharing (sig := Sig) (s := Tag.s2) (Γ := [Tag.s0, Tag.s2, Tag.s2])
+      (n := 2) (rows := 2) (cols := 3) Operator.acu nonlinearSlots
+      nonlinearLeft nonlinearRight
+      (fun _ : Fin 2 => (0 : Fin 2)) (fun _ : Fin 3 => (1 : Fin 2))
+      (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
+      (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
+      (Fin.cases (Or.inr rfl) (fun i => Fin.cases (Or.inl rfl) (fun j => Fin.elim0 j) i))
+      (.hyp ⟨0, of_decide_eq_true rfl⟩)
+      (.cover ⟨0, of_decide_eq_true rfl⟩ (Terms.identity _)
+        (.cons (.axiom (.refl _)) (.cons (.axiom (.refl _)) (.cons (.axiom (.refl _)) .nil)))))
+    (.sharing (sig := Sig) (s := Tag.s2) (inputs := [Tag.s0, Tag.s2, Tag.s2])
+      (n := 2) (rows := 2) (cols := 3) profile Operator.acu nonlinearSlots
+      nonlinearLeft nonlinearRight
+      (fun _ : Fin 2 => (0 : Fin 2)) (fun _ : Fin 3 => (1 : Fin 2))
+      (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
+      (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
+      (Fin.cases (Or.inr rfl) (fun i => Fin.cases (Or.inl rfl) (fun j => Fin.elim0 j) i)) .nil)
+
 -- Kernel audits: standard Lean axioms are acceptable; sorryAx is not.
 #print axioms atomic_exact_data
 #print axioms repeated_exact_data
@@ -3584,5 +3912,8 @@ theorem clash_exact_data :
 #print axioms FiniteSharing.bags_generated
 #print axioms finiteSharing_native
 #print axioms nonlinear_sharing_certificate
+#print axioms Sharing.complete
+#print axioms Sharing.sound
+#print axioms nonlinear_replay_certificate
 
 end DirectCertification.Bakery

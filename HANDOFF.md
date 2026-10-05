@@ -13,9 +13,15 @@ Its FiniteSharing namespace now PROVES numeric decomposition, Boolean rounding,
 and exactness of an EXECUTABLY enumerated support family for arbitrary repeated
 labels/coefficients. bags_generated and finiteSharing_native now PROVE tree/native
 bag-image exactness too, retaining inactive inputs as independent passthroughs.
+Sharing now generates typed open substitutions; Worklist.Complete.sharing and
+Soundness.sharing check their completeness/soundness. One substitution transforms
+the WHOLE input vector and every residual equation, preserving skipped sorts and
+inactive inputs. nonlinear_replay_certificate checks 2P =B 3Q in the mixed scope
+[ticket, P, Q], with generated images [ticket, 3Z, 2Z], by explicit finite data.
+Full-file LSP checks and axiom audits pass without errors, warnings, or sorryAx.
 No general automated search is claimed. Follow TODO.md's current checkbox list
-and CERTIFICATION.md §12.1. Next generate typed open substitutions and add a
-checked FiniteSharing replay node. Do not touch narrowing yet.
+and CERTIFICATION.md §12.1. Next implement exhaustive singleton/payload equation
+processing and sorted equation-system composition. Do not touch narrowing yet.
 The older capability descriptions below remain historical context.
 
 - Active experiment: `certification.lean`, not `certification2.lean`. It imports

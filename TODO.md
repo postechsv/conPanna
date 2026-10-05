@@ -333,9 +333,14 @@ Constrained narrowing will consume this only after unification certification wor
   The nonlinear Bakery coefficient equation 2P =B 3Q is certified by one direct
   rule application. Full-file LSP diagnostics/axiom audits pass without errors,
   warnings, or sorryAx; no new Lean files, custom tactics, or library changes.
-- [ ] Connect this semantic rule to typed open substitutions and a finite
-  Worklist FiniteSharing replay node. Native valuation exactness alone is NOT
-  implemented symbolic certificate reconstruction or search success.
+- [x] Connect finite sharing to typed open substitution generation and checked
+  Worklist.Complete.sharing / Soundness.sharing replay nodes. A finite Slots
+  table selects bag variables once and preserves other sorts; one substitution
+  transforms the whole original input vector and ALL residual equations.
+  Sharing.complete/sound prove the generated answer exact. The explicit Bakery
+  replay checks 2P =B 3Q with images (ticket, 3Z, 2Z), preserving ticket.
+  Full-file LSP diagnostics/axiom audits pass without errors, warnings, or
+  sorryAx. This is checked handwritten replay, NOT automatic search success.
 - [ ] Implement exhaustive singleton/payload processing and sorted substitution
   composition for finite equation systems (not just handwritten examples).
 - [ ] Implement complete whole-vector factor search and native-answer-guided
@@ -345,7 +350,7 @@ Constrained narrowing will consume this only after unification certification wor
 - [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
   completeness holes. Production narrowing is deliberately unchanged so far.
 
-NEXT: typed substitution generation and a checked FiniteSharing replay node.
+NEXT: exhaustive singleton/payload processing and sorted equation-system composition.
 The numeric proof is general; the overall automatic ACU certifier is NOT finished.
 
 ### Historical integration notes

@@ -948,10 +948,21 @@ grid is empty; no original variable is accidentally forced to the unit.
 
 These are semantic rule-validity metatheorems. Choosing representatives and
 multiplicity decompositions is part of their classical proof, NOT a runtime
-Diophantine solver or a new user registration obligation. Generation of typed
-open substitutions, the corresponding finite replay node, and general search
-remain to be implemented. No symbolic search-success theorem follows merely
-from these native valuation theorems.
+Diophantine solver or a new user registration obligation.
+
+Typed open-substitution generation and finite sharing replay are now implemented.
+`Sharing.Slots` selects bag variables once in a many-sorted context, skipping
+unrelated fields without requiring a sort-equality oracle. `Sharing.answer`
+computes fresh support parameters and their images, retaining inactive inputs
+and skipped fields as independent passthroughs. `Sharing.complete` and
+`Sharing.sound` prove this generated family exact against native registered
+semantics. `Worklist.Complete.sharing` applies ONE generated substitution to the
+whole original image vector and EVERY residual equation; `Soundness.sharing`
+checks the same layout in the reverse direction. The canonical support family is
+computed, not accepted under a supplied-list coverage assumption. Old input
+slots remain behind the fresh parameters; unused active slots are harmless.
+General search remains unimplemented. These rule-validity proofs alone do not
+establish that an automatic reconstruction procedure always succeeds.
 
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
@@ -974,15 +985,19 @@ the general native finite-sharing metatheorem to the coefficient equation
 `2P =B 3Q`: its computed support has degrees `(3,2)`, denoting the family
 `P =B 3Z, Q =B 2Z`, including an empty Z. It uses only the registered Bakery
 constructors and finite syntactic layout checks, with no problem-specific
-supporting proof lemma or custom proof tactic. Their evidence is currently handwritten, not
-automatically searched or dumped. The profile generator checks the single-bag
+supporting proof lemma or custom proof tactic. `nonlinear_replay_certificate`
+also certifies this equation through the actual typed replay constructors in the
+mixed original scope `(ticket, P, Q)`: the generated answer images are
+`(ticket, 3Z, 2Z)`. Its proof is a sharing step followed by identity-factor cover,
+paired with the soundness sharing step, not a problem-specific semantic lemma.
+Their evidence is currently handwritten, not automatically searched or dumped.
+The profile generator checks the single-bag
 stratified frontend contract using existing registered constructor metadata.
 The old shape-specific recognizers and elaboration-time Maude search have been
 removed from this file; separate Maude experiment files remain historical work.
 
 Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. In
-particular, typed open-substitution finite-sharing replay, exhaustive general
-solver, complete factor-search implementation, and their
+particular, exhaustive general solver, complete factor-search implementation, and their
 combined search-success theorem are not established by those existing examples.
 The retained semantic mutation/split rules are useful derived steps, not a
 complete fallback algorithm or a replacement for the finite-sharing theorem.
@@ -995,9 +1010,9 @@ The final theorem is relatively straightforward once the component results are
 available: induction over the finite equation list, followed by symbolic CSU
 factorization and matching completeness. The difficult formalization lies in:
 
-1. Connecting Proposition 5.5 to typed open substitution/certificate data; its
-   numeric rounding, exhaustive computed-family exactness, and tree/native
-   bag-image reconstruction are now proved.
+1. Composing the proved typed finite-sharing replay with exhaustive equation
+   processing; numeric rounding, computed-family exactness, native bag-image
+   reconstruction, and the typed substitution replay rule are now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
    propagation through postponed bag equations.
 3. Proving exhaustive singleton processing and single-bag solver exactness while
