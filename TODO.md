@@ -348,9 +348,22 @@ Constrained narrowing will consume this only after unification certification wor
   free atom =B unit. All residual equations remain shared. General equality
   trace generation supports soundness. Bakery replay examples cover two
   suppliers, payload decomposition modulo B, inactive variables, and no supplier.
-- [ ] Implement purification, sorted variable elimination/BIND, and equation
-  scheduling/composition. Singleton/zero replay and payload decomposition are
-  checked, but no complete automatic equation-system solver is implemented.
+- [x] Implement sorted variable elimination/BIND and whole-state composition.
+  Binding.Removal deletes exactly one position at ANY sort; the replacement
+  lives in the reduced context, excluding self-reference by construction.
+  Generated substitution retains all other variables. Binding.complete/sound
+  and Complete.bind prove native modulo-B validity. A two-equation Bakery
+  certificate binds P:=Q then Q:=[wait(n)], preserving the whole input vector.
+- [x] Implement exact typed PURIFY naming and replay. A fresh-slot template
+  instantiated by the named term computes the original equation. Its defining
+  equation is retained; Purification.exact proves both semantic directions,
+  including all original variables. Complete.purify supports arbitrary worklist
+  position. A single Bakery proof term composes PURIFY, BIND, DECOMPOSE and COVER.
+- [ ] Implement automatic free-equation processing: scoped replacement
+  extraction/occurs handling, orientation, decomposition/deletion and scheduling.
+  Then automate singleton occurrence abstraction, cancellation/coefficient
+  collection and bag-phase equation scheduling. The replay primitives above do
+  NOT yet constitute an automatic complete equation-system solver.
 - [ ] Implement complete whole-vector factor search and native-answer-guided
   early closure, with the complete finite fallback on shortcut failure.
 - [ ] Connect finite dump/replay data to actual Maude certification search; validate
@@ -358,8 +371,8 @@ Constrained narrowing will consume this only after unification certification wor
 - [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
   completeness holes. Production narrowing is deliberately unchanged so far.
 
-NEXT: sorted variable elimination/BIND and whole-state substitution composition,
-then purification and equation scheduling.
+NEXT: automatic typed free-equation processing/occurs handling, then bag
+preprocessing and equation scheduling using the now-checked replay primitives.
 The numeric proof is general; the overall automatic ACU certifier is NOT finished.
 
 ### Historical integration notes

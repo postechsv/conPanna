@@ -25,9 +25,19 @@ replay. Every coefficient-one supplier requires a child; inactive fields are
 not constrained. Explicit atoms yield payload equations via Derives.decompose;
 Complete.nonempty rejects atom =B unit. Four Bakery proof terms check two
 suppliers, payload equality, inactive passthroughs, and an empty answer family.
+Binding.Removal now deletes one live position at ANY sort; its replacement is
+scoped without that variable. Binding.complete/sound, Soundness.binding, and
+Complete.bind check the generated substitution modulo B, propagated through ALL
+equations/images. binding_system_certificate composes two bindings across a
+two-equation Bakery system. Purification.exact proves fresh naming preserves
+solutions in BOTH directions; its typed template computes the original equation
+when filled by the named term. Complete.purify retains the defining equation and
+supports arbitrary worklist position. purification_binding_certificate composes
+PURIFY/BIND/DECOMPOSE/COVER. Full LSP/axiom checks pass without warnings/sorryAx.
 No general automated search is claimed. Follow TODO.md's current checkbox list
-and CERTIFICATION.md §12.1. Next implement sorted BIND/variable elimination with
-whole-state substitution propagation, then purification/equation scheduling.
+and CERTIFICATION.md §12.1. Next implement automatic typed free-equation
+processing (scoped term extraction/occurs, orientation/decompose/delete), then
+automatic bag preprocessing and phase scheduling using these checked primitives.
 Do not touch narrowing yet.
 The older capability descriptions below remain historical context.
 

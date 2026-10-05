@@ -3318,6 +3318,12 @@ private theorem args_trans (reg : Registration sig) {ss} {a b c : Args reg.Carri
   | nil => trivial
   | cons s ss ih => exact ⟨.trans h.1 k.1, ih h.2 k.2⟩
 
+private theorem args_refl (reg : Registration sig) {Γ} (values : Args reg.Carrier Γ) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) Γ values values := by
+  induction Γ with
+  | nil => trivial
+  | cons s ss ih => exact ⟨.refl _, ih values.2⟩
+
 structure Answer (sig : Signature Sorts) (inputs : List Sorts) where
   parameters : List Sorts
   images : Terms sig parameters inputs
@@ -3408,6 +3414,172 @@ theorem Terms.eval_congr (reg : Registration sig) {Γ ss} (terms : Terms sig Γ 
     cases terms with
     | cons a rest => exact ⟨a.eval_congr reg h, ih rest⟩
 
+/-! ### BIND: typed removal of ONE live variable (CERTIFICATION.md §4.1)
+
+     E ⊢ x =B t↑       Eσ ; ασ ⇒ proposed
+     =================================== BIND
+                  E ; α ⇒ proposed
+
+Removal records a POSITION, not a variable name or an assumed sort inequality.
+The replacement t lives in the reduced context Δ, so x cannot occur in it.
+σ : Δ → Γ replaces x by t and retains every other input with the same sort.
+The live context is strictly shorter. Evaluation/factorization stays modulo B,
+including when x is a bag; no ordinary syntactic occurs failure is applied to ACU.
+The rule is valid generally. Automatic equation selection remains separate.
+-/
+namespace Binding
+
+inductive Removal (s : Sorts) : List Sorts → List Sorts → Type where
+  | here {Γ} : Removal s (s :: Γ) Γ
+  | there {t Γ Δ} : Removal s Γ Δ → Removal s (t :: Γ) (t :: Δ)
+
+def Removal.variable {s} : {Γ Δ : List Sorts} → Removal s Γ Δ → Variable Γ s
+  | _, _, .here => .here
+  | _, _, .there rest => .there rest.variable
+
+def Removal.weaken {s} : {Γ Δ : List Sorts} → Removal s Γ Δ →
+    {t : Sorts} → Variable Δ t → Variable Γ t
+  | _, _, .here, _, v => .there v
+  | _, _, .there _, _, .here => .here
+  | _, _, .there rest, _, .there v => .there (rest.weaken v)
+
+def Removal.restrict {C : Sorts → Type} {s} : {Γ Δ : List Sorts} →
+    Removal s Γ Δ → Args C Γ → Args C Δ
+  | _, _, .here, values => values.2
+  | _, _, .there rest, values => (values.1, rest.restrict values.2)
+
+theorem Removal.weaken_eval {C : Sorts → Type} {s Γ Δ t} (remove : Removal s Γ Δ)
+    (v : Variable Δ t) (values : Args C Γ) :
+    (remove.weaken v).eval values = v.eval (remove.restrict values) := by
+  induction remove with
+  | here => rfl
+  | there rest ih =>
+    cases v with
+    | here => rfl
+    | there v => exact ih v values.2
+
+def tabulate (Δ : List Sorts) : (Γ : List Sorts) →
+    (∀ {s}, Variable Γ s → Term sig Δ s) → Terms sig Δ Γ
+  | [], _ => .nil
+  | _ :: Γ, images => .cons (images .here) (tabulate Δ Γ (fun v => images (.there v)))
+
+theorem tabulate_get {Γ Δ s} (images : ∀ {t}, Variable Γ t → Term sig Δ t) (v : Variable Γ s) :
+    (tabulate Δ Γ images).get v = images v := by
+  induction v with
+  | here => rfl
+  | there v ih => exact ih (fun v => images (.there v))
+
+theorem tabulate_congr (reg : Registration sig) {Γ Δ}
+    (images : ∀ {s}, Variable Γ s → Term sig Δ s)
+    (old : Args reg.Carrier Γ) (fresh : Args reg.Carrier Δ)
+    (same : ∀ {s} (v : Variable Γ s), NativeEq sig reg (v.eval old) ((images v).eval reg fresh)) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) Γ old ((tabulate Δ Γ images).eval reg fresh) := by
+  induction Γ with
+  | nil => trivial
+  | cons s Γ ih => exact ⟨same .here, ih (fun v => images (.there v)) old.2
+      (fun v => same (.there v))⟩
+
+def Removal.replace {s Ω} : {Γ Δ : List Sorts} → Removal s Γ Δ → Term sig Ω s →
+    (∀ {t}, Variable Δ t → Term sig Ω t) → ∀ {t}, Variable Γ t → Term sig Ω t
+  | _, _, .here, term, _, _, .here => term
+  | _, _, .here, _, others, _, .there v => others v
+  | _, _, .there _, _, others, _, .here => others .here
+  | _, _, .there rest, term, others, _, .there v =>
+      rest.replace term (fun v => others (.there v)) v
+
+theorem Removal.replace_variable {s Γ Δ Ω} (remove : Removal s Γ Δ) (term : Term sig Ω s)
+    (others : ∀ {t}, Variable Δ t → Term sig Ω t) :
+    remove.replace term others remove.variable = term := by
+  induction remove with
+  | here => rfl
+  | there rest ih => exact ih (fun v => others (.there v))
+
+theorem Removal.replace_weaken {s Γ Δ Ω t} (remove : Removal s Γ Δ) (term : Term sig Ω s)
+    (others : ∀ {t}, Variable Δ t → Term sig Ω t) (v : Variable Δ t) :
+    remove.replace term others (remove.weaken v) = others v := by
+  induction remove with
+  | here => rfl
+  | there rest ih =>
+    cases v with
+    | here => rfl
+    | there v => exact ih (fun v => others (.there v)) v
+
+def Removal.embedding {s Γ Δ} (remove : Removal s Γ Δ) : Terms sig Γ Δ :=
+  Terms.variables Γ Δ remove.weaken
+
+def Removal.substitution {s Γ Δ} (remove : Removal s Γ Δ) (term : Term sig Δ s) : Terms sig Δ Γ :=
+  tabulate Δ Γ (remove.replace term (fun v => .var v))
+
+theorem Removal.length {s : Sorts} {Γ Δ : List Sorts} (remove : Removal s Γ Δ) :
+    Γ.length = Δ.length + 1 := by
+  induction remove with
+  | here => rfl
+  | there rest ih => simp only [List.length_cons, ih, Nat.add_assoc]
+
+def problem {s Γ Δ} (remove : Removal s Γ Δ) (term : Term sig Δ s) : Problem sig Γ :=
+  ⟨s, .var remove.variable, term.subst remove.embedding⟩
+
+def answer {s Γ Δ} (remove : Removal s Γ Δ) (term : Term sig Δ s) : Answer sig Γ :=
+  ⟨Δ, remove.substitution term⟩
+
+theorem Removal.embedding_eval (reg : Registration sig) {s Γ Δ} (remove : Removal s Γ Δ)
+    (values : Args reg.Carrier Γ) : remove.embedding.eval reg values = remove.restrict values :=
+  variables_eval reg _ _ _ (fun v => remove.weaken_eval v values)
+
+theorem Removal.embedding_substitution_eval (reg : Registration sig) {s Γ Δ}
+    (remove : Removal s Γ Δ) (term : Term sig Δ s) (fresh : Args reg.Carrier Δ) :
+    remove.embedding.eval reg (remove.substitution term |>.eval reg fresh) = fresh := by
+  apply variables_eval reg
+  intro t v
+  rw [Variable.eval_get, Removal.substitution, tabulate_get, Removal.replace_weaken]
+  rfl
+
+theorem Removal.replace_congr (reg : Registration sig) {s Γ Δ Ω}
+    (remove : Removal s Γ Δ) (term : Term sig Ω s)
+    (others : ∀ {t}, Variable Δ t → Term sig Ω t)
+    (old : Args reg.Carrier Γ) (fresh : Args reg.Carrier Ω)
+    (chosen : NativeEq sig reg (remove.variable.eval old) (term.eval reg fresh))
+    (same : ∀ {t} (v : Variable Δ t), NativeEq sig reg ((remove.weaken v).eval old)
+      ((others v).eval reg fresh)) : ∀ {t} (v : Variable Γ t),
+      NativeEq sig reg (v.eval old) ((remove.replace term others v).eval reg fresh) := by
+  induction remove with
+  | here =>
+    intro t v
+    cases v with
+    | here => exact chosen
+    | there v => exact same v
+  | there rest ih =>
+    intro t v
+    cases v with
+    | here => exact same .here
+    | there v => exact ih (fun v => others (.there v)) old.2 chosen (fun v => same (.there v)) v
+
+/-- Completeness: restricting the old valuation provides ONE correlated witness
+for every original variable, not a separate witness per equation or field. -/
+theorem complete (reg : Registration sig) {s Γ Δ} (remove : Removal s Γ Δ)
+    (term : Term sig Δ s) (values : Args reg.Carrier Γ)
+    (input : NativeEq sig reg (remove.variable.eval values)
+      ((term.subst remove.embedding).eval reg values)) :
+    ArgsRel (fun s => NativeEq sig reg (s := s)) Γ values
+      ((remove.substitution term).eval reg (remove.restrict values)) := by
+  apply tabulate_congr reg
+  apply remove.replace_congr reg
+  · simpa only [Term.eval_subst, Removal.embedding_eval] using input
+  · intro t v
+    rw [remove.weaken_eval]
+    exact .refl _
+
+/-- Soundness: every reduced-context valuation satisfies the binding equation. -/
+theorem sound (reg : Registration sig) {s Γ Δ} (remove : Removal s Γ Δ)
+    (term : Term sig Δ s) (fresh : Args reg.Carrier Δ) :
+    NativeEq sig reg (remove.variable.eval ((remove.substitution term).eval reg fresh))
+      ((term.subst remove.embedding).eval reg ((remove.substitution term).eval reg fresh)) := by
+  rw [Variable.eval_get, Removal.substitution, tabulate_get, Removal.replace_variable,
+    Term.eval_subst, ← Removal.substitution, Removal.embedding_substitution_eval]
+  exact .refl _
+
+end Binding
+
 namespace Sharing
 
 def problem {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
@@ -3418,12 +3590,6 @@ def problem {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
 def answer {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
     (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n)) : Answer sig Γ :=
   ⟨List.replicate generators.length s ++ Γ, substitution op slots left right generators⟩
-
-private theorem args_refl (reg : Registration sig) {Γ} (values : Args reg.Carrier Γ) :
-    ArgsRel (fun s => NativeEq sig reg (s := s)) Γ values values := by
-  induction Γ with
-  | nil => trivial
-  | cons s ss ih => exact ⟨.refl _, ih values.2⟩
 
 theorem image_eval (reg : Registration sig) {Γ s n} (op : sig.ACUOp s) (slots : Slots s Γ n)
     (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n))
@@ -3499,6 +3665,9 @@ inductive Soundness {inputs : List Sorts} : Problem sig inputs → List (Answer 
       (tail : Soundness (Sharing.problem op slots left right) rest) :
       Soundness (Sharing.problem op slots left right)
         (Sharing.answer op slots left right (FiniteSharing.supportGenerators rowLabels colLabels) :: rest)
+  | binding {s Δ rest} (remove : Binding.Removal s inputs Δ) (term : Term sig Δ s)
+      (tail : Soundness (Binding.problem remove term) rest) :
+      Soundness (Binding.problem remove term) (Binding.answer remove term :: rest)
 
 theorem Soundness.sound (reg : Registration sig) {inputs} {problem : Problem sig inputs}
     {proposed : List (Answer sig inputs)} (proof : Soundness problem proposed) :
@@ -3521,6 +3690,14 @@ theorem Soundness.sound (reg : Registration sig) {inputs} {problem : Problem sig
         have equation := Sharing.sound profile reg op slots left right rows cols rowCounts colCounts disjoint fresh
         exact .trans ((Sharing.problem op slots left right).left.eval_congr reg images)
           (.trans equation (.symm ((Sharing.problem op slots left right).right.eval_congr reg images)))
+      · exact ih values ⟨candidate, member, fresh, images⟩
+  | binding remove term tail ih =>
+      rintro values ⟨candidate, member, fresh, images⟩
+      rcases List.mem_cons.mp member with same | member
+      · cases same
+        exact .trans ((Binding.problem remove term).left.eval_congr reg images)
+          (.trans (Binding.sound reg remove term fresh)
+            (.symm ((Binding.problem remove term).right.eval_congr reg images)))
       · exact ih values ⟨candidate, member, fresh, images⟩
 
 /-- General semantic aggregation. The supplied reference completeness must
@@ -3575,7 +3752,8 @@ ZERO is Complete.zero: one child with all positive-coefficient terms empty.
 Coefficient-zero fields receive only reflexive equations. Complete.nonempty
 closes a free atom =B empty contradiction. Explicit singleton terms in an atom
 branch are decomposed modulo B by Derives.decompose, exposing their payloads.
-The general variable-binding/search schedule is not implemented by these rules.
+BIND and PURIFY below supply scope-safe substitution/naming. An automatic
+equation-processing/search schedule is still pending.
 -/
 namespace Worklist
 
@@ -3671,6 +3849,120 @@ def mutated {Γ s} (op : sig.ACUOp s) (a b c d : Term sig Γ s)
 def substituteEquations {Γ Δ} (images : Terms sig Δ Γ) (eqs : List (Problem sig Γ)) :
     List (Problem sig Δ) := eqs.map fun e => equation (e.left.subst images) (e.right.subst images)
 
+/-- The SAME image tuple transports ALL residual equations. This is generic
+substitution congruence, used by both binding and finite sharing. -/
+theorem substituteEquations_holds (reg : Registration sig) {Γ Δ}
+    (images : Terms sig Δ Γ) (eqs : List (Problem sig Γ))
+    (old : Args reg.Carrier Γ) (fresh : Args reg.Carrier Δ)
+    (same : ArgsRel (fun s => NativeEq sig reg (s := s)) Γ old (images.eval reg fresh))
+    (input : Holds reg eqs old) : Holds reg (substituteEquations images eqs) fresh := by
+  intro e member
+  obtain ⟨original, inOriginal, rfl⟩ := List.mem_map.mp member
+  simp only [Problem.Holds, equation, Term.eval_subst]
+  exact .trans (.symm (original.left.eval_congr reg same))
+    (.trans (input original inOriginal) (original.right.eval_congr reg same))
+
+/-! ### PURIFY: a fresh name with its retained defining equation (§4.2)
+
+   old equation = template[A := t]       D = A =B t↑
+   D, template, E↑ ; α↑ ⇒ proposed
+   ================================================= PURIFY
+           template[A := t], E ; α ⇒ proposed
+
+The template is a typed expression over ONE new index A plus the old context.
+Its substitution by t computes the exact original equation, so abstraction is
+checked syntactically, not trusted or justified by a model-specific lemma.
+Every old solution extends by A:=eval(t). Conversely D guarantees that replacing
+A by t preserves template evaluation modulo B. Payload/variable sharing is kept.
+The algorithm uses this general rule to name singleton occurrences, once each;
+the replay rule itself cannot guarantee a scheduler avoids repeated abstraction.
+-/
+namespace Purification
+
+def embedding {Γ : List Sorts} {s : Sorts} : Terms sig (s :: Γ) Γ :=
+  Binding.Removal.embedding (.here : Binding.Removal s (s :: Γ) Γ)
+
+def assignment {Γ s} (term : Term sig Γ s) : Terms sig Γ (s :: Γ) :=
+  Binding.Removal.substitution .here term
+
+def source {Γ s} (term : Term sig Γ s) (template : Problem sig (s :: Γ)) : Problem sig Γ :=
+  equation (template.left.subst (assignment term)) (template.right.subst (assignment term))
+
+def definition {Γ s} (term : Term sig Γ s) : Problem sig (s :: Γ) :=
+  equation (.var .here) (term.subst embedding)
+
+def state {Γ s} (term : Term sig Γ s) (template : Problem sig (s :: Γ))
+    (rest : List (Problem sig Γ)) : List (Problem sig (s :: Γ)) :=
+  definition term :: template :: substituteEquations embedding rest
+
+theorem embedding_eval (reg : Registration sig) {Γ s} (fresh : Args reg.Carrier (s :: Γ)) :
+    (embedding (sig := sig) (Γ := Γ) (s := s)).eval reg fresh = fresh.2 :=
+  Binding.Removal.embedding_eval reg .here fresh
+
+theorem assignment_eval (reg : Registration sig) {Γ s} (term : Term sig Γ s)
+    (values : Args reg.Carrier Γ) :
+    (assignment term).eval reg values = (term.eval reg values, values) := by
+  apply Prod.ext
+  · rfl
+  · simpa only [assignment, Binding.Removal.embedding_eval, Binding.Removal.restrict] using
+      Binding.Removal.embedding_substitution_eval reg .here term values
+
+theorem complete (reg : Registration sig) {Γ s} (term : Term sig Γ s)
+    (template : Problem sig (s :: Γ)) (rest : List (Problem sig Γ))
+    (values : Args reg.Carrier Γ) (selected : (source term template).Holds reg values)
+    (input : Holds reg rest values) :
+    Holds reg (state term template rest) (term.eval reg values, values) := by
+  intro e member
+  rcases List.mem_cons.mp member with rfl | member
+  · simp only [Problem.Holds, definition, equation, Term.eval, Variable.eval,
+      Term.eval_subst, embedding_eval]
+    exact .refl _
+  rcases List.mem_cons.mp member with rfl | member
+  · simpa only [source, equation, Problem.Holds, Term.eval_subst, assignment_eval] using selected
+  · obtain ⟨original, inOriginal, rfl⟩ := List.mem_map.mp member
+    simpa only [Problem.Holds, equation, Term.eval_subst, embedding_eval] using input original inOriginal
+
+theorem sound (reg : Registration sig) {Γ s} (term : Term sig Γ s)
+    (template : Problem sig (s :: Γ)) (fresh : Args reg.Carrier (s :: Γ))
+    (named : (definition term).Holds reg fresh) (selected : template.Holds reg fresh) :
+    (source term template).Holds reg fresh.2 := by
+  have same : ArgsRel (fun s => NativeEq sig reg (s := s)) (s :: Γ) fresh
+      ((assignment term).eval reg fresh.2) := by
+    rw [assignment_eval]
+    exact ⟨by simpa only [definition, equation, Problem.Holds, Term.eval, Variable.eval,
+      Term.eval_subst, embedding_eval] using named, args_refl reg fresh.2⟩
+  simp only [source, equation, Problem.Holds, Term.eval_subst]
+  exact .trans (.symm (template.left.eval_congr reg same))
+    (.trans selected (template.right.eval_congr reg same))
+
+/-- Exactness of fresh naming, including WHOLE original valuations. It adds
+neither an assumption about payload equality nor a semantic registration gap. -/
+theorem exact (reg : Registration sig) {Γ s} (term : Term sig Γ s)
+    (template : Problem sig (s :: Γ)) (rest : List (Problem sig Γ))
+    (values : Args reg.Carrier Γ) :
+    Holds reg (source term template :: rest) values ↔
+      ∃ fresh : Args reg.Carrier (s :: Γ),
+        ArgsRel (fun s => NativeEq sig reg (s := s)) Γ values fresh.2 ∧
+          Holds reg (state term template rest) fresh := by
+  constructor
+  · intro input
+    exact ⟨(term.eval reg values, values), args_refl reg values,
+      complete reg term template rest values (input _ (List.mem_cons_self))
+        (fun e member => input e (List.mem_cons_of_mem _ member))⟩
+  · rintro ⟨fresh, same, input⟩ e member
+    have projected : Holds reg (source term template :: rest) fresh.2 := by
+      intro p member
+      rcases List.mem_cons.mp member with rfl | member
+      · exact sound reg term template fresh (input _ List.mem_cons_self)
+          (input _ (List.mem_cons_of_mem _ List.mem_cons_self))
+      · have h := input _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _
+          (List.mem_map.mpr ⟨p, member, rfl⟩)))
+        simpa only [Problem.Holds, equation, Term.eval_subst, embedding_eval] using h
+    exact .trans (e.left.eval_congr reg same)
+      (.trans (projected e member) (.symm (e.right.eval_congr reg same)))
+
+end Purification
+
 /- Finite branch constraints. A coefficient-zero entry contributes only t=t,
 so it remains a genuine passthrough rather than being silently forced empty.
 Terms may include explicit singletons, whose equations then yield payload
@@ -3716,6 +4008,17 @@ inductive Complete (profile : Profile sig) {inputs} (proposed : List (Answer sig
       (bindings : Terms sig Γ (proposed.get index).parameters)
       (derived : DerivesArgs profile eqs images ((proposed.get index).images.subst bindings)) :
       Complete profile proposed images eqs
+  | bind {Γ Δ images eqs s} (remove : Binding.Removal s Γ Δ) (term : Term sig Δ s)
+      (selected : Derives profile eqs (Binding.problem remove term).left
+        (Binding.problem remove term).right)
+      (child : Complete profile proposed (images.subst (remove.substitution term))
+        (substituteEquations (remove.substitution term) eqs)) :
+      Complete profile proposed images eqs
+  | purify {Γ images s} (term : Term sig Γ s) (template : Problem sig (s :: Γ))
+      (before after : List (Problem sig Γ))
+      (child : Complete profile proposed (images.subst Purification.embedding)
+        (Purification.state term template (before ++ after))) :
+      Complete profile proposed images (before ++ Purification.source term template :: after)
   | atom {Γ images eqs s n ss} (op : sig.ACUOp s) (coeff : FiniteSharing.Vector n)
       (terms : Fin n → Term sig Γ s) (f : sig.Symbol ss s)
       (free : profile.view f = .atom f) (args : Terms sig Γ ss)
@@ -3772,6 +4075,25 @@ theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs 
     intro values input
     refine ⟨_, List.get_mem _ _, bindings.eval reg values, ?_⟩
     simpa only [Terms.eval_subst] using derived.sound reg values input
+  | @bind Γ Δ images eqs s remove term selected child ih =>
+    intro values input
+    have same := Binding.complete reg remove term values (selected.sound reg values input)
+    obtain ⟨answer, member, parameters, covered⟩ := ih (remove.restrict values)
+      (substituteEquations_holds reg (remove.substitution term) _ values _ same input)
+    refine ⟨answer, member, parameters, ?_⟩
+    rw [Terms.eval_subst] at covered
+    exact args_trans reg (images.eval_congr reg same) covered
+  | @purify Γ images s term template before after child ih =>
+    intro values input
+    have selected := input _ (List.mem_append.mpr (.inr List.mem_cons_self))
+    have residual : Holds reg (before ++ after) values := by
+      intro e member
+      rcases List.mem_append.mp member with member | member
+      · exact input e (List.mem_append.mpr (.inl member))
+      · exact input e (List.mem_append.mpr (.inr (List.mem_cons_of_mem _ member)))
+    have covered := ih (term.eval reg values, values)
+      (Purification.complete reg term template _ values selected residual)
+    simpa only [Terms.eval_subst, Purification.embedding_eval] using covered
   | @atom Γ images eqs s n ss op coeff terms f free args selected children ih =>
     intro values input
     have count : mass profile (reg.quote s ((Term.app f args).eval reg values)) = 1 := by
@@ -3814,14 +4136,8 @@ theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs 
     intro values input
     obtain ⟨fresh, imagesSame⟩ := Sharing.complete profile reg op slots left right rows cols
       rowCounts colCounts disjoint values (selected.sound reg values input)
-    have residual : Holds reg (substituteEquations (Sharing.substitution op slots left right
-        (FiniteSharing.supportGenerators rows cols)) eqs) fresh := by
-      intro e inResidual
-      obtain ⟨original, inOriginal, same⟩ := List.mem_map.mp inResidual
-      cases same
-      simp only [Problem.Holds, equation, Term.eval_subst]
-      exact .trans (.symm (original.left.eval_congr reg imagesSame))
-        (.trans (input original inOriginal) (original.right.eval_congr reg imagesSame))
+    have residual := substituteEquations_holds reg (Sharing.substitution op slots left right
+      (FiniteSharing.supportGenerators rows cols)) eqs values fresh imagesSame input
     obtain ⟨answer, member, parameters, covered⟩ := ih fresh residual
     refine ⟨answer, member, parameters, ?_⟩
     rw [Terms.eval_subst] at covered
@@ -4283,6 +4599,78 @@ theorem impossible_requirement_certificate :
       (fun _ impossible => False.elim ((of_decide_eq_true rfl : (2 : Nat) ≠ 1) impossible)))
     .nil
 
+/- BIND across a whole many-sorted equation system:
+
+  scope (n,P,Q), equations P =B Q and Q =B singleton(wait(n))
+  bind P:=Q → scope (n,Q), images (n,Q,Q), BOTH equations substituted
+  bind Q:=singleton(wait(n)) → scope (n), images (n,[wait(n)],[wait(n)])
+  cover the generated answer using identity β.
+
+The bag variables are removed even though their equality is modulo B, not Lean
+literal equality. No assumption identifying raw constructor trees is introduced.
+-/
+def bindFirst : Binding.Removal Tag.s2 [Tag.s0, Tag.s2, Tag.s2] [Tag.s0, Tag.s2] :=
+  .there .here
+
+def bindSecond : Binding.Removal Tag.s2 [Tag.s0, Tag.s2] [Tag.s0] := .there .here
+
+def bindSystem : List (Problem Sig [Tag.s0, Tag.s2, Tag.s2]) :=
+  [Binding.problem bindFirst (.var (.there .here)),
+   equation (.var (.there (.there .here))) (waitingAtom (.var .here))]
+
+def bindAnswers : List (Answer Sig [Tag.s0, Tag.s2, Tag.s2]) :=
+  [{ parameters := [Tag.s0]
+     images := ((Terms.identity [Tag.s0, Tag.s2, Tag.s2]).subst
+       (bindFirst.substitution (.var (.there .here)))).subst
+       (bindSecond.substitution (waitingAtom (.var .here))) }]
+
+theorem binding_system_certificate :
+    ∀ values, Worklist.Holds registration bindSystem values ↔ Solutions registration bindAnswers values :=
+  Worklist.exact_system registration (profile := profile) bindSystem bindAnswers
+    (.bind bindFirst (.var (.there .here)) (.hyp ⟨0, of_decide_eq_true rfl⟩)
+      (.bind bindSecond (waitingAtom (.var .here)) (.hyp ⟨1, of_decide_eq_true rfl⟩)
+        (.cover ⟨0, of_decide_eq_true rfl⟩ (.cons (.var .here) .nil)
+          (.cons (.axiom (.refl _)) (.cons (.axiom (.refl _)) (.cons (.axiom (.refl _)) .nil))))))
+    (.cons (.cons (.refl _) .nil) (.cons (.cons (.refl _) .nil) .nil))
+
+/- PURIFY followed by BIND, over ordinary Bakery constructors:
+
+  [wait(n)] =B [wait(m)]
+  → A =B [wait(n)], A =B [wait(m)]                 PURIFY
+  → [wait(m)] =B [wait(n)], [wait(m)] =B [wait(m)] BIND A:=[wait(m)]
+  → m =B n → cover answer (N,N).                 DECOMPOSE/COVER
+
+The fresh A is completely internal. The original variables n,m remain shared;
+the proof is one explicit replay term, not supporting problem-specific lemmas.
+-/
+def purifiedTerm : Term Sig [Tag.s0, Tag.s0] Tag.s2 := waitingAtom (.var .here)
+
+def purifiedTemplate : Problem Sig [Tag.s2, Tag.s0, Tag.s0] :=
+  equation (.var .here) (waitingAtom (.var (.there (.there .here))))
+
+def purifiedProblem : Problem Sig [Tag.s0, Tag.s0] :=
+  Worklist.Purification.source purifiedTerm purifiedTemplate
+
+def purifiedAnswers : List (Answer Sig [Tag.s0, Tag.s0]) :=
+  [{ parameters := [Tag.s0]
+     images := .cons (.var .here) (.cons (.var .here) .nil) }]
+
+theorem purification_binding_certificate :
+    ∀ values, purifiedProblem.Holds registration values ↔ Solutions registration purifiedAnswers values :=
+  Worklist.exact registration (profile := profile) purifiedProblem purifiedAnswers
+    (.purify purifiedTerm purifiedTemplate [] []
+      (.bind (.here : Binding.Removal Tag.s2 [Tag.s2, Tag.s0, Tag.s0] [Tag.s0, Tag.s0])
+        (waitingAtom (.var (.there .here))) (.hyp ⟨1, of_decide_eq_true rfl⟩)
+        (.cover ⟨0, of_decide_eq_true rfl⟩ (.cons (.var .here) .nil)
+          (.cons (.axiom (.refl _))
+            (.cons (.decompose (profile := profile) (Γ := [Tag.s0, Tag.s0]) Symbol.c3 rfl
+              (.cons (.var (.there .here)) .nil) (.cons (.var .here) .nil) .here
+              (.decompose (profile := profile) (Γ := [Tag.s0, Tag.s0]) Symbol.c6 rfl
+                (.cons (.app Symbol.c3 (.cons (.var (.there .here)) .nil)) .nil)
+                (.cons (.app Symbol.c3 (.cons (.var .here) .nil)) .nil) .here
+                (.hyp ⟨0, of_decide_eq_true rfl⟩))) .nil)))))
+    (.cons (.refl _) .nil)
+
 -- Kernel audits: standard Lean axioms are acceptable; sorryAx is not.
 #print axioms atomic_exact_data
 #print axioms repeated_exact_data
@@ -4305,5 +4693,10 @@ theorem impossible_requirement_certificate :
 #print axioms payload_requirement_certificate
 #print axioms zero_requirement_certificate
 #print axioms impossible_requirement_certificate
+#print axioms Binding.complete
+#print axioms Binding.sound
+#print axioms binding_system_certificate
+#print axioms Worklist.Purification.exact
+#print axioms purification_binding_certificate
 
 end DirectCertification.Bakery

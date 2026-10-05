@@ -272,6 +272,12 @@ phase uses it only at non-bag sorts; optional bag bindings may be shortcuts.
 `DECOMPOSE` includes singleton injectivity, although the mandatory bag strategy
 handles singleton equations in its dedicated phase.
 
+The Lean replay now represents BIND by a typed context-removal table. Its
+replacement term is scoped in the context with x removed, enforcing the
+no-occurrence side condition structurally. This also gives a strict one-variable
+decrease, without assuming sort distinctness or literal equality of bag trees.
+The SAME generated substitution acts on every remaining equation and input image.
+
 Do not apply `CLASH` to the raw roots `empty` and `union`, or an unrestricted
 occurs failure to a bag variable. Unit collapse invalidates such inferences.
 
@@ -305,6 +311,13 @@ provably equal terms is an optional checked optimization.
 solution extends by assigning `A := [t]`; a solution of the purified system
 restricts to an original solution. Occurrence-by-occurrence fresh names are
 allowed because all retained equations are subsequently enforced.
+
+In the checked replay, the rewritten equation is a typed fresh-slot template.
+Filling that slot with the named term computes the exact old equation. The
+defining equation and lifted residual equations are all retained. The general
+`Purification.exact` theorem proves both directions, modulo the existing native
+relation. Automatic occurrence selection and once-only phase scheduling remain
+separate from this checked primitive.
 
 After cancellation, the pure selected equation is:
 
@@ -980,6 +993,24 @@ purification, variable-binding, or equation-scheduling algorithm.
 The equality-data constructors `Equality.copies_zero`, `sum_zero`, and
 `sum_choice` generate finite ACU soundness traces without search.
 
+Sorted BIND and PURIFY replay are now implemented as well.
+`Binding.Removal` identifies a position, computes a strictly shorter context,
+and generates the full substitution. Its replacement lives in that shorter
+context; no user semantic proof of an occurs check is required. `Binding.complete`
+restricts each original valuation and reconstructs ALL original fields modulo B;
+`Binding.sound` proves the binding solved for every reduced valuation.
+`Complete.bind` propagates this same substitution through all residual equations
+and images; `Soundness.binding` checks the generated binding-answer family.
+The shared `substituteEquations_holds` metatheorem is reused by BIND and sharing.
+
+`Purification.source` computes the old equation by filling a fresh-slot template
+with its named term. `Purification.exact` proves naming exact, with a single
+correlated valuation over the whole original context. `Complete.purify` can
+replace an equation at any worklist position; its child retains the defining
+equation, the template, and every lifted residual equation. This is a general
+typed abstraction primitive, specialized to singleton terms by the intended
+algorithm. It is NOT automatic occurrence extraction or a phase scheduler.
+
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
 required bound. The label-count argument checks that the document's opposite-pair
@@ -1014,6 +1045,12 @@ Further explicit Bakery replay certificates prove:
 The last result is justified by the absence of coefficient-one suppliers, NOT
 an external solver's failure to find an answer. The top-level proofs consist
 only of general replay/equality constructors, without problem-specific lemmas.
+`binding_system_certificate` additionally checks the system `P =B Q,
+Q =B [wait(n)]` by two scope-reducing bindings, yielding `(n,[wait(n)],[wait(n)])`.
+`purification_binding_certificate` checks `[wait(n)] =B [wait(m)]` by naming the
+left singleton, binding the name to the right singleton, decomposing the retained
+payload equation, and covering `(N,N)`. Both are single explicit certificate
+terms; the general rule-validity proofs, not problem lemmas, do the reasoning.
 The profile generator checks the single-bag
 stratified frontend contract using existing registered constructor metadata.
 The old shape-specific recognizers and elaboration-time Maude search have been
@@ -1037,9 +1074,10 @@ factorization and matching completeness. The difficult formalization lies in:
    processing; numeric rounding, computed-family exactness, native bag-image
    reconstruction, and the typed substitution replay rule are now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
-   propagation through postponed bag equations.
+   propagation through postponed bag equations. Typed BIND and whole-state
+   propagation are proved; automatic selection and occurs handling are pending.
 3. Composing the now-proved exhaustive singleton/zero replay rules with
-   purification and variable elimination, and proving single-bag solver exactness
+   the now-proved PURIFY/BIND primitives, and proving single-bag solver exactness
    while tracking all parameter contexts and shared images.
 4. Implementing and proving a complete whole-vector matcher and its equality-trace
    construction, rather than assuming that a successful external query supplies it.
