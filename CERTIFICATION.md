@@ -933,7 +933,25 @@ is omitted; `supportDegrees_eq` recovers the unique active vector from its margi
 balanced active multiplicity vector. The proof no longer assumes that a supplied
 generator list covers all minimal solutions. Duplicate degree vectors are harmless
 and may remain. This is an exponential exhaustive fallback, not a polynomial-time
-claim, and it still needs lifting to native/open bag substitution images.
+claim.
+
+The native semantic lift is now proved as well. `generated_weights` allocates
+numeric witnesses by generator POSITION, rather than counting identical vectors
+multiple times. `lists_generated` collects each quotient atom class into finite
+parameter bags. The dictionary contains all classes present in the input bags,
+not only atoms named in the query, so arbitrary payload values are preserved.
+`bags_generated` proves the exact coefficient equation in existing indexed tree
+equality; `finiteSharing_native` specializes it mechanically through the existing
+Registration quotation/rebuilding theorems. Every original bag-variable image is
+included. Inactive inputs get independent passthrough images, including when the
+grid is empty; no original variable is accidentally forced to the unit.
+
+These are semantic rule-validity metatheorems. Choosing representatives and
+multiplicity decompositions is part of their classical proof, NOT a runtime
+Diophantine solver or a new user registration obligation. Generation of typed
+open substitutions, the corresponding finite replay node, and general search
+remain to be implemented. No symbolic search-success theorem follows merely
+from these native valuation theorems.
 
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
@@ -951,14 +969,19 @@ per-answer soundness for finite equation systems without trusting Maude.
 
 Explicit, tactic-free Bakery certificate terms demonstrate a two-answer atom
 split, early closure for `kP =B kQ` for every positive `k`, and an empty answer set
-justified by free-head clash. Their evidence is currently handwritten, not
+justified by free-head clash. `nonlinear_sharing_certificate` additionally applies
+the general native finite-sharing metatheorem to the coefficient equation
+`2P =B 3Q`: its computed support has degrees `(3,2)`, denoting the family
+`P =B 3Z, Q =B 2Z`, including an empty Z. It uses only the registered Bakery
+constructors and finite syntactic layout checks, with no problem-specific
+supporting proof lemma or custom proof tactic. Their evidence is currently handwritten, not
 automatically searched or dumped. The profile generator checks the single-bag
 stratified frontend contract using existing registered constructor metadata.
 The old shape-specific recognizers and elaboration-time Maude search have been
 removed from this file; separate Maude experiment files remain historical work.
 
 Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. In
-particular, the complete native/open finite-sharing rule, exhaustive general
+particular, typed open-substitution finite-sharing replay, exhaustive general
 solver, complete factor-search implementation, and their
 combined search-success theorem are not established by those existing examples.
 The retained semantic mutation/split rules are useful derived steps, not a
@@ -972,9 +995,9 @@ The final theorem is relatively straightforward once the component results are
 available: induction over the finite equation list, followed by symbolic CSU
 factorization and matching completeness. The difficult formalization lies in:
 
-1. Completing symbolic/native bag reconstruction for Proposition 5.5; its numeric
-   rounding, support decomposition, and exhaustive computed-family exactness are
-   now proved.
+1. Connecting Proposition 5.5 to typed open substitution/certificate data; its
+   numeric rounding, exhaustive computed-family exactness, and tree/native
+   bag-image reconstruction are now proved.
 2. Proving the free phase's termination and exactness with sorted substitution
    propagation through postponed bag equations.
 3. Proving exhaustive singleton processing and single-bag solver exactness while

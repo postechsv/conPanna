@@ -11,10 +11,11 @@ native rules, typed equality/factor data, and handwritten certificate examples.
 The old bounded shape recognizers and elaboration-time Maude harness are gone.
 Its FiniteSharing namespace now PROVES numeric decomposition, Boolean rounding,
 and exactness of an EXECUTABLY enumerated support family for arbitrary repeated
-labels/coefficients. No native bag reconstruction or general automated search is
-claimed. Follow TODO.md's current checkbox list and CERTIFICATION.md §12.1.
-Next lift that computed family to native/open bag substitutions, preserving
-inactive variables as passthrough parameters. Do not touch narrowing yet.
+labels/coefficients. bags_generated and finiteSharing_native now PROVE tree/native
+bag-image exactness too, retaining inactive inputs as independent passthroughs.
+No general automated search is claimed. Follow TODO.md's current checkbox list
+and CERTIFICATION.md §12.1. Next generate typed open substitutions and add a
+checked FiniteSharing replay node. Do not touch narrowing yet.
 The older capability descriptions below remain historical context.
 
 - Active experiment: `certification.lean`, not `certification2.lean`. It imports

@@ -6,7 +6,7 @@ import examples.bakery_acu
 Specification and provenance: CERTIFICATION.md, especially §§4–9 and §14.
 This is ONE prototype, with four parts:
 1. GENERAL SEMANTIC RULES over the existing registered structural equality.
-2. FINITE-SHARING NUMERIC EXACTNESS; enumeration/native lifting are unfinished.
+2. EXHAUSTIVE FINITE SHARING: numeric, tree, and native semantic exactness.
 3. TYPED CERTIFICATE DATA and acceptance (soundness plus complete coverage).
 4. BAKERY CERTIFICATES: explicit proof terms, without custom proof tactics.
 
@@ -794,8 +794,8 @@ Below, boolean_supports_exact proves the numerical exactness: every balanced
 active vector is a sum of nonempty Boolean support degrees, and every such sum
 is balanced. Minimal occurrence-level rounding is fully proved, not assumed.
 supportGenerators_exact additionally proves exactness of the EXECUTABLE exhaustive
-support list. Still pending: lifting these multiplicity facts with the existing
-flatten/rebuild lemmas to symbolic/native bag images.
+support list. bags_generated and finiteSharing_native lift this to tree/native
+bag images. Typed open-substitution replay/search integration remains pending.
 
 The decomposition uses classical existence and strong induction. It is not
 executable certificate search, and no domain constraints or Bakery symbols
@@ -1002,8 +1002,8 @@ The repair argument for that final theorem is:
   every cell is 0 or 1, and its selected cells preserve every occurrence margin.
   boolean_transport_exists proves this argument in Lean below.
 
-Matrix rounding and nonempty support extraction are now proved below. Exhaustive
-support-family enumeration and native bag instantiation remain pending. No new
+Matrix rounding, exhaustive support enumeration, and native bag instantiation
+are now proved below. Typed replay/search integration remains pending. No new
 search control or user registration is introduced by these metatheorems.
 -/
 
@@ -1940,6 +1940,374 @@ theorem supportGenerators_exact {n rows cols} (left right v : Vector n)
       (by rw [← colCounts]; exact hr)] at bound
     exact Nat.eq_zero_of_le_zero bound
 
+/-- Convert a generated sum to one multiplicity per PARAMETER POSITION.
+Positions, not vector equality, are essential: duplicate support vectors must
+not duplicate an element's assigned multiplicity. -/
+theorem generated_weights {n} (generators : List (Vector n)) (v : Vector n)
+    (generated : Generated generators v) :
+    ∃ weights : Vector generators.length,
+      ∀ i, dot (fun j => generators.get j i) weights = v i := by
+  obtain ⟨parts, members, same⟩ := generated
+  have build : ∀ parts : List (Vector n), (∀ w ∈ parts, w ∈ generators) →
+      ∃ weights : Vector generators.length,
+        ∀ i, dot (fun j => generators.get j i) weights = total parts i := by
+    intro parts
+    induction parts with
+    | nil =>
+      intro _
+      refine ⟨zeroVector, fun i => ?_⟩
+      simp only [dot, zeroVector, Nat.mul_zero, total]
+      exact size_zero _
+    | cons first rest ih =>
+      intro members
+      obtain ⟨index, atIndex⟩ := List.mem_iff_get.mp (members first List.mem_cons_self)
+      obtain ⟨weights, sum⟩ := ih (fun w member => members w (List.mem_cons_of_mem _ member))
+      refine ⟨plus (spike index 1) weights, fun i => ?_⟩
+      rw [dot_plus, dot_spike, Nat.mul_one, atIndex, sum]
+      rfl
+  obtain ⟨weights, sum⟩ := build parts members
+  exact ⟨weights, fun i => (sum i).trans (congrFun same i)⟩
+
+/-- Exchange finite sums: applying coefficients to reconstructed parameter
+images is the same as applying each generator's balance to the parameters. -/
+theorem dot_images {n m} (coeff : Vector n) (generators : Fin m → Vector n)
+    (weights : Vector m) :
+    dot coeff (fun i => dot (fun j => generators j i) weights) =
+      dot (fun j => dot coeff (generators j)) weights := by
+  unfold dot
+  calc
+    _ = size (fun i => size (fun j => coeff i * generators j i * weights j)) := by
+      apply congrArg size
+      funext i
+      simpa only [Nat.mul_assoc] using
+        (size_scale (coeff i) (fun j => generators j i * weights j)).symm
+    _ = size (fun j => size (fun i => coeff i * generators j i * weights j)) :=
+      size_swap _
+    _ = _ := by
+      apply congrArg size
+      funext j
+      simpa only [Nat.mul_comm, Nat.mul_left_comm, Nat.mul_assoc] using
+        size_scale (weights j) (fun i => coeff i * generators j i)
+
+theorem balanced_images {n m} (left right : Vector n)
+    (generators : Fin m → Vector n) (sound : ∀ j, Balanced left right (generators j))
+    (weights : Vector m) :
+    Balanced left right (fun i => dot (fun j => generators j i) weights) := by
+  unfold Balanced
+  rw [dot_images, dot_images]
+  exact congrArg (fun coeff => dot coeff weights) (funext sound)
+
+/-! ### Collect multiplicity witnesses into actual finite bags
+
+Lists here are INTERNAL bags of atom classes, not a new model representation.
+For every class a, generated_weights supplies one number per support POSITION.
+Put that many copies of a into the corresponding parameter bag. The dictionary
+is finite because the input bags are finite; arbitrary payload values are kept.
+Permutation, not literal list equality, is the reconstruction guarantee.
+-/
+
+def listCopies {α : Type} : Nat → List α → List α
+  | 0, _ => []
+  | k + 1, xs => xs ++ listCopies k xs
+
+def listSum {α : Type} : {n : Nat} → Vector n → (Fin n → List α) → List α
+  | 0, _, _ => []
+  | _ + 1, coeff, bags => listCopies (coeff 0) (bags 0) ++
+      listSum (fun i => coeff i.succ) (fun i => bags i.succ)
+
+theorem count_listCopies {α : Type} [DecidableEq α] (a : α) (k : Nat) (xs : List α) :
+    List.count a (listCopies k xs) = k * List.count a xs := by
+  induction k with
+  | zero => simp [listCopies]
+  | succ k ih => simp only [listCopies, List.count_append, ih, Nat.succ_mul, Nat.add_comm]
+
+theorem count_listSum {α : Type} [DecidableEq α] {n} (a : α)
+    (coeff : Vector n) (bags : Fin n → List α) :
+    List.count a (listSum coeff bags) = dot coeff (fun i => List.count a (bags i)) := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    simp only [listSum, List.count_append, count_listCopies, dot, size]
+    exact congrArg (fun tail => coeff 0 * List.count a (bags 0) + tail)
+      (ih (fun i => coeff i.succ) (fun i => bags i.succ))
+
+private def dictionary {α : Type} [DecidableEq α] : List α → List α
+  | [] => []
+  | a :: rest => let tail := dictionary rest
+      if a ∈ tail then tail else a :: tail
+
+private theorem dictionary_mem {α : Type} [DecidableEq α] (a : α) (xs : List α) :
+    a ∈ dictionary xs ↔ a ∈ xs := by
+  induction xs generalizing a with
+  | nil => rfl
+  | cons first rest ih =>
+    simp only [dictionary]
+    split
+    · rename_i present
+      have present := (ih first).mp present
+      simpa only [List.mem_cons, ih] using
+        (show a ∈ rest ↔ a = first ∨ a ∈ rest from
+          ⟨Or.inr, fun h => h.elim (fun same => same ▸ present) id⟩)
+    · simp only [List.mem_cons, ih]
+
+private theorem dictionary_nodup {α : Type} [DecidableEq α] (xs : List α) :
+    (dictionary xs).Nodup := by
+  induction xs with
+  | nil => exact List.nodup_nil
+  | cons first rest ih =>
+    simp only [dictionary]
+    split
+    · exact ih
+    · exact List.nodup_cons.mpr ⟨‹_›, ih⟩
+
+private theorem count_dictionary {α : Type} [DecidableEq α] (xs : List α)
+    (nodup : xs.Nodup) (weights : α → Nat) (a : α) :
+    List.count a (xs.flatMap (fun b => List.replicate (weights b) b)) =
+      if a ∈ xs then weights a else 0 := by
+  induction xs with
+  | nil => simp
+  | cons first rest ih =>
+    have distinct := List.nodup_cons.mp nodup
+    simp only [List.flatMap_cons, List.count_append, ih distinct.2]
+    by_cases same : a = first
+    · subst a
+      simp [distinct.1]
+    · simp [List.count_replicate, same, Ne.symm same]
+
+/-- Lift numeric generation to finite bags of ANY element type. Duplicated
+generator vectors are assigned by index, preserving one shared parameter scope.
+This classical witness construction belongs to the general metatheorem, not
+runtime search and not a per-model registration obligation. -/
+theorem lists_generated {α : Type} [DecidableEq α] {n} (generators : List (Vector n))
+    (bags : Fin n → List α)
+    (generated : ∀ a, Generated generators (fun i => List.count a (bags i))) :
+    ∃ parameters : Fin generators.length → List α,
+      ∀ i, (bags i).Perm (listSum (fun j => generators.get j i) parameters) := by
+  classical
+  let atoms := dictionary ((List.finRange n).flatMap bags)
+  have contains : ∀ a i, a ∈ bags i → a ∈ atoms := by
+    intro a i member
+    apply (dictionary_mem a _).mpr
+    exact List.mem_flatMap.mpr ⟨i, List.mem_ofFn.mpr ⟨i, rfl⟩, member⟩
+  have witnesses := fun a => generated_weights generators _ (generated a)
+  let weights := fun a => Classical.choose (witnesses a)
+  have sums : ∀ a i, dot (fun j => generators.get j i) (weights a) = List.count a (bags i) :=
+    fun a => Classical.choose_spec (witnesses a)
+  let parameters := fun j => atoms.flatMap (fun a => List.replicate (weights a j) a)
+  refine ⟨parameters, fun i => List.perm_iff_count.mpr (fun a => ?_)⟩
+  rw [count_listSum]
+  have counts : ∀ j, List.count a (parameters j) = if a ∈ atoms then weights a j else 0 :=
+    fun j => count_dictionary atoms (dictionary_nodup _) (fun a => weights a j) a
+  by_cases member : a ∈ atoms
+  · simp only [counts, if_pos member]
+    exact (sums a i).symm
+  · have zero : List.count a (bags i) = 0 :=
+      List.count_eq_zero.mpr (fun present => member (contains a i present))
+    simp only [counts, if_neg member, dot, Nat.mul_zero, zero]
+    exact (size_zero _).symm
+
+/-! ### Finite sharing in the EXISTING indexed structural semantics
+
+Each support gets ONE bag parameter, shared by every original variable image.
+Flattening/counts are internal proof auxiliaries; the conclusion relates ordinary
+registered constructor trees by Structural.Indexed.Eq, without new axioms.
+-/
+
+def bagSum {s} (op : sig.ACUOp s) :
+    {n : Nat} → Vector n → (Fin n → Tree sig s) → Tree sig s
+  | 0, _, _ => zero sig op
+  | _ + 1, coeff, values => add sig op (bagCopies op (coeff 0) (values 0))
+      (bagSum op (fun i => coeff i.succ) (fun i => values i.succ))
+
+theorem count_bagSum (profile : Profile sig) {s n} (op : sig.ACUOp s)
+    (coeff : Vector n) (values : Fin n → Tree sig s) (a : QTree sig s)
+    [DecidableEq (QTree sig s)] :
+    List.count a (flatten profile (bagSum op coeff values)) =
+      dot coeff (fun i => List.count a (flatten profile (values i))) := by
+  induction n with
+  | zero => simp [bagSum, flatten_zero, dot, size]
+  | succ n ih =>
+    simp only [bagSum, flatten_add, List.count_append, count_flatten_repeat, dot, size]
+    exact congrArg (fun tail => coeff 0 * List.count a (flatten profile (values 0)) + tail)
+      (ih (fun i => coeff i.succ) (fun i => values i.succ))
+
+theorem bagSum_balance (profile : Profile sig) {s n} (op : sig.ACUOp s)
+    (left right : Vector n) (values : Fin n → Tree sig s) [DecidableEq (QTree sig s)] :
+    Structural.Indexed.Eq sig (bagSum op left values) (bagSum op right values) ↔
+      ∀ a : QTree sig s, Balanced left right
+        (fun i => List.count a (flatten profile (values i))) := by
+  classical
+  constructor
+  · intro same a
+    have counts := (flatten_congr profile same).count_eq a
+    simpa only [count_bagSum] using counts
+  · intro balanced
+    apply eq_of_flatten_perm profile op
+    apply List.perm_iff_count.mpr
+    intro a
+    simpa only [count_bagSum] using balanced a
+
+private theorem qtree_bagCopies {s} (op : sig.ACUOp s) (k : Nat)
+    (value : Tree sig s) (atoms : List (QTree sig s)) (folded : qtree value = qfold op atoms) :
+    qtree (bagCopies op k value) = qfold op (listCopies k atoms) := by
+  induction k with
+  | zero => rfl
+  | succ k ih =>
+    change qadd op (qtree value) (qtree (bagCopies op k value)) = _
+    rw [folded, ih]
+    exact (qfold_append op atoms (listCopies k atoms)).symm
+
+private theorem qtree_bagSum {s n} (op : sig.ACUOp s) (coeff : Vector n)
+    (values : Fin n → Tree sig s) (atoms : Fin n → List (QTree sig s))
+    (folded : ∀ i, qtree (values i) = qfold op (atoms i)) :
+    qtree (bagSum op coeff values) = qfold op (listSum coeff atoms) := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    change qadd op (qtree (bagCopies op (coeff 0) (values 0)))
+      (qtree (bagSum op (fun i => coeff i.succ) (fun i => values i.succ))) = _
+    rw [qtree_bagCopies op _ _ _ (folded 0),
+      ih (fun i => coeff i.succ) (fun i => values i.succ) (fun i => atoms i.succ)
+        (fun i => folded i.succ)]
+    exact (qfold_append op _ _).symm
+
+/-- Exact finite sharing for active bags. The unit condition concerns only
+inactive coordinates of this intermediate balance, NOT original canceled inputs.
+The public tree rule below restores those inputs as independent passthroughs. -/
+theorem bags_generated_active (profile : Profile sig) {s n rows cols}
+    (op : sig.ACUOp s) (left right : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right) (values : Fin n → Tree sig s)
+    (active : ∀ i, left i = 0 → right i = 0 →
+      Structural.Indexed.Eq sig (values i) (zero sig op)) :
+    Structural.Indexed.Eq sig (bagSum op left values) (bagSum op right values) ↔
+      ∃ parameters : Fin (supportGenerators rowLabels colLabels).length → Tree sig s,
+        ∀ i, Structural.Indexed.Eq sig (values i)
+          (bagSum op (fun j => (supportGenerators rowLabels colLabels).get j i) parameters) := by
+  classical
+  let generators := supportGenerators rowLabels colLabels
+  constructor
+  · intro equation
+    have balanced := (bagSum_balance profile op left right values).mp equation
+    have generated : ∀ a : QTree sig s, Generated generators
+        (fun i => List.count a (flatten profile (values i))) := by
+      intro a
+      apply (supportGenerators_exact left right _ rowLabels colLabels rowCounts colCounts disjoint ?_).mpr
+        (balanced a)
+      intro i hl hr
+      have count := (flatten_congr profile (active i hl hr)).count_eq a
+      simpa only [flatten_zero, List.count_nil] using count
+    obtain ⟨pieces, represented⟩ := lists_generated generators (fun i => flatten profile (values i)) generated
+    have reps := fun j => Quotient.exists_rep (qfold op (pieces j))
+    let parameters := fun j => Classical.choose (reps j)
+    have folded : ∀ j, qtree (parameters j) = qfold op (pieces j) :=
+      fun j => Classical.choose_spec (reps j)
+    refine ⟨parameters, fun i => (qtree_eq_iff _ _).mp ?_⟩
+    exact (qfold_flatten profile op (values i)).symm.trans
+      ((qfold_perm op (represented i)).trans
+        (qtree_bagSum op _ parameters pieces folded).symm)
+  · rintro ⟨parameters, images⟩
+    apply (bagSum_balance profile op left right values).mpr
+    intro a
+    have counts : ∀ i, List.count a (flatten profile (values i)) =
+        dot (fun j => generators.get j i)
+          (fun j => List.count a (flatten profile (parameters j))) := by
+      intro i
+      have same := (flatten_congr profile (images i)).count_eq a
+      simpa only [count_bagSum] using same
+    have generated := balanced_images left right (fun j => generators.get j)
+      (fun j => supportGenerators_sound left right rowLabels colLabels rowCounts colCounts _
+        (List.get_mem _ j)) (fun j => List.count a (flatten profile (parameters j)))
+    simpa only [counts] using generated
+
+theorem bagSum_congr {s n} (op : sig.ACUOp s) (coeff : Vector n)
+    (values other : Fin n → Tree sig s)
+    (same : ∀ i, coeff i ≠ 0 → Structural.Indexed.Eq sig (values i) (other i)) :
+    Structural.Indexed.Eq sig (bagSum op coeff values) (bagSum op coeff other) := by
+  induction n with
+  | zero => exact .refl _
+  | succ n ih =>
+    apply Structural.Indexed.Eq.congr (sig.add op)
+    apply Eqs.cons
+    · by_cases zero : coeff 0 = 0
+      · simp only [zero, bagCopies]
+        exact .refl _
+      · exact repeat_congr op _ (same 0 zero)
+    · exact .cons (ih (fun i => coeff i.succ) (fun i => values i.succ)
+        (fun i => other i.succ) (fun i => same i.succ)) .nil
+
+def sharingImages {s n} (op : sig.ACUOp s) (left right : Vector n)
+    (generators : List (Vector n)) (parameters : Fin generators.length → Tree sig s)
+    (passthrough : Fin n → Tree sig s) : Fin n → Tree sig s := fun i =>
+  if left i = 0 ∧ right i = 0 then passthrough i
+  else bagSum op (fun j => generators.get j i) parameters
+
+/-- FINITE-SHARING EXACTNESS in registered tree equality, with EVERY input image.
+
+  sum_i left_i * X_i =B sum_i right_i * X_i
+  ==================================================== FiniteSharing
+  EXISTS shared Z_s and independent inactive P_i,
+    FOR ALL i, X_i =B (P_i if inactive; sum_s degree_i(s) * Z_s otherwise)
+
+Zero-sided grids and the empty equation are included. No user semantic bridge,
+linearity assumption, fixed arity/coefficients, or trusted generator table occurs.
+This is a general proof rule, not yet certificate-search/replay implementation.
+-/
+theorem bags_generated (profile : Profile sig) {s n rows cols}
+    (op : sig.ACUOp s) (left right : Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, labelCount rowLabels i = left i)
+    (colCounts : ∀ i, labelCount colLabels i = right i)
+    (disjoint : Disjoint left right) (values : Fin n → Tree sig s) :
+    Structural.Indexed.Eq sig (bagSum op left values) (bagSum op right values) ↔
+      ∃ parameters : Fin (supportGenerators rowLabels colLabels).length → Tree sig s,
+        ∃ passthrough : Fin n → Tree sig s,
+          ∀ i, Structural.Indexed.Eq sig (values i)
+            (sharingImages op left right (supportGenerators rowLabels colLabels) parameters passthrough i) := by
+  classical
+  let activeValues := fun i => if left i = 0 ∧ right i = 0 then zero sig op else values i
+  have leftSame := bagSum_congr op left values activeValues (fun i nonzero => by
+    simp only [activeValues, nonzero, false_and, if_false]
+    exact .refl _)
+  have rightSame := bagSum_congr op right values activeValues (fun i nonzero => by
+    simp only [activeValues, nonzero, and_false, if_false]
+    exact .refl _)
+  constructor
+  · intro equation
+    have equation := leftSame.symm.trans (equation.trans rightSame)
+    have active : ∀ i, left i = 0 → right i = 0 →
+        Structural.Indexed.Eq sig (activeValues i) (zero sig op) := by
+      intro i hl hr
+      simp only [activeValues, hl, hr, and_self, if_true]
+      exact .refl _
+    obtain ⟨parameters, images⟩ := (bags_generated_active profile op left right rowLabels
+      colLabels rowCounts colCounts disjoint activeValues active).mp equation
+    refine ⟨parameters, values, fun i => ?_⟩
+    by_cases inactive : left i = 0 ∧ right i = 0
+    · simp only [sharingImages, if_pos inactive]
+      exact .refl _
+    · simpa only [sharingImages, activeValues, if_neg inactive] using images i
+  · rintro ⟨parameters, passthrough, images⟩
+    let generatedValues := fun i => bagSum op
+      (fun j => (supportGenerators rowLabels colLabels).get j i) parameters
+    have leftSame := bagSum_congr op left values generatedValues (fun i nonzero => by
+      have inactive : ¬ (left i = 0 ∧ right i = 0) := fun h => nonzero h.1
+      simpa only [sharingImages, if_neg inactive] using images i)
+    have rightSame := bagSum_congr op right values generatedValues (fun i nonzero => by
+      have inactive : ¬ (left i = 0 ∧ right i = 0) := fun h => nonzero h.2
+      simpa only [sharingImages, if_neg inactive] using images i)
+    have balanced : Structural.Indexed.Eq sig (bagSum op left generatedValues)
+        (bagSum op right generatedValues) := by
+      apply (bagSum_balance profile op left right generatedValues).mpr
+      intro a
+      simp only [generatedValues, count_bagSum]
+      exact balanced_images left right _ (fun j =>
+        supportGenerators_sound left right rowLabels colLabels rowCounts colCounts _
+          (List.get_mem _ j)) _
+    exact leftSame.trans (balanced.trans rightSame.symm)
+
 /- Computational regressions, NOT evidence for the general completeness theorem:
    2X = 3Y gives X = 3Z, Y = 2Z, including Z = empty.
    2X = A+Y retains every balanced support, including redundant presentations.
@@ -2172,6 +2540,61 @@ theorem quote_nativeRepeat (reg : Registration sig) {s} (op : sig.ACUOp s)
   induction k with
   | zero => simp only [nativeRepeat, bagCopies, zero, reg.quote_apply, Args.quote]
   | succ k ih => simp only [nativeRepeat, bagCopies, add, reg.quote_apply, Args.quote, ih]
+
+/-! ### Native specialization of the exhaustive FiniteSharing rule
+
+These operations evaluate only the user's registered zero/union constructors.
+They introduce no datatype wrapper, alternative equality, or registration proof.
+Quotation/rebuilding are already proved by Registration, so specialization is
+mechanical. The indexed/native relation remains the public certificate semantics.
+-/
+
+def nativeBagSum (reg : Registration sig) {s n} (op : sig.ACUOp s)
+    (coeff : FiniteSharing.Vector n) (values : Fin n → reg.Carrier s) : reg.Carrier s :=
+  (FiniteSharing.bagSum op coeff (fun i => reg.quote s (values i))).eval reg.toAlgebra
+
+def nativeSharingImages (reg : Registration sig) {s n} (op : sig.ACUOp s)
+    (left right : FiniteSharing.Vector n) (generators : List (FiniteSharing.Vector n))
+    (parameters : Fin generators.length → reg.Carrier s)
+    (passthrough : Fin n → reg.Carrier s) : Fin n → reg.Carrier s := fun i =>
+  (FiniteSharing.sharingImages op left right generators (fun j => reg.quote s (parameters j))
+    (fun j => reg.quote s (passthrough j)) i).eval reg.toAlgebra
+
+/-- Exact native finite sharing, inferred from existing constructor registration.
+ALL original bag-variable images are compared modulo the registered theory,
+including inactive inputs which keep their independent passthrough parameters.
+The finite parameter family is computed, not supplied or trusted complete.
+This theorem is semantic rule validity, not automated search/replay success. -/
+theorem finiteSharing_native (profile : Profile sig) (reg : Registration sig) {s n rows cols}
+    (op : sig.ACUOp s) (left right : FiniteSharing.Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, FiniteSharing.labelCount rowLabels i = left i)
+    (colCounts : ∀ i, FiniteSharing.labelCount colLabels i = right i)
+    (disjoint : FiniteSharing.Disjoint left right) (values : Fin n → reg.Carrier s) :
+    NativeEq sig reg (nativeBagSum reg op left values) (nativeBagSum reg op right values) ↔
+      ∃ parameters : Fin (FiniteSharing.supportGenerators rowLabels colLabels).length → reg.Carrier s,
+        ∃ passthrough : Fin n → reg.Carrier s,
+          ∀ i, NativeEq sig reg (values i)
+            (nativeSharingImages reg op left right (FiniteSharing.supportGenerators rowLabels colLabels)
+              parameters passthrough i) := by
+  have exactRule := FiniteSharing.bags_generated profile op left right rowLabels colLabels
+    rowCounts colCounts disjoint (fun i => reg.quote s (values i))
+  constructor
+  · intro equation
+    obtain ⟨parameters, passthrough, images⟩ := exactRule.mp
+      (by simpa only [NativeEq, nativeBagSum, reg.quote_eval] using equation)
+    refine ⟨fun j => (parameters j).eval reg.toAlgebra,
+      fun j => (passthrough j).eval reg.toAlgebra, fun i => ?_⟩
+    simpa only [NativeEq, nativeSharingImages, reg.quote_eval] using images i
+  · rintro ⟨parameters, passthrough, images⟩
+    apply (show NativeEq sig reg (nativeBagSum reg op left values) (nativeBagSum reg op right values) ↔
+        Structural.Indexed.Eq sig
+          (FiniteSharing.bagSum op left (fun i => reg.quote s (values i)))
+          (FiniteSharing.bagSum op right (fun i => reg.quote s (values i))) from
+      by simp only [NativeEq, nativeBagSum, reg.quote_eval]).mpr
+    apply exactRule.mpr
+    refine ⟨fun j => reg.quote s (parameters j), fun j => reg.quote s (passthrough j), fun i => ?_⟩
+    simpa only [NativeEq, nativeSharingImages, reg.quote_eval] using images i
 
 /-- General native rule used by answer-guided coverage, for ANY positive k. -/
 theorem multiplicity_native (profile : Profile sig) (reg : Registration sig) {s}
@@ -2989,6 +3412,36 @@ open Substitution Substitution.Worklist
 
 derive_direct_profile profile for BakeryTheory.certified
 
+/- Nonlinear Bakery certificate, by ONE application of the general rule.
+The occurrence grid is (P,P) against (Q,Q,Q), so the computed family has exactly
+one support with degrees (3,2): P =B Z+Z+Z and Q =B Z+Z, including Z = empty.
+nativeBagSum writes the coefficient equation 2P =B 3Q using ONLY the ordinary
+registered ProcSet.empty/union constructors; trailing units are harmless modulo B.
+The let-bound data below belong to a future FiniteSharing dump, not extra lemmas
+for this problem. Count/disjointness proofs are finite syntactic case checks.
+No completeness premise, payload restriction, or proof-search tactic is used.
+-/
+theorem nonlinear_sharing_certificate (values : Fin 2 → ProcSet) :
+    let left : FiniteSharing.Vector 2 := Fin.cases 2 (fun _ => 0)
+    let right : FiniteSharing.Vector 2 := Fin.cases 0 (fun _ => 3)
+    let rows : Fin 2 → Fin 2 := fun _ => 0
+    let cols : Fin 3 → Fin 2 := fun _ => 1
+    let generators := FiniteSharing.supportGenerators rows cols
+    NativeEq Sig registration (nativeBagSum registration Operator.acu left values)
+      (nativeBagSum registration Operator.acu right values) ↔
+      ∃ parameters : Fin generators.length → ProcSet,
+        ∃ passthrough : Fin 2 → ProcSet,
+          ∀ i, NativeEq Sig registration (s := Tag.s2) (values i)
+            (nativeSharingImages registration Operator.acu left right generators parameters passthrough i) :=
+  finiteSharing_native (sig := Sig) profile registration (s := Tag.s2)
+    (n := 2) (rows := 2) (cols := 3) Operator.acu
+    (Fin.cases 2 (fun _ => 0) : FiniteSharing.Vector 2)
+    (Fin.cases 0 (fun _ => 3) : FiniteSharing.Vector 2)
+    (fun _ : Fin 2 => (0 : Fin 2)) (fun _ : Fin 3 => (1 : Fin 2))
+    (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
+    (Fin.cases rfl (fun i => Fin.cases rfl (fun j => Fin.elim0 j) i))
+    (Fin.cases (Or.inr rfl) (fun i => Fin.cases (Or.inl rfl) (fun j => Fin.elim0 j) i)) values
+
 /-- Data for singleton(wait(ticket)); no semantic assumption about the payload. -/
 def waitingAtom {Γ} (ticket : Term Sig Γ Tag.s0) : Term Sig Γ Tag.s2 :=
   .app Symbol.c6 (.cons (.app Symbol.c3 (.cons ticket .nil)) .nil)
@@ -3128,5 +3581,8 @@ theorem clash_exact_data :
 #print axioms FiniteSharing.minimal_nonempty_boolean_support
 #print axioms FiniteSharing.boolean_supports_exact
 #print axioms FiniteSharing.supportGenerators_exact
+#print axioms FiniteSharing.bags_generated
+#print axioms finiteSharing_native
+#print axioms nonlinear_sharing_certificate
 
 end DirectCertification.Bakery

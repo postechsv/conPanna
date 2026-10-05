@@ -326,8 +326,16 @@ Constrained narrowing will consume this only after unification certification wor
   degrees. Prove supportGenerators_exact: the computed finite list generates
   exactly the balanced ACTIVE multiplicity vectors. No supplied-list coverage
   premise, fixed search bound, Mathlib import, or proof admission.
-- [ ] Lift the enumerated family to exact native/open bag substitutions using
-  flatten/rebuild; preserve canceled variables as independent passthrough inputs.
+- [x] Lift the enumerated family to TREE/NATIVE bag-image exactness using the
+  existing flatten/rebuild relation. bags_generated and finiteSharing_native
+  quantify over every original input, retaining inactive/canceled variables as
+  independent passthroughs. No per-model semantic bridge proof is required.
+  The nonlinear Bakery coefficient equation 2P =B 3Q is certified by one direct
+  rule application. Full-file LSP diagnostics/axiom audits pass without errors,
+  warnings, or sorryAx; no new Lean files, custom tactics, or library changes.
+- [ ] Connect this semantic rule to typed open substitutions and a finite
+  Worklist FiniteSharing replay node. Native valuation exactness alone is NOT
+  implemented symbolic certificate reconstruction or search success.
 - [ ] Implement exhaustive singleton/payload processing and sorted substitution
   composition for finite equation systems (not just handwritten examples).
 - [ ] Implement complete whole-vector factor search and native-answer-guided
@@ -337,7 +345,7 @@ Constrained narrowing will consume this only after unification certification wor
 - [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
   completeness holes. Production narrowing is deliberately unchanged so far.
 
-NEXT: native/open bag reconstruction for the proved enumerated support family.
+NEXT: typed substitution generation and a checked FiniteSharing replay node.
 The numeric proof is general; the overall automatic ACU certifier is NOT finished.
 
 ### Historical integration notes
