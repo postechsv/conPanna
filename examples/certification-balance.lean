@@ -15,7 +15,7 @@ new tactic, admission, or second implementation of the calculus is used.
 
 The final ordinary theorem presents exactness in Bakery's native constructors.
 Its `simpa` only unfolds the internal representation AFTER certification.
-Run this file separately from the twelve-regression demo to respect the caps:
+Run this file separately from the smaller regression suite to respect the caps:
   CONPANNA_CERT_STRESS=1 python3 -B certification_compiler.py --demo
 -/
 namespace CertificationBalance

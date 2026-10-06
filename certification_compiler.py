@@ -121,6 +121,13 @@ def derives(d, context=None):
     if d["rule"] == "decompose":
         return "(.decompose Symbol.c" + number(d["head"]) + " rfl " + terms(d["leftArgs"], context) + \
             " " + terms(d["rightArgs"], context) + " " + position(d["field"]) + " " + derives(d["child"], context) + ")"
+    if d["rule"] == "congr":
+        return "(Derives.congr (sig := Sig) (Γ := " + scope(context) + ") Symbol.c" + \
+            number(d["head"]) + " " + derives_args(d["args"], context) + ")"
+    if d["rule"] == "multiplicity":
+        return "(Derives.multiplicity (sig := Sig) (Γ := " + scope(context) + ") Operator.acu " + \
+            number(d["count"]) + " (of_decide_eq_true rfl) " + term(d["left"], context) + \
+            " " + term(d["right"], context) + " " + derives(d["child"], context) + ")"
     if d["rule"] == "trans":
         return "(Derives.trans (sig := Sig) (Γ := " + scope(context) + ") " + derives(d["left"], context) + " " + derives(d["right"], context) + ")"
     if d["rule"] == "cancel":
@@ -696,7 +703,7 @@ def demo(root):
             {"sort": 2, "left": {"var": 1}, "right": {"var": 2}},
             {"sort": 2, "left": {"var": 2}, "right": answer[1]}],
         "proposed": [{"parameters": [0], "images": answer}]})
-    print(f"Maude rule trace: {trace['proof']['rule']} -> "
+    print(f"Legacy binding control trace: {trace['proof']['rule']} -> "
         f"{trace['proof']['child']['rule']} -> {trace['proof']['child']['child']['rule']}")
     (cache / "demo.trace.json").write_text(json.dumps(trace, indent=2) + "\n")
     proof_path = cache / "demo.proof.json"

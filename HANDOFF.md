@@ -20,7 +20,71 @@ CERTIFICATION.md §§0, 8.3, 9, and 12.1 explicitly specify these boundaries.
 
 ## Current runnable demo: Maude -> Python -> precompiled Lean (2026-10-06)
 
-### Readable native certificate and scheduler audit — 2026-10-07 (latest)
+### Conditional EARLY-COVER — 2026-10-07 (latest)
+
+User authorized making certification genuinely targeted. Implemented a finite
+proof-producing shortcut in certification.maude; the core Lean calculus,
+registration, narrowing, and scope contract were NOT changed. No new permanent
+Lean files or tactics. Existing files edited only; disunification.lean untouched.
+
+- `selectCoverage` tries unconditional fixed-Σ factoring, then conditional
+  simplification of the whole original image vector under the CURRENT equations.
+  It discovers variable definitions/free-head fields, cancels common normalized
+  bag occurrences, cancels equal positive powers, and handles uniform zero sides.
+  Proofs use existing Derives HYP/DECOMPOSE/CONGR/TRANS/SYMM/CANCEL/MULTIPLICITY.
+  Variable aliases are oriented toward a smaller slot; self-containing direct
+  replacements are not followed; a visited-variable path stops indirect cycles.
+  No state mutation or unification search happens in Python.
+- A conditional view that is unchanged modulo B is not matched a second time.
+  Otherwise the existing complete finite matcher searches SUPPLIED answers for
+  one shared β. Successful COVER has derived equality evidence for ALL original
+  input images. Failed finite attempts return to the unchanged complete schedule;
+  no unproved branch is discarded. Original candidate soundness remains checked.
+- Python adds only two serialization cases: Derives.congr and multiplicity,
+  both already present/proved in Replay. No new trusted rule or semantic proof
+  obligation. Compilation of the Lean backend is unaffected/cached.
+- Actual singleton trace is now ATOM -> two direct COVER leaves. The readable
+  atom_manual_certificate comments match this new tree; manual proof unchanged.
+  New native power_certificate in the same demo certifies 2P=2Q by one COVER with
+  MULTIPLICITY evidence, no grid expansion. Common-singleton and bag-cycle
+  examples now also close directly where the factor is available.
+- Twenty-four Python tests pass: equal powers, 7P=7Q (no 2^49 support enumeration),
+  multiple bag fields, free configuration binding, cyclic definitions/fallback,
+  omitted/unsound answers, and typed metadata validation. Existing two-nonlinear-
+  equation regression still uses TWO sharing steps, testing fallback retention.
+- The 18-case smaller certificate suite (17 old problems plus power) passes with
+  standard axioms only. The manual proof additionally passes without choice.
+  Seven fresh corruption fixtures reject: wrong ATOM successor, scope, conditional
+  hypothesis, hole, duplicate/unsupported node, and final proof. The corruption
+  fixture now uses ATOM since direct conditional COVER removes its old BIND.
+  Transition type parsing uses the LAST equality, since the source expression
+  can include `if i = j` conditions.
+- /tmp/conpanna-scheduler-audit.lean checks a newly registered two-bag-field model,
+  free configuration binding, and the 7-fold power example. All three certificates
+  kernel-check with no sorryAx; conditional COVER works with alternate metadata.
+  It remains a TEMPORARY test, not another permanent Lean module.
+- Larger balance demo still certifies 2P=[wait(n)]+Q with PURIFY/SHARING fallback
+  and exhaustive branches; checked nodes fell from 754 to 640. This is reduced
+  evidence size, not a uniform runtime speedup claim. CPU/wall/memory caps unchanged.
+  Final capped balance, 18-case/7-corruption consumer, temporary model/7-fold
+  power certificates, 24 Python tests, and original certification.lean suite
+  all pass. No sorryAx, owned jobs, or diff whitespace errors remain.
+- Concrete issue fixed: normalized bags encode P as P+empty, so definitions must
+  be looked up in original equations, not mistaken for normalized variable heads.
+  The simplification and subsequent normalization still emit checked evidence.
+- CERTIFICATION.md §9.1 describes algorithm, finite control, and limitations.
+  Σ does NOT automatically supply a factor expressible in the CURRENT scope:
+  for 2P=3Q, parameter Z cannot generally be a union-only term in P,Q. Sharing
+  introduces witnesses before COVER; known answers need not eliminate all solving.
+- --demo's first signature-less historical binding control intentionally remains
+  BIND/BIND/COVER and is now labeled LEGACY. Typed Lean requests exercise targeted
+  coverage. Do not misread that optional harness control as the current algorithm.
+- NEXT: consider answer-guided witness/branch selection if stronger shortcuts are
+  desired, or systematic small-problem testing/formal search theorem. All such
+  extensions must keep finite shortcut attempts plus complete fallback. Do not
+  touch narrowing yet or expose additional user registration/certification work.
+
+### Previous readable native certificate and scheduler audit — 2026-10-07
 
 User clarified that metaprogramming is acceptable UNDER THE HOOD. The manual
 certificate's surface must be ordinary and abstract, not a dump parser or sorted

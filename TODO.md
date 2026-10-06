@@ -378,13 +378,22 @@ Executable producer checklist (supersedes the historical implementation notes):
   ordinary proof term, general ATOM/CONGR/UNIT rules, explicit branches/witnesses;
   no producer/parser/tactics/variable-index bookkeeping in the manual proof.
   Comments distinguish grouped surface rules from the expanded actual dump.
-  A producer test checks the actual ATOM/BIND/BIND/COVER correspondence.
+  A producer test checks the actual ATOM -> two conditional COVER correspondence.
 - [x] Kernel-check configuration binding and two distinct purified bag fields
   using a temporary model with TWO bag fields (no extra permanent Lean file).
   Both replay certificates have standard axioms only. The automatic/manual
   two-answer examples present the same ordinary native proposition.
+- [x] Implement finite conditional EARLY-COVER in Maude: proof-producing variable
+  definitions, arbitrary-arity congruence/free decomposition, common-occurrence
+  cancellation, positive-multiplicity cancellation and zero-sided powers.
+  Match fixed supplied Σ against the conditional vector; emit proofs from the
+  SAME equations on success. Stop cyclic expansion; skip unchanged views; retain
+  the complete fallback on failure. Python only translates the existing Derives
+  CONGR/MULTIPLICITY rules; no new calculus, tactics, or registration obligations.
+  ATOM now has two direct COVER leaves; equal powers/common-singleton balances
+  can bypass sharing entirely. The larger balance still exercises the fallback.
 - [ ] NEXT: formalize the implementation-level search argument if required for
-  the technical report, or improve conditional EARLY-COVER for smaller traces.
+  the technical report, or strengthen witness-producing targeted shortcuts.
   Neither is an additional user certification/registration obligation.
 - [ ] Only afterward connect exact unifier certification to constrained narrowing.
 

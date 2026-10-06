@@ -791,9 +791,10 @@ the complete fallback of Theorem 8.3.
 The argument assumes unbounded execution of the finite enumerations, a correct
 typed signature, and the stated stratification. Resource exhaustion is failure
 to obtain a certificate, never a contradiction certificate. It does not assert
-that arbitrary finite inputs fit the prototype's safety caps. General conditional
-EARLY-COVER and further sharing optimizations remain optional improvements;
-they are not prerequisites for this fallback argument.
+that arbitrary finite inputs fit the prototype's safety caps. The finite
+conditional EARLY-COVER attempts described in Section 9 are now implemented;
+stronger shortcut strategies remain optional. Neither is a prerequisite for
+this fallback argument.
 
 ## 8. Factor search and the answer-guided guarantee
 
@@ -981,11 +982,53 @@ remains available; no candidate-guided pruning may remove an unproved case.
 Perform only finite shortcut attempts before falling back, or use a fair schedule
 that cannot starve it. Unrestricted rewriting/search is not the prescribed control.
 
+### 9.1 Implemented conditional coverage
+
+The producer tries unconditional whole-vector coverage first. If it fails, it
+computes a proof-producing conditional view of the current image vector using
+the CURRENT equations, without deleting variables or altering the worklist:
+
+1. Find variable definitions, also through checked decomposition of matching free
+   constructors. Orient variable aliases toward a smaller slot. A replacement
+   containing the replaced variable is not followed.
+2. Cancel identical normalized bag occurrences, preserving multiplicities.
+   When the remaining sides are equal positive powers, use MULTIPLICITY-CANCEL.
+   Uniform zero-sided balances similarly justify the variable's empty image.
+3. Lift replacements through any constructor arity by CONGR, compose the equation
+   evidence by TRANS/SYMM, and normalize with explicit ACU equality evidence.
+4. Match each SUPPLIED answer vector against that conditional view using the
+   existing finite whole-vector matcher. A successful factor emits COVER with
+   proofs of `E ⊢ α(x) =B σᵢ(x)β` for EVERY original input x.
+
+The variable path is visited at most once per slot; recursive constructor
+processing descends through finite terms. Equation lookup and cancellation
+traverse finite lists, and factor attempts traverse the finite supplied family.
+Thus this is a finite shortcut, not an unbounded rewriting solver. Cyclic
+definitions stop expansion. If the view did not change modulo B, the already
+failed unconditional matching attempt is not repeated. Any other failure returns
+to the complete schedule in Sections 6–7. No unproved branch is pruned, and
+candidate soundness for the original equations is still checked separately.
+
+For `P+Q=[a]`, ATOM's two branches now close directly by conditional COVER from
+`P=[a],Q=0` or `P=0,Q=[a]`, instead of two BIND transitions each. For `kP=kQ`,
+the diagonal supplied answer permits COVER using multiplicity cancellation,
+without constructing the `k`-by-`k` grid. For `P+[a]=Q+[a]`, CANCEL permits
+coverage by the supplied diagonal answer without purification/sharing. These
+avoid actual calculus expansion, not just parsing or pretty-printing overhead.
+None is a uniform speedup claim: an unsuccessful shortcut still costs work.
+
+The shortcut is deliberately incomplete. For `2P=3Q`, the supplied family
+`P=3Z,Q=2Z` is exact, but Z cannot generally be expressed as a union-only term
+of the CURRENT P and Q. Knowing that family does not supply a constructor-term
+factor in this scope. The fallback introduces sharing parameters and then
+covers the resulting vector. This is a witness-scope limitation of EARLY-COVER,
+not a missing case in the complete fallback or a new user proof obligation.
+
 There is no general claim that proposed answers avoid reconstructing a complete
 reference derivation in the worst case. They provide genuine checked early
 closure opportunities; a uniform speedup is a separate question.
 
-### 9.1 Concrete efficiency benefit and its limits
+### 9.2 Concrete efficiency benefit and its limits
 
 The target is a coverage proof, not rediscovery of the proposed answers. Once
 EARLY-COVER proves that EVERY solution of a current branch factors through an
@@ -1322,17 +1365,18 @@ witness; `unaryCongruence` hides the unary argument tuple; `rightUnit` is the
 derived COMM/UNIT composition. These are generic proved rules, not problem
 certification lemmas or tactics. Constructor aliases are syntactic metadata only.
 
-The expanded producer has ATOM with two BIND/BIND/COVER children. At the native
-surface, each branch's equalities already state those binding assignments;
-the witness N:=n supplies COVER. Comments record this grouping and the different
-branch order. This is a correspondence of proof rules and branches, not literal
-identity of serialized proof trees. The manual theorem calls neither producer,
+The producer now has ATOM with two DIRECT conditional COVER children, matching
+the manual proof's two cases and witness N:=n without scoped BIND snapshots.
+Comments record the different branch order and derived equality abbreviations.
+This is a correspondence of proof rules and branches, not literal identity of
+serialized proof trees. The manual theorem calls neither producer,
 parser, generated-proof loader, nor certification tactic. The automated theorem
 only unfolds representation data after the generated certificate is checked.
 
-The optional negative suite corrupts freshly produced binding evidence after
+The optional negative suite corrupts freshly produced ATOM/conditional-COVER evidence after
 checking an unmodified control. A wrong successor must fail at its transition
-node; scope errors, admissions, duplicate/unsupported node declarations, and a
+node; using the wrong branch hypothesis must fail inside COVER. Scope errors,
+admissions, duplicate/unsupported node declarations, and a
 wrong final proof must also be rejected. The Python tests separately check
 signature/input validation and answer-guided matching using a different
 constructor-code fixture. Passing these tests does not establish contract-wide
@@ -1461,7 +1505,7 @@ implements the finite fallback, with the retained-storage audit in §7.4 and
 independently kernel-checked evidence for successful runs.
 
 The remaining gates are formalizing the search/control guarantee if desired,
-reducing certificates with optional conditional EARLY-COVER, and extending the
+strengthening the finite conditional EARLY-COVER attempts, and extending the
 modeling contract with a separate combination argument. The prototype's safety
 timeouts do not replace the finite complete schedule or justify contradiction.
 Completing every Lean search meta-theorem before using the scientific prototype

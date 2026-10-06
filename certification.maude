@@ -75,6 +75,7 @@ mod CERTIFICATION-PRODUCER is
   op answer : Context Terms Answers -> Answers [ctor] .
   op noCover : -> CoverChoice [ctor] .
   op covered : Nat Terms Terms -> CoverChoice [ctor] .
+  op evidenceCover : Nat Terms String -> CoverChoice [ctor] .
   op lookup : Nat Heads -> Context .
   op isFree : Nat Heads -> Bool .
   op selectCover : Context Terms Answers Nat Context Heads -> CoverChoice .
@@ -246,6 +247,47 @@ mod CERTIFICATION-PRODUCER is
   op fallbackCover : Context Terms Context Terms Nat Answers Context Heads -> CoverChoice .
   op chooseFactor : Context Terms Terms Nat Context Heads Matches -> CoverChoice .
   op firstCover : CoverChoice CoverChoice -> CoverChoice .
+  --- Optional EARLY-COVER: rewrite current images USING proved equations,
+  --- then factor through a supplied answer. No branch is removed on failure.
+  sort Definition .
+  op noDefinition : -> Definition [ctor] .
+  op definition : Term String -> Definition [ctor] .
+  op selectCoverage : Context Terms Equations Answers Context Heads -> CoverChoice .
+  op checkedCoverage : Context Terms Equations Answers Context Heads CoverChoice -> CoverChoice .
+  op conditionalCoverage : Context Terms Equations Answers Context Heads NormalArgs -> CoverChoice .
+  op finishConditional : Context Terms Equations Context Heads CoverChoice -> CoverChoice .
+  op seenVariable : Nat Context -> Bool .
+  op findDefinition : Nat Nat Equations Nat Heads -> Definition .
+  op definitionTerm : Nat Nat Term Term Heads String -> Definition .
+  op definitionArgs : Nat Nat Context Terms Terms Nat Terms Terms Heads String Nat -> Definition .
+  op firstDefinition : Definition Definition -> Definition .
+  op variableDefinition : Nat Term String -> Definition .
+  op orientedDefinition : Nat Nat String -> Definition .
+  op conditionalTerm : Nat Term Equations Context Heads -> Normal .
+  op conditionalVariable : Nat Nat Equations Context Heads Definition -> Normal .
+  op finishVariable : String Normal -> Normal .
+  op conditionalArgs : Context Terms Equations Context Heads -> NormalArgs .
+  op conditionalCons : Normal NormalArgs -> NormalArgs .
+  op conditionalApp : Nat Nat NormalArgs Heads -> Normal .
+  op finishApp : String Normal -> Normal .
+  op conditionalVectorProof : Context Terms Terms Equations Heads -> String .
+  op conditionalComponent : Nat Term Equations Heads Term -> String .
+  op finishComponent : Nat Term Heads Normal -> String .
+  op axiomText : String -> String .
+  op transText : String String -> String .
+  op bagDefinition : Nat Term Term Heads String -> Definition .
+  op powerDefinition : Nat Term Term Terms Terms Heads String -> Definition .
+  op uniformTerms : Term Terms -> Bool .
+  op multiplicityText : Nat Term Term String -> String .
+  sort BagDifference .
+  op difference : Terms Terms Terms -> BagDifference [ctor] .
+  op cancelTerms : Terms Terms -> BagDifference .
+  op cancelHead : Term Terms Terms BagRemoval -> BagDifference .
+  op retainCommon : Term BagDifference -> BagDifference .
+  op retainLeft : Term BagDifference -> BagDifference .
+  op cancelledDefinition : Nat Term Term Heads String BagDifference -> Definition .
+  op cancelText : Term Term Term String -> String .
+  op powerVariable : Nat Term Term String -> Definition .
   --- Exhaustive occurrence grids (CERTIFICATION.md finite-sharing rule).
   --- Context is also used for untyped Nat vectors in EXTERNAL evidence data.
   sort Vectors .
@@ -434,6 +476,133 @@ mod CERTIFICATION-PRODUCER is
   eq coverMatch(C, IM, D, TARGET, J, AS, INPUTS, HS, matched(TS)) =
     if assigned(TS) and vectorSame(INPUTS, IM, instArgs(TARGET, TS), HS)
     then covered(J, TS, instArgs(TARGET, TS)) else fallbackCover(C, IM, D, TARGET, J, AS, INPUTS, HS) fi .
+
+  --- Every conditional simplification has an explicit Derives proof. Expansion
+  --- follows constructor fields and a finite visited-variable path; cyclic
+  --- definitions stop, never become contradiction evidence. A missed shortcut
+  --- falls back to the unchanged finite certification schedule.
+  eq axiomText(P) = "{\"rule\":\"axiom\",\"equality\":" + P + "}" .
+  eq transText(PA, PB) = "{\"rule\":\"trans\",\"left\":" + PA + ",\"right\":" + PB + "}" .
+  eq seenVariable(I, nilC) = false .
+  eq seenVariable(I, c(J, C)) = (I == J) or seenVariable(I, C) .
+  eq firstDefinition(noDefinition, DF:Definition) = DF:Definition .
+  eq firstDefinition(definition(A, P), DF:Definition) = definition(A, P) .
+  eq findDefinition(S, I, nilE, J, HS) = noDefinition .
+  eq findDefinition(S, I, e(eqn(K, A, B), ES), J, HS) =
+    firstDefinition(definitionTerm(S, I, A, B, HS, hypText(J)),
+      findDefinition(S, I, ES, s(J), HS)) .
+  eq variableDefinition(I, v(J), P) = orientedDefinition(I, J, P) .
+  eq variableDefinition(I, a(H, TS), P) =
+    if occurs(I, a(H, TS)) then noDefinition else definition(a(H, TS), P) fi .
+  --- Canonical variable orientation prevents x=y from rewriting in both
+  --- directions. Other cyclic chains are stopped by conditionalTerm's path.
+  eq orientedDefinition(I, J, P) = if I > J then definition(v(J), P) else noDefinition fi .
+  eq definitionTerm(S, I, v(J), v(K), HS, P) =
+    if I == J then variableDefinition(I, v(K), P)
+    else if I == K then variableDefinition(I, v(J), symmText(P)) else noDefinition fi fi .
+  eq definitionTerm(S, I, v(J), a(H, TS), HS, P) =
+    firstDefinition(if I == J then variableDefinition(I, a(H, TS), P) else noDefinition fi,
+      if S == bagSort(HS) and outputSort(H, HS) == bagSort(HS)
+      then bagDefinition(I, v(J), a(H, TS), HS, P) else noDefinition fi) .
+  eq definitionTerm(S, I, a(H, TS), v(J), HS, P) =
+    firstDefinition(if I == J then variableDefinition(I, a(H, TS), symmText(P)) else noDefinition fi,
+      if S == bagSort(HS) and outputSort(H, HS) == bagSort(HS)
+      then bagDefinition(I, a(H, TS), v(J), HS, P) else noDefinition fi) .
+  eq definitionTerm(S, I, a(H, TS), a(K, US), HS, P) =
+    if H == K and isFree(H, HS) then
+      definitionArgs(S, I, lookup(H, HS), TS, US, H, TS, US, HS, P, 0)
+    else if S == bagSort(HS) and outputSort(H, HS) == bagSort(HS) then
+      bagDefinition(I, a(H, TS), a(K, US), HS, P) else noDefinition fi fi .
+  eq definitionArgs(S, I, nilC, nilT, nilT, H, TS, US, HS, P, J) = noDefinition .
+  eq definitionArgs(S, I, c(K, C), t(A, IM), t(B, TARGET), H, TS, US, HS, P, J) =
+    firstDefinition(definitionTerm(S, I, A, B, HS, decompText(H, TS, US, J, P)),
+      definitionArgs(S, I, C, IM, TARGET, H, TS, US, HS, P, s(J))) .
+  --- MULTIPLICITY-CANCEL: kA=kB implies A=B for any positive k in the
+  --- registered free bag semantics. This targets equal-power native answers
+  --- without constructing their k-by-k occurrence grid.
+  eq uniformTerms(A, nilT) = true .
+  eq uniformTerms(A, t(B, TS)) = (A == B) and uniformTerms(A, TS) .
+  eq multiplicityText(I, A, B, P) = "{\"rule\":\"multiplicity\",\"count\":" + natText(I) +
+    ",\"left\":" + termText(A) + ",\"right\":" + termText(B) + ",\"child\":" + P + "}" .
+  --- Cancel equal normalized occurrences, with their multiplicities intact.
+  --- This removes no equations or branches: it supplies a checked CANCEL proof.
+  eq cancelTerms(nilT, TS) = difference(nilT, nilT, TS) .
+  eq cancelTerms(t(A, TS), US) = cancelHead(A, TS, US, removeOne(A, US)) .
+  eq cancelHead(A, TS, US, removed(IM)) = retainCommon(A, cancelTerms(TS, IM)) .
+  eq cancelHead(A, TS, US, notRemoved) = retainLeft(A, cancelTerms(TS, US)) .
+  eq retainCommon(A, difference(IM, TS, US)) = difference(t(A, IM), TS, US) .
+  eq retainLeft(A, difference(IM, TS, US)) = difference(IM, t(A, TS), US) .
+  eq cancelText(R, A, B, P) = "{\"rule\":\"cancel\",\"common\":" + termText(R) +
+    ",\"left\":" + termText(A) + ",\"right\":" + termText(B) + ",\"child\":" + P + "}" .
+  eq bagDefinition(I, A, B, HS, P) = cancelledDefinition(I, A, B, HS, P,
+    cancelTerms(flatBag(normalized(bagSort(HS), A, HS), HS), flatBag(normalized(bagSort(HS), B, HS), HS))) .
+  eq cancelledDefinition(I, A, B, HS, P, difference(nilT, TS, US)) =
+    powerDefinition(I, A, B, TS, US, HS, P) .
+  eq cancelledDefinition(I, A, B, HS, P, difference(IM, TS, US)) =
+    powerDefinition(I, sumTerms(TS, HS), sumTerms(US, HS), TS, US, HS,
+      cancelText(sumTerms(IM, HS), sumTerms(TS, HS), sumTerms(US, HS),
+        transText(axiomText(eqProof(bagSort(HS), a(bagAdd(HS), t(sumTerms(IM, HS), t(sumTerms(TS, HS), nilT))), A, HS)),
+          transText(P, axiomText(eqProof(bagSort(HS), B, a(bagAdd(HS), t(sumTerms(IM, HS), t(sumTerms(US, HS), nilT))), HS)))))) [owise] .
+  eq powerVariable(I, v(J), v(K), P) =
+    if I == J then variableDefinition(I, v(K), P)
+    else if I == K then variableDefinition(I, v(J), symmText(P)) else noDefinition fi fi .
+  eq powerVariable(I, v(J), a(H, TS), P) =
+    if I == J then variableDefinition(I, a(H, TS), P) else noDefinition fi .
+  eq powerVariable(I, a(H, TS), v(J), P) =
+    if I == J then variableDefinition(I, a(H, TS), symmText(P)) else noDefinition fi .
+  eq powerVariable(I, A, B, P) = noDefinition [owise] .
+  eq powerDefinition(I, A, B, t(R, TS), t(T:Term, US), HS, P) =
+    if lengthTerms(TS) == lengthTerms(US) and uniformTerms(R, TS) and uniformTerms(T:Term, US) then
+      powerVariable(I, R, T:Term,
+        multiplicityText(s(lengthTerms(TS)), R, T:Term,
+          transText(axiomText(eqProof(bagSort(HS), copiesTerm(s(lengthTerms(TS)), R, HS), A, HS)),
+            transText(P, axiomText(eqProof(bagSort(HS), B, copiesTerm(s(lengthTerms(TS)), T:Term, HS), HS))))))
+    else noDefinition fi .
+  eq powerDefinition(I, A, B, t(R, TS), nilT, HS, P) =
+    if uniformTerms(R, TS) then powerVariable(I, R, a(bagZero(HS), nilT),
+      multiplicityText(s(lengthTerms(TS)), R, a(bagZero(HS), nilT),
+        transText(axiomText(eqProof(bagSort(HS), copiesTerm(s(lengthTerms(TS)), R, HS), A, HS)),
+          transText(P, axiomText(eqProof(bagSort(HS), B, copiesTerm(s(lengthTerms(TS)), a(bagZero(HS), nilT), HS), HS))))))
+    else noDefinition fi .
+  eq powerDefinition(I, A, B, nilT, t(R, TS), HS, P) =
+    powerDefinition(I, B, A, t(R, TS), nilT, HS, symmText(P)) .
+  eq powerDefinition(I, A, B, TS, US, HS, P) = noDefinition [owise] .
+  eq conditionalTerm(S, v(I), ES, C, HS) =
+    if seenVariable(I, C) then normal(v(I), axiomText(refl(v(I))))
+    else conditionalVariable(S, I, ES, c(I, C), HS, findDefinition(S, I, ES, 0, HS)) fi .
+  eq conditionalTerm(S, a(H, TS), ES, C, HS) =
+    conditionalApp(S, H, conditionalArgs(lookup(H, HS), TS, ES, C, HS), HS) .
+  eq conditionalVariable(S, I, ES, C, HS, noDefinition) = normal(v(I), axiomText(refl(v(I)))) .
+  eq conditionalVariable(S, I, ES, C, HS, definition(A, P)) =
+    finishVariable(P, conditionalTerm(S, A, ES, C, HS)) .
+  eq finishVariable(P, normal(A, PA)) = normal(A, transText(P, PA)) .
+  eq conditionalArgs(nilC, nilT, ES, C, HS) = normalArgs(nilT, "") .
+  eq conditionalArgs(c(S, D), t(A, TS), ES, C, HS) =
+    conditionalCons(conditionalTerm(S, A, ES, C, HS), conditionalArgs(D, TS, ES, C, HS)) .
+  eq conditionalCons(normal(A, PA), normalArgs(nilT, "")) = normalArgs(t(A, nilT), PA) .
+  eq conditionalCons(normal(A, PA), normalArgs(TS, PB)) = normalArgs(t(A, TS), PA + "," + PB) [owise] .
+  eq conditionalApp(S, H, normalArgs(TS, P), HS) =
+    finishApp("{\"rule\":\"congr\",\"head\":" + natText(H) + ",\"args\":[" + P + "]}", norm(S, a(H, TS), HS)) .
+  eq finishApp(P, normal(A, PA)) = normal(A, transText(P, axiomText(PA))) .
+  eq conditionalComponent(S, A, ES, HS, B) = finishComponent(S, B, HS, conditionalTerm(S, A, ES, nilC, HS)) .
+  eq finishComponent(S, B, HS, normal(A, P)) = transText(P, axiomText(eqProof(S, A, B, HS))) .
+  eq conditionalVectorProof(nilC, nilT, nilT, ES, HS) = "" .
+  eq conditionalVectorProof(c(S, nilC), t(A, nilT), t(B, nilT), ES, HS) = conditionalComponent(S, A, ES, HS, B) .
+  eq conditionalVectorProof(c(S, C), t(A, TS), t(B, US), ES, HS) =
+    conditionalComponent(S, A, ES, HS, B) + "," + conditionalVectorProof(C, TS, US, ES, HS) [owise] .
+  eq selectCoverage(C, IM, ES, AS, INPUTS, HS) =
+    checkedCoverage(C, IM, ES, AS, INPUTS, HS, selectCover(C, IM, AS, 0, INPUTS, HS)) .
+  eq checkedCoverage(C, IM, ES, AS, INPUTS, HS, covered(J, TS, TARGET)) =
+    evidenceCover(J, TS, if HS == nilH then derivedText(IM) else vectorProof(INPUTS, IM, TARGET, HS) fi) .
+  eq checkedCoverage(C, IM, ES, AS, INPUTS, nilH, noCover) = noCover .
+  eq checkedCoverage(C, IM, ES, AS, INPUTS, HS, noCover) =
+    conditionalCoverage(C, IM, ES, AS, INPUTS, HS, conditionalArgs(INPUTS, IM, ES, nilC, HS)) [owise] .
+  eq conditionalCoverage(C, IM, ES, AS, INPUTS, HS, normalArgs(TS, P)) =
+    if vectorSame(INPUTS, IM, TS, HS) then noCover
+    else finishConditional(C, IM, ES, INPUTS, HS, selectCover(C, TS, AS, 0, INPUTS, HS)) fi .
+  eq finishConditional(C, IM, ES, INPUTS, HS, noCover) = noCover .
+  eq finishConditional(C, IM, ES, INPUTS, HS, covered(J, TS, TARGET)) =
+    evidenceCover(J, TS, conditionalVectorProof(INPUTS, IM, TARGET, ES, HS)) .
 
   eq appendM(nilM, MS:Matches) = MS:Matches .
   eq appendM(consM(IM, MS:Matches), NS:Matches) = consM(IM, appendM(MS:Matches, NS:Matches)) .
@@ -748,13 +917,12 @@ mod CERTIFICATION-PRODUCER is
     result("{\"proof\":" + traceText(TR) + ",\"sound\":[" + answersProof(ORIG, AS, HS) + "]}")
     if answersSound(ORIG, AS, HS) .
   crl [cover-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
-    done(finish(coverNode(C, IM, ES, J, TS,
-        if HS == nilH then derivedText(IM) else vectorProof(INPUTS, IM, TARGET, HS) fi), F))
-    if covered(J, TS, TARGET) := selectCover(C, IM, AS, 0, INPUTS, HS) .
+    done(finish(coverNode(C, IM, ES, J, TS, P), F))
+    if evidenceCover(J, TS, P) := selectCoverage(C, IM, ES, AS, INPUTS, HS) .
   crl [bind] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     solve(HS, drop(I, C), substArgs(I, lower(I, A), IM), substEqs(I, lower(I, A), ES),
       frame(C, drop(I, C), S, I, lower(I, A), IM, ES, P, F), ORIG, AS, INPUTS)
-    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ pick(S, I, A, P) := choose(ES, 0, HS) .
+    if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ pick(S, I, A, P) := choose(ES, 0, HS) .
   crl [clash-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     done(finish(clashNode(C, IM, ES, H, K, TS, US, P), F))
     if clashChoice(H, K, TS, US, P) := choose(ES, 0, HS) .
@@ -826,14 +994,14 @@ mod CERTIFICATION-PRODUCER is
   crl [atom-split] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     atomPending(C, IM, ES, bagSort(HS), TS, H, US, P, F,
       atomStates(TS, TS, bagSort(HS), H, US, HS, C, IM, ES, ORIG, AS, INPUTS, 0))
-    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+    if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
       atomChoice(TS, H, US, P) := selectBag(ES, 0, HS) .
   crl [atom-collect] : atomPending(C, IM, ES, S, TS, H, US, P, F, STS) =>
     done(finish(atomNode(C, IM, ES, S, TS, H, US, P, statesText(STS)), F)) if readyStates(STS) .
   crl [zero-split] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     zeroPending(C, IM, ES, bagSort(HS), TS, P, F,
       solve(HS, C, IM, appendEqs(zeroReqs(bagSort(HS), TS, HS), ES), endF, ORIG, AS, INPUTS))
-    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+    if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
       zeroChoice(TS, P) := selectBag(ES, 0, HS) .
   rl [zero-collect] : zeroPending(C, IM, ES, S, TS, P, F, done(TR)) =>
     done(finish(zeroNode(C, IM, ES, S, TS, P, TR), F)) .
@@ -842,11 +1010,11 @@ mod CERTIFICATION-PRODUCER is
     if none := choose(ES, 0, HS) /\ nonemptyChoice(H, TS, P) := selectBag(ES, 0, HS) .
   crl [finite-sharing] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     sharingState(HS, C, IM, ES, F, ORIG, AS, INPUTS, A, B, P)
-    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+    if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
       balanceChoice(A, B, P) := selectBag(ES, 0, HS) .
   crl [purify] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     beginPurify(HS, C, IM, ES, F, ORIG, AS, INPUTS, R, Q, E, ES2:Equations)
-    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+    if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
       purifyChoice(R, Q, E, ES2:Equations) := selectBag(ES, 0, HS) .
   rl [prepare-next] : preparing(HS, C, IM, e(Q, e(OtherQ:Equation, ES)), ORIG, AS, INPUTS) =>
     prepareMore(HS, C, IM, e(Q, e(OtherQ:Equation, ES)), ORIG, AS, INPUTS, problemAtom(OtherQ:Equation, HS)) .

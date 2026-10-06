@@ -182,13 +182,13 @@ user's own constructors; no generated variable indices occur in its proof.
 
 Actual Maude completeness tree for atomSystem/atomAnswers:
   ATOM
-    P := [wait(n)], Q := empty: BIND(P) -> BIND(Q) -> COVER(answer 0, N := n)
-    P := empty, Q := [wait(n)]: BIND(P) -> BIND(Q) -> COVER(answer 1, N := n)
+    P =B [wait(n)], Q =B empty: COVER(answer 0, N := n) using these equations
+    P =B empty, Q =B [wait(n)]: COVER(answer 1, N := n) using these equations
 
 `singletonCases` presents ATOM as two native equality cases. In each branch,
-the equalities supplied by ATOM already state the two BIND assignments; the
-existential witness is the COVER parameter N := n. This groups those steps at
-the surface instead of exposing the dump's sorted-context machinery. The
+the equalities supplied by ATOM establish the proposed assignment immediately;
+the existential witness is the COVER parameter N := n. The producer now closes
+these cases directly too, without BIND or scoped substitution snapshots. The
 branches below are written empty-first (the generic rule's order), whereas the
 dump enumerates singleton-first. No branch is omitted in either presentation.
 
@@ -205,7 +205,7 @@ theorem atom_manual_certificate (n : Nat) (P Q : ProcSet) :
       (∃ N : Nat, n =[BakeryTheory.certified] N ∧
         P =[BakeryTheory.certified] ProcSet.empty ∧
         Q =[BakeryTheory.certified] ProcSet.singleton (Mode.wait N)) :=
-  ⟨-- COMPLETENESS: ATOM, then BIND assignments and COVER in both branches.
+  ⟨-- COMPLETENESS: ATOM, then conditional COVER in both branches.
     fun equation =>
       Or.elim
         ((NativeRules.singletonCases profile registration processUnion singletonConstructor
@@ -232,6 +232,29 @@ theorem atom_manual_certificate (n : Nat) (P Q : ProcSet) :
                 (NativeRules.unaryCongruence registration waitingConstructor hN)))))⟩
 
 #print axioms atom_manual_certificate
+
+-- Targeted nonlinear closure: the supplied diagonal answer makes positive
+-- multiplicity cancellation useful. ACTUAL dump: COVER, with MULTIPLICITY in
+-- its equation evidence; no BIND or 2-by-2 finite-sharing expansion.
+def powerSystem : List (Problem Sig [Tag.s2, Tag.s2]) :=
+  [equation (add Operator.acu (.var .here) (.var .here))
+    (add Operator.acu (.var (.there .here)) (.var (.there .here)))]
+def powerAnswers : List (Answer Sig [Tag.s2, Tag.s2]) :=
+  [{ parameters := [Tag.s2], images := .cons (.var .here) (.cons (.var .here) .nil) }]
+run_elab do
+  let dump ← LeanReady.produce (LeanReady.requestJson profile profile_sortCode
+    powerSystem powerAnswers "powerSystem" "powerAnswers" profile_signature)
+  let expected ← `(∀ values, Worklist.Holds registration powerSystem values ↔
+    Solutions registration powerAnswers values)
+  let (type, proof) ← LeanReady.prepareProof expected dump
+  Lean.addDecl (.thmDecl { name := `CertificationDemo.power_checked, levelParams := [], type := type, value := proof })
+theorem power_certificate (P Q : ProcSet) :
+    P.union P =[BakeryTheory.certified] Q.union Q ↔
+      ∃ Z : ProcSet, P =[BakeryTheory.certified] Z ∧ Q =[BakeryTheory.certified] Z := by
+  simpa [Worklist.Holds, powerSystem, powerAnswers, Solutions, Answer.Holds,
+    Problem.Holds, equation, Terms.eval, Term.eval, Variable.eval, Args, ArgsRel,
+    Substitution.add] using power_checked (P, Q, PUnit.unit)
+#print axioms power_certificate
 
 -- Repeated variables are kept shared: 2P cannot equal one singleton.
 def repeatedSystem : List (Problem Sig [Tag.s0, Tag.s2]) :=
@@ -474,31 +497,41 @@ theorem overlap_certificate (n m : Nat) (P Q R : ProcSet) :
 run_elab do
   if (← IO.getEnv "CONPANNA_CERT_NEGATIVES") == some "1" then
     let dump ← LeanReady.produce (LeanReady.requestJson profile profile_sortCode
-      repeatedFactorSystem unitAnswers "repeatedFactorSystem" "unitAnswers" profile_signature)
+      atomSystem atomAnswers "atomSystem" "atomAnswers" profile_signature)
     let bundle ← IO.ofExcept (Lean.Json.parse dump)
     let steps ← IO.ofExcept (bundle.getObjValAs? (Array Lean.Json) "steps")
     let some transition := steps.findIdx? (fun step =>
-        (step.getObjValAs? String "rule").toOption == some "bind_successor")
-      | throwError "negative fixture has no binding transition"
+        (step.getObjValAs? String "rule").toOption == some "atom_successor")
+      | throwError "negative fixture has no atom transition"
     let some variableNode := steps.findIdx? (fun step =>
-        (step.getObjValAs? String "type").toOption == some "Term Sig [Tag.s2] Tag.s2")
+        (step.getObjValAs? String "type").toOption == some "Term Sig [Tag.s0, Tag.s2, Tag.s2] Tag.s2")
       | throwError "negative fixture has no scoped variable"
     let transitionType ← IO.ofExcept (steps[transition]!.getObjValAs? String "type")
     let sides := transitionType.splitOn " = "
-    unless sides.length == 2 do throwError "unexpected transition fixture"
-    let wrongSuccessor := sides[0]! ++ " = (ReplayState.prepend " ++ sides[1]! ++
+    unless sides.length ≥ 2 do throwError "unexpected transition fixture"
+    -- The computed source can contain `if i = j`; the LAST equality separates
+    -- it from the named successor snapshot. Do not split binder conditions.
+    let leftSide := String.intercalate " = " (sides.take (sides.length - 1))
+    let wrongSuccessor := leftSide ++ " = (ReplayState.prepend " ++ sides[sides.length - 1]! ++
       " [equation (zero Operator.acu) (zero Operator.acu)])"
     let replace := fun i key value => bundle.setObjVal! "steps" (.arr
       (steps.set! i (steps[i]!.setObjVal! key (.str value))))
+    let some coverNode := steps.findIdx? (fun step =>
+        (step.getObjValAs? String "rule").toOption == some "cover")
+      | throwError "negative fixture has no conditional cover"
+    let coverValue ← IO.ofExcept (steps[coverNode]!.getObjValAs? String "value")
+    let wrongHypothesis := coverValue.replace ".hyp ⟨0," ".hyp ⟨1,"
+    unless wrongHypothesis != coverValue do throwError "cover fixture has no branch hypothesis"
     let fixtures := #[
       ("wrong successor", replace transition "type" wrongSuccessor),
-      ("wrong scope", replace variableNode "value" "(Term.var (sig := Sig) (.there .here))"),
+      ("wrong scope", replace variableNode "value" "(Term.var (sig := Sig) (.there (.there (.there .here))))"),
+      ("wrong conditional hypothesis", replace coverNode "value" wrongHypothesis),
       ("proof hole", replace transition "value" "by sorry"),
       ("duplicate node", bundle.setObjVal! "steps" (.arr (steps.push steps[0]!))),
       ("unsupported node kind", replace variableNode "kind" "axiom"),
       ("wrong final proof", bundle.setObjVal! "proof" (.str "fun _ => Iff.rfl"))]
-    let expected ← `(∀ values, Worklist.Holds registration repeatedFactorSystem values ↔
-      Solutions registration unitAnswers values)
+    let expected ← `(∀ values, Worklist.Holds registration atomSystem values ↔
+      Solutions registration atomAnswers values)
     -- Validate the fixture BEFORE corrupting it, so rejection is meaningful.
     let (type, proof) ← LeanReady.prepareProof expected dump
     Lean.addDecl (.thmDecl { name := `CertificationDemo.negative_control, levelParams := [], type := type, value := proof })
@@ -510,7 +543,7 @@ run_elab do
       catch e =>
         if label == "wrong successor" then
           let message ← e.toMessageData.toString
-          unless (message.splitOn "bind_successor").length > 1 do
+          unless (message.splitOn "atom_successor").length > 1 do
             throwError "wrong successor failed outside its transition: {e.toMessageData}"
         pure true
       saved.restore true

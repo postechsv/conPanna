@@ -247,7 +247,8 @@ theorem atomic_certificate (n : Nat) (P Q : ProcSet) :
 
 Soundness is a separate reflexive equality trace after applying σ. This works
 for EVERY positive k, not just one tested coefficient or a linear fragment.
-It demonstrates accepted targeted evidence, not an implemented automatic search.
+This theorem is handwritten targeted evidence. The same MULTIPLICITY/COVER
+steps are now produced automatically in examples/certification-demo.lean.
 -/
 def repeatedProblem (k : Nat) : Problem Sig [Tag.s2, Tag.s2] :=
   equation (copies Operator.acu k (.var .here))
