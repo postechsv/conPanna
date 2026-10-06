@@ -43,6 +43,903 @@ mod LEAN-READY-BOUNDARY-EMITTER is
   rl [emit] : done(E) => result("fun P Q : ProcSet => " + proofText(E)) .
 endm
 
+--- Maintained typed-trace producer. Input answers are ALREADY obtained upstream.
+--- Free, singleton/zero, purification, finite sharing, and whole-vector COVER.
+--- No native unify invocation; constructor roles, not model names, choose rules.
+mod CERTIFICATION-PRODUCER is
+  protecting CONVERSION .
+  sorts Term Terms Equation Equations Context Choice Trace Frames State Heads Answers CoverChoice PathChoice .
+  op v : Nat -> Term [ctor] .
+  op a : Nat Terms -> Term [ctor] .
+  op nilT : -> Terms [ctor] .
+  op t : Term Terms -> Terms [ctor] .
+  op eqn : Nat Term Term -> Equation [ctor] .
+  op nilE : -> Equations [ctor] .
+  op e : Equation Equations -> Equations [ctor] .
+  op nilC : -> Context [ctor] .
+  op c : Nat Context -> Context [ctor] .
+  op none : -> Choice [ctor] .
+  op pick : Nat Nat Term String -> Choice [ctor] .
+  op clashChoice : Nat Nat Terms Terms String -> Choice [ctor] .
+  op occursChoice : Nat Nat Term String String -> Choice [ctor] .
+  op noPath : -> PathChoice [ctor] .
+  op path : String -> PathChoice [ctor] .
+  op freePath : Nat Term Heads -> PathChoice .
+  op pathArgs : Nat Terms Nat Terms Heads Nat -> PathChoice .
+  op wrapPath : Nat Terms Nat PathChoice -> PathChoice .
+  op preferPath : PathChoice PathChoice -> PathChoice .
+  op selectOccurs : Nat Nat Term PathChoice String -> Choice .
+  op nilH : -> Heads [ctor] .
+  op head : Nat Nat Context String Heads -> Heads [ctor] .
+  op nilA : -> Answers [ctor] .
+  op answer : Context Terms Answers -> Answers [ctor] .
+  op noCover : -> CoverChoice [ctor] .
+  op covered : Nat Terms Terms -> CoverChoice [ctor] .
+  op lookup : Nat Heads -> Context .
+  op isFree : Nat Heads -> Bool .
+  op selectCover : Context Terms Answers Nat Context Heads -> CoverChoice .
+  op endF : -> Frames [ctor] .
+  op frame : Context Context Nat Nat Term Terms Equations String Frames -> Frames [ctor] .
+  op bindNode : Context Context Nat Nat Term Terms Equations String Trace -> Trace [ctor] .
+  op coverNode : Context Terms Equations Nat Terms String -> Trace [ctor] .
+  op clashNode : Context Terms Equations Nat Nat Terms Terms String -> Trace [ctor] .
+  op occursNode : Context Terms Equations Nat Nat Term String String -> Trace [ctor] .
+  op finish : Trace Frames -> Trace .
+  op certify : Heads Context Terms Equations Answers -> State [ctor] .
+  op solve : Heads Context Terms Equations Frames Equations Answers Context -> State [ctor] .
+  op result : String -> State [ctor] .
+  op emit : Heads Equations Answers State -> State [ctor] .
+  op done : Trace -> State [ctor] .
+  sorts States BagChoice .
+  op nilStates : -> States [ctor] .
+  op stateCons : State States -> States [ctor] .
+  op atomPending : Context Terms Equations Nat Terms Nat Terms String Frames States -> State [ctor] .
+  op zeroPending : Context Terms Equations Nat Terms String Frames State -> State [ctor] .
+  op atomNode : Context Terms Equations Nat Terms Nat Terms String String -> Trace [ctor] .
+  op zeroNode : Context Terms Equations Nat Terms String Trace -> Trace [ctor] .
+  op nonemptyNode : Context Terms Equations Nat Terms String -> Trace [ctor] .
+  op readyStates : States -> Bool .
+  op statesText : States -> String .
+  op flatBag : Term Heads -> Terms .
+  op appendTerms : Terms Terms -> Terms .
+  op appendEqs : Equations Equations -> Equations .
+  op lengthTerms : Terms -> Nat .
+  op sumTerms : Terms Heads -> Term .
+  op sumPremise : Terms Term Heads String -> String .
+  op noBag : -> BagChoice [ctor] .
+  op atomChoice : Terms Nat Terms String -> BagChoice [ctor] .
+  op zeroChoice : Terms String -> BagChoice [ctor] .
+  op nonemptyChoice : Nat Terms String -> BagChoice [ctor] .
+  op selectBag : Equations Nat Heads -> BagChoice .
+  op selectBagTerm : Nat Term Term Heads String -> BagChoice .
+  op nestedBag : Term Term Heads String -> BagChoice .
+  op nestedArgs : Context Terms Terms Nat Terms Terms Heads String Nat -> BagChoice .
+  op firstBag : BagChoice BagChoice -> BagChoice .
+  op requirements : Nat Terms Term Nat Nat Heads -> Equations .
+  op zeroReqs : Nat Terms Heads -> Equations .
+  op atomStates : Terms Terms Nat Nat Terms Heads Context Terms Equations Equations Answers Context Nat -> States .
+  op onesText : Terms -> String .
+
+  op occurs : Nat Term -> Bool .
+  op occursArgs : Nat Terms -> Bool .
+  op lower : Nat Term -> Term .
+  op lowerArgs : Nat Terms -> Terms .
+  op subst : Nat Term Term -> Term .
+  op substArgs : Nat Term Terms -> Terms .
+  op substEqs : Nat Term Equations -> Equations .
+  op drop : Nat Context -> Context .
+  op choose : Equations Nat Heads -> Choice .
+  op chooseTerm : Nat Term Term Heads String -> Choice .
+  op chooseArgs : Context Terms Terms Nat Nat Terms Terms Heads String Nat -> Choice .
+  op first : Choice Choice -> Choice .
+  op identities : Context Nat -> Terms .
+  op get : Nat Terms -> Term .
+  op inst : Term Terms -> Term .
+  op instArgs : Terms Terms -> Terms .
+  op instEqs : Equations Terms -> Equations .
+  op reflexive : Equations -> Bool .
+
+  op natText : Nat -> String .
+  op ctxText : Context -> String .
+  op ctxItems : Context -> String .
+  op termText : Term -> String .
+  op argsText : Terms -> String .
+  op argItems : Terms -> String .
+  op eqText : Equation -> String .
+  op eqsText : Equations -> String .
+  op eqItems : Equations -> String .
+  op reflText : Context Term -> String .
+  op derivedText : Terms -> String .
+  op traceText : Trace -> String .
+  op soundText : Context Equations -> String .
+  op soundRows : Equations Answers -> String .
+  op soundAnswers : Equation Answers -> String .
+  op soundOK : Equations Answers -> Bool .
+  op hypText : Nat -> String .
+  op symmText : String -> String .
+  op decompText : Nat Terms Terms Nat String -> String .
+
+  --- Equality normalization emits ordinary proof-rule trees, not a success flag.
+  --- Bags become sorted right-associated sums ending in the registered unit.
+  sorts Normal NormalArgs .
+  op normal : Term String -> Normal [ctor] .
+  op normalArgs : Terms String -> NormalArgs [ctor] .
+  op bagSort : Heads -> Nat .
+  op bagAdd : Heads -> Nat .
+  op bagZero : Heads -> Nat .
+  op role : Nat Heads -> String .
+  op norm : Nat Term Heads -> Normal .
+  op normArgs : Context Terms Heads -> NormalArgs .
+  op normCons : Normal NormalArgs -> NormalArgs .
+  op normApp : Nat Nat NormalArgs Heads -> Normal .
+  op appResult : Nat Nat Terms Heads -> Normal .
+  op prepend : String Normal -> Normal .
+  op joinBag : Term Term Heads -> Normal .
+  op joinTail : Term Term Term Normal Heads -> Normal .
+  op insertBag : Term Term Heads -> Normal .
+  op insertTail : Term Term Term Normal Heads -> Normal .
+  op normalized : Nat Term Heads -> Term .
+  op proofNorm : Nat Term Heads -> String .
+  op eqProof : Nat Term Term Heads -> String .
+  op refl : Term -> String .
+  op symmetry : String -> String .
+  op transitivity : String String -> String .
+  op congruence : Nat String -> String .
+  op binaryCong : Nat String String -> String .
+  op unitProof : Term -> String .
+  op rightUnitProof : Term Heads -> String .
+  op commProof : Term Term -> String .
+  op assocProof : Term Term Term -> String .
+  op swapProof : Term Term Term -> String .
+  op scoped : Context String -> String .
+  op soundNormalized : Equations Answers Heads -> Bool .
+  op normalizedRows : Equations Answers Heads -> String .
+  op normalizedAnswers : Equation Answers Heads -> String .
+  op originalScope : Context Frames -> Context .
+  op vectorSame : Context Terms Terms Heads -> Bool .
+  op vectorProof : Context Terms Terms Heads -> String .
+  op answersSound : Equations Answers Heads -> Bool .
+  op answersProof : Equations Answers Heads -> String .
+  --- Whole-vector factoring: proposed parameters are assignable; current branch
+  --- variables stay rigid. Repeated parameters share ONE binding table.
+  --- This structural matcher is a shortcut, not the complete ACU fallback.
+  sort MatchResult .
+  op unassigned : Nat -> Term [ctor] .
+  op unmatched : -> MatchResult [ctor] .
+  op matched : Terms -> MatchResult [ctor] .
+  op initialBindings : Context Nat -> Terms .
+  op replaceAt : Nat Term Terms -> Terms .
+  op matchTerm : Term Term Terms -> MatchResult .
+  op assign : Nat Term Term Terms -> MatchResult .
+  op matchArgs : Terms Terms MatchResult -> MatchResult .
+  op matchVector : Context Terms Terms MatchResult Heads -> MatchResult .
+  op assigned : Terms -> Bool .
+  op assignedTerm : Term -> Bool .
+  op coverMatch : Context Terms Context Terms Nat Answers Context Heads MatchResult -> CoverChoice .
+  --- Complete finite ACU matching fallback. Branch variables are RIGID items;
+  --- only answer parameters are assigned. Partition an observed finite bag,
+  --- including the empty subbag, then check one shared table over ALL images.
+  sorts Matches Partitions BagRemoval .
+  op nilM : -> Matches [ctor] .
+  op consM : Terms Matches -> Matches [ctor] .
+  op appendM : Matches Matches -> Matches .
+  op parts : Terms -> Partitions .
+  op nilParts : -> Partitions [ctor] .
+  op part : Terms Terms Partitions -> Partitions [ctor] .
+  op extendParts : Term Partitions -> Partitions .
+  op notRemoved : -> BagRemoval [ctor] .
+  op removed : Terms -> BagRemoval [ctor] .
+  op removeOne : Term Terms -> BagRemoval .
+  op prependRemoved : Term BagRemoval -> BagRemoval .
+  op removeBag : Terms Terms -> BagRemoval .
+  op continueRemove : Terms BagRemoval -> BagRemoval .
+  op allSorted : Nat Term Term Terms Heads -> Matches .
+  op asMatches : MatchResult -> Matches .
+  op allArgs : Context Terms Terms Matches Heads -> Matches .
+  op matchEach : Nat Term Term Matches Heads -> Matches .
+  op bagMatch : Terms Terms Terms Heads -> Matches .
+  op bagVariable : Nat Terms Terms Terms Heads Term -> Matches .
+  op partitionMatches : Nat Terms Terms Heads Partitions -> Matches .
+  op afterRemove : Terms Terms Heads BagRemoval -> Matches .
+  op atomChoices : Nat Terms Terms Terms Terms Terms Heads -> Matches .
+  op continueBag : Terms Terms Matches Heads -> Matches .
+  op fallbackCover : Context Terms Context Terms Nat Answers Context Heads -> CoverChoice .
+  op chooseFactor : Context Terms Terms Nat Context Heads Matches -> CoverChoice .
+  op firstCover : CoverChoice CoverChoice -> CoverChoice .
+  --- Exhaustive occurrence grids (CERTIFICATION.md finite-sharing rule).
+  --- Context is also used for untyped Nat vectors in EXTERNAL evidence data.
+  sort Vectors .
+  op nilV : -> Vectors [ctor] .
+  op vec : Context Vectors -> Vectors [ctor] .
+  op appendC : Context Context -> Context .
+  op lenC : Context -> Nat .
+  op sumC : Context -> Nat .
+  op nthC : Nat Context -> Nat .
+  op zeros : Nat -> Context .
+  op repeatC : Nat Nat -> Context .
+  op boolVectors : Nat -> Vectors .
+  op boolExtend : Vectors -> Vectors .
+  op appendV : Vectors Vectors -> Vectors .
+  op prefixV : Context Vectors -> Vectors .
+  op gridProduct : Vectors Vectors -> Vectors .
+  op grids : Nat Nat -> Vectors .
+  op bagVariables : Context Nat Heads -> Context .
+  op variableTerms : Context -> Terms .
+  op slotText : Context Heads -> String .
+  op onlyVars : Terms -> Bool .
+  op countVar : Nat Terms -> Nat .
+  op coefficients : Context Terms -> Context .
+  op subtractC : Context Context -> Context .
+  op minimumC : Context Context -> Context .
+  op labels : Context Nat -> Context .
+  op copiesTerm : Nat Term Heads -> Term .
+  op weightedSum : Context Terms Heads -> Term .
+  op rowDegrees : Nat Nat Context Nat -> Context .
+  op colDegrees : Nat Nat Context Nat -> Context .
+  op rowSum : Nat Nat Nat Context -> Nat .
+  op colSum : Nat Nat Nat Context -> Nat .
+  op raiseAt : Nat Nat Context -> Context .
+  op accumulate : Context Context Context -> Context .
+  op marginsOK : Context Context Context -> Bool .
+  op retainSupport : Bool Context Vectors -> Vectors .
+  op generatorCount : Vectors -> Nat .
+  op generatorImage : Nat Vectors Nat Heads -> Term .
+  op imageTable : Context Context Context Context Vectors Nat Nat Heads -> Terms .
+  op countsText : Context -> String .
+  op countsItems : Context -> String .
+  op sharingFields : Context Nat Context Context Context Context -> String .
+  op slotSortText : Context Nat -> String .
+  op sharingPremise : Term Term Context Context Context Heads String -> String .
+  op sharingPending : Context Terms Equations Nat Context Context Context Context Context Vectors String Frames State -> State [ctor] .
+  op sharingNode : Context Terms Equations Nat Context Context Context Context Context Vectors String Trace -> Trace [ctor] .
+  op vectorsText : Vectors -> String .
+  op balanceChoice : Term Term String -> BagChoice [ctor] .
+  op sharingState : Heads Context Terms Equations Frames Equations Answers Context Term Term String -> State .
+  op prepareSharing : Heads Context Terms Equations Frames Equations Answers Context Term Term String Context Context Context -> State .
+  op launchSharing : Heads Context Terms Equations Frames Equations Answers Context Nat Context Context Context Context Context String Vectors -> State .
+  op balanceOnly : Nat Term Term Heads String -> BagChoice .
+  sort AtomResult .
+  op noAtom : -> AtomResult [ctor] .
+  op foundAtom : Term -> AtomResult [ctor] .
+  op outputSort : Nat Heads -> Nat .
+  op findAtom : Term Heads -> AtomResult .
+  op findArgsAtom : Terms Heads -> AtomResult .
+  op preferAtom : AtomResult AtomResult -> AtomResult .
+  op problemAtom : Equation Heads -> AtomResult .
+  op abstractTerm : Term Term -> Term .
+  op abstractArgs : Term Terms -> Terms .
+  op abstractEq : Term Equation -> Equation .
+  op scanBag : Equations Equations Nat Heads -> BagChoice .
+  op markBalance : BagChoice Equation Equations Equations Heads -> BagChoice .
+  op markAtom : Term Term String Equation Equations Equations AtomResult -> BagChoice .
+  op purifyChoice : Term Equation Equations Equations -> BagChoice [ctor] .
+  op purifyPending : Context Terms Nat Term Equation Equations Equations Frames State -> State [ctor] .
+  op purifyNode : Context Terms Nat Term Equation Equations Equations Trace -> Trace [ctor] .
+  op preparing : Heads Context Terms Equations Equations Answers Context -> State [ctor] .
+  op prepareMore : Heads Context Terms Equations Equations Answers Context AtomResult -> State .
+  op prepareClean : Heads Context Terms Equations Equations Answers Context BagChoice -> State .
+  op beginPurify : Heads Context Terms Equations Frames Equations Answers Context Term Equation Equations Equations -> State .
+  vars I J K S H : Nat .
+  vars A B R : Term .
+  vars TS US IM TARGET : Terms .
+  vars E ES ORIG : Equations .
+  vars C D PARAMS : Context .
+  var INPUTS : Context .
+  var Q : Equation .
+  var F : Frames .
+  var TR : Trace .
+  var HS : Heads .
+  var AS : Answers .
+  vars P ROLE : String .
+  vars PA PB : String .
+  var PATH : String .
+  vars CH NEXT : Choice .
+  vars BC BNEXT : BagChoice .
+  var STS : States .
+  var ST : State .
+  var MR : MatchResult .
+  var AT : AtomResult .
+  vars LEFT RIGHT ROWS COLS VARS COMMON MAT DEG : Context .
+  vars VS WS : Vectors .
+
+  eq bagSort(head(H, S, C, "add", HS)) = S .
+  eq bagSort(head(H, S, C, ROLE, HS)) = bagSort(HS) [owise] .
+  eq bagAdd(head(H, S, C, "add", HS)) = H .
+  eq bagAdd(head(H, S, C, ROLE, HS)) = bagAdd(HS) [owise] .
+  eq bagZero(head(H, S, C, "zero", HS)) = H .
+  eq bagZero(head(H, S, C, ROLE, HS)) = bagZero(HS) [owise] .
+  eq role(H, head(H, S, C, ROLE, HS)) = ROLE .
+  eq role(H, head(K, S, C, ROLE, HS)) = role(H, HS) [owise] .
+  eq refl(A) = "{\"rule\":\"refl\",\"term\":" + termText(A) + "}" .
+  eq symmetry(P) = "{\"rule\":\"symm\",\"child\":" + P + "}" .
+  eq transitivity(PA, PB) = "{\"rule\":\"trans\",\"left\":" + PA + ",\"right\":" + PB + "}" .
+  eq congruence(H, P) = "{\"rule\":\"congr\",\"head\":" + natText(H) + ",\"args\":[" + P + "]}" .
+  eq binaryCong(H, PA, PB) = congruence(H, PA + "," + PB) .
+  eq unitProof(A) = "{\"rule\":\"unit\",\"terms\":[" + termText(A) + "]}" .
+  eq commProof(A, B) = "{\"rule\":\"comm\",\"terms\":[" + termText(A) + "," + termText(B) + "]}" .
+  eq assocProof(A, B, R) = "{\"rule\":\"assoc\",\"terms\":[" + termText(A) + "," + termText(B) + "," + termText(R) + "]}" .
+  eq swapProof(A, B, R) = "{\"rule\":\"swap_right\",\"terms\":[" + termText(A) + "," + termText(B) + "," + termText(R) + "]}" .
+  eq rightUnitProof(A, HS) = transitivity(commProof(A, a(bagZero(HS), nilT)), unitProof(A)) .
+  eq scoped(C, P) = "{\"rule\":\"scoped\",\"scope\":" + ctxText(C) + ",\"child\":" + P + "}" .
+  eq norm(S, v(I), HS) = if S == bagSort(HS) then
+    normal(a(bagAdd(HS), t(v(I), t(a(bagZero(HS), nilT), nilT))), symmetry(rightUnitProof(v(I), HS)))
+    else normal(v(I), refl(v(I))) fi .
+  eq norm(S, a(H, TS), HS) = normApp(S, H, normArgs(lookup(H, HS), TS, HS), HS) .
+  eq normArgs(nilC, nilT, HS) = normalArgs(nilT, "") .
+  eq normArgs(c(S, C), t(A, TS), HS) = normCons(norm(S, A, HS), normArgs(C, TS, HS)) .
+  eq normCons(normal(A, PA), normalArgs(nilT, PB)) = normalArgs(t(A, nilT), PA) .
+  eq normCons(normal(A, PA), normalArgs(TS, PB)) = normalArgs(t(A, TS), PA + "," + PB) [owise] .
+  eq normApp(S, H, normalArgs(TS, P), HS) = prepend(congruence(H, P), appResult(S, H, TS, HS)) .
+  eq prepend(PA, normal(A, PB)) = normal(A, transitivity(PA, PB)) .
+  eq appResult(S, H, TS, HS) = if role(H, HS) == "add" then
+    joinBag(get(0, TS), get(1, TS), HS)
+    else if S == bagSort(HS) and role(H, HS) == "free" then
+      normal(a(bagAdd(HS), t(a(H, TS), t(a(bagZero(HS), nilT), nilT))), symmetry(rightUnitProof(a(H, TS), HS)))
+    else normal(a(H, TS), refl(a(H, TS))) fi fi .
+  ceq joinBag(a(H, nilT), B, HS) = normal(B, unitProof(B)) if H == bagZero(HS) .
+  ceq joinBag(a(H, t(A, t(R, nilT))), B, HS) = joinTail(A, R, B, joinBag(R, B, HS), HS)
+    if H == bagAdd(HS) .
+  eq joinTail(A, R, B, normal(TermA:Term, PA), HS) =
+    prepend(transitivity(assocProof(A, R, B), binaryCong(bagAdd(HS), refl(A), PA)), insertBag(A, TermA:Term, HS)) .
+  ceq insertBag(A, a(H, nilT), HS) =
+    normal(a(bagAdd(HS), t(A, t(a(H, nilT), nilT))), refl(a(bagAdd(HS), t(A, t(a(H, nilT), nilT)))))
+    if H == bagZero(HS) .
+  ceq insertBag(A, a(H, t(B, t(R, nilT))), HS) =
+    if termText(A) <= termText(B) then normal(a(H, t(A, t(a(H, t(B, t(R, nilT))), nilT))),
+      refl(a(H, t(A, t(a(H, t(B, t(R, nilT))), nilT)))))
+    else insertTail(A, B, R, insertBag(A, R, HS), HS) fi if H == bagAdd(HS) .
+  eq insertTail(A, B, R, normal(TermA:Term, PA), HS) =
+    normal(a(bagAdd(HS), t(B, t(TermA:Term, nilT))),
+      transitivity(swapProof(A, B, R), binaryCong(bagAdd(HS), refl(B), PA))) .
+  ceq normalized(S, A, HS) = B if normal(B, P) := norm(S, A, HS) .
+  ceq proofNorm(S, A, HS) = P if normal(B, P) := norm(S, A, HS) .
+  eq eqProof(S, A, B, HS) = if A == B then refl(A)
+    else transitivity(proofNorm(S, A, HS), symmetry(proofNorm(S, B, HS))) fi .
+  eq originalScope(C, endF) = C .
+  eq originalScope(C, frame(D, PARAMS, S, I, R, IM, ES, P, F)) = originalScope(D, F) .
+  eq vectorSame(nilC, nilT, nilT, HS) = true .
+  eq vectorSame(c(S, C), t(A, TS), t(B, US), HS) =
+    (normalized(S, A, HS) == normalized(S, B, HS)) and vectorSame(C, TS, US, HS) .
+  eq vectorProof(nilC, nilT, nilT, HS) = "" .
+  eq vectorProof(c(S, nilC), t(A, nilT), t(B, nilT), HS) =
+    "{\"rule\":\"axiom\",\"equality\":" + eqProof(S, A, B, HS) + "}" .
+  eq vectorProof(c(S, C), t(A, TS), t(B, US), HS) =
+    "{\"rule\":\"axiom\",\"equality\":" + eqProof(S, A, B, HS) + "}," + vectorProof(C, TS, US, HS) [owise] .
+  eq answersSound(ORIG, AS, nilH) = soundOK(ORIG, AS) .
+  eq answersSound(ORIG, AS, HS) = soundNormalized(ORIG, AS, HS) [owise] .
+  eq answersProof(ORIG, AS, nilH) = soundRows(ORIG, AS) .
+  eq answersProof(ORIG, AS, HS) = normalizedRows(ORIG, AS, HS) [owise] .
+  eq initialBindings(nilC, I) = nilT .
+  eq initialBindings(c(S, C), I) = t(unassigned(I), initialBindings(C, s(I))) .
+  eq replaceAt(0, A, t(B, TS)) = t(A, TS) .
+  eq replaceAt(s(I), A, t(B, TS)) = t(B, replaceAt(I, A, TS)) .
+  eq matchTerm(v(I), A, TS) = assign(I, A, get(I, TS), TS) .
+  eq assign(I, A, unassigned(J), TS) = matched(replaceAt(I, A, TS)) .
+  eq assign(I, A, B, TS) = if A == B then matched(TS) else unmatched fi [owise] .
+  eq matchTerm(a(H, TS), a(K, US), IM) =
+    if H == K then matchArgs(TS, US, matched(IM)) else unmatched fi .
+  eq matchTerm(a(H, TS), v(I), IM) = unmatched .
+  eq matchArgs(TS, US, unmatched) = unmatched .
+  eq matchArgs(nilT, nilT, matched(IM)) = matched(IM) .
+  eq matchArgs(t(A, TS), t(B, US), matched(IM)) = matchArgs(TS, US, matchTerm(A, B, IM)) .
+  eq matchVector(INPUTS, TS, US, unmatched, HS) = unmatched .
+  eq matchVector(nilC, nilT, nilT, matched(IM), HS) = matched(IM) .
+  eq matchVector(c(S, C), t(A, TS), t(B, US), matched(IM), HS) =
+    matchVector(C, TS, US, matchTerm(normalized(S, A, HS), normalized(S, B, HS), IM), HS) .
+  eq assigned(nilT) = true .
+  eq assigned(t(A, TS)) = assignedTerm(A) and assigned(TS) .
+  eq assignedTerm(unassigned(I)) = false .
+  eq assignedTerm(A) = true [owise] .
+  eq coverMatch(C, IM, D, TARGET, J, AS, INPUTS, HS, unmatched) = fallbackCover(C, IM, D, TARGET, J, AS, INPUTS, HS) .
+  eq coverMatch(C, IM, D, TARGET, J, AS, INPUTS, HS, matched(TS)) =
+    if assigned(TS) and vectorSame(INPUTS, IM, instArgs(TARGET, TS), HS)
+    then covered(J, TS, instArgs(TARGET, TS)) else fallbackCover(C, IM, D, TARGET, J, AS, INPUTS, HS) fi .
+
+  eq appendM(nilM, MS:Matches) = MS:Matches .
+  eq appendM(consM(IM, MS:Matches), NS:Matches) = consM(IM, appendM(MS:Matches, NS:Matches)) .
+  eq parts(nilT) = part(nilT, nilT, nilParts) .
+  eq parts(t(A, TS)) = extendParts(A, parts(TS)) .
+  eq extendParts(A, nilParts) = nilParts .
+  eq extendParts(A, part(TS, US, PS:Partitions)) =
+    part(t(A, TS), US, part(TS, t(A, US), extendParts(A, PS:Partitions))) .
+  eq removeOne(A, nilT) = notRemoved .
+  eq removeOne(A, t(A, TS)) = removed(TS) .
+  eq removeOne(A, t(B, TS)) = prependRemoved(B, removeOne(A, TS)) [owise] .
+  eq prependRemoved(A, notRemoved) = notRemoved .
+  eq prependRemoved(A, removed(TS)) = removed(t(A, TS)) .
+  eq removeBag(nilT, TS) = removed(TS) .
+  eq removeBag(t(A, TS), US) = continueRemove(TS, removeOne(A, US)) .
+  eq continueRemove(TS, notRemoved) = notRemoved .
+  eq continueRemove(TS, removed(US)) = removeBag(TS, US) .
+  eq asMatches(unmatched) = nilM .
+  eq asMatches(matched(IM)) = consM(IM, nilM) .
+  eq allSorted(S, A, B, IM, HS) =
+    if S == bagSort(HS) then bagMatch(flatBag(A, HS), flatBag(B, HS), IM, HS)
+    else freeSorted(S, A, B, IM, HS) fi .
+  op freeSorted : Nat Term Term Terms Heads -> Matches .
+  eq freeSorted(S, v(I), A, IM, HS) = asMatches(assign(I, normalized(S, A, HS), get(I, IM), IM)) .
+  eq freeSorted(S, a(H, TS), a(K, US), IM, HS) =
+    if H == K then allArgs(lookup(H, HS), TS, US, consM(IM, nilM), HS) else nilM fi .
+  eq freeSorted(S, a(H, TS), v(I), IM, HS) = nilM .
+  eq allArgs(nilC, nilT, nilT, MS:Matches, HS) = MS:Matches .
+  eq allArgs(c(S, C), t(A, TS), t(B, US), MS:Matches, HS) =
+    allArgs(C, TS, US, matchEach(S, A, B, MS:Matches, HS), HS) .
+  eq matchEach(S, A, B, nilM, HS) = nilM .
+  eq matchEach(S, A, B, consM(IM, MS:Matches), HS) =
+    appendM(allSorted(S, A, B, IM, HS), matchEach(S, A, B, MS:Matches, HS)) .
+  eq bagMatch(nilT, nilT, IM, HS) = consM(IM, nilM) .
+  eq bagMatch(nilT, t(A, TS), IM, HS) = nilM .
+  eq bagMatch(t(v(I), TS), US, IM, HS) = bagVariable(I, TS, US, IM, HS, get(I, IM)) .
+  eq bagVariable(I, TS, US, IM, HS, unassigned(J)) = partitionMatches(I, TS, IM, HS, parts(US)) .
+  eq bagVariable(I, TS, US, IM, HS, A) = afterRemove(TS, IM, HS, removeBag(flatBag(A, HS), US)) [owise] .
+  eq partitionMatches(I, TS, IM, HS, nilParts) = nilM .
+  eq partitionMatches(I, TS, IM, HS, part(US, TARGET, PS:Partitions)) =
+    appendM(bagMatch(TS, TARGET, replaceAt(I, normalized(bagSort(HS), sumTerms(US, HS), HS), IM), HS),
+      partitionMatches(I, TS, IM, HS, PS:Partitions)) .
+  eq afterRemove(TS, IM, HS, notRemoved) = nilM .
+  eq afterRemove(TS, IM, HS, removed(US)) = bagMatch(TS, US, IM, HS) .
+  eq bagMatch(t(a(H, TS), US), TARGET, IM, HS) = atomChoices(H, TS, US, TARGET, nilT, IM, HS) .
+  eq atomChoices(H, TS, US, nilT, TARGET, IM, HS) = nilM .
+  eq atomChoices(H, TS, US, t(a(K, ARGS:Terms), REST:Terms), TARGET, IM, HS) =
+    appendM(if H == K then continueBag(US, appendTerms(TARGET, REST:Terms),
+      allArgs(lookup(H, HS), TS, ARGS:Terms, consM(IM, nilM), HS), HS) else nilM fi,
+      atomChoices(H, TS, US, REST:Terms, appendTerms(TARGET, t(a(K, ARGS:Terms), nilT)), IM, HS)) .
+  eq atomChoices(H, TS, US, t(v(I), REST:Terms), TARGET, IM, HS) =
+    atomChoices(H, TS, US, REST:Terms, appendTerms(TARGET, t(v(I), nilT)), IM, HS) .
+  eq continueBag(TS, US, nilM, HS) = nilM .
+  eq continueBag(TS, US, consM(IM, MS:Matches), HS) =
+    appendM(bagMatch(TS, US, IM, HS), continueBag(TS, US, MS:Matches, HS)) .
+  eq firstCover(noCover, CV:CoverChoice) = CV:CoverChoice .
+  eq firstCover(covered(J, TS, US), CV:CoverChoice) = covered(J, TS, US) .
+  eq fallbackCover(C, IM, D, TARGET, J, AS, INPUTS, HS) =
+    firstCover(chooseFactor(C, IM, TARGET, J, INPUTS, HS,
+      allArgs(INPUTS, TARGET, IM, consM(initialBindings(D, 0), nilM), HS)),
+      selectCover(C, IM, AS, s(J), INPUTS, HS)) .
+  eq chooseFactor(C, IM, TARGET, J, INPUTS, HS, nilM) = noCover .
+  eq chooseFactor(C, IM, TARGET, J, INPUTS, HS, consM(TS, MS:Matches)) =
+    if assigned(TS) then
+      if vectorSame(INPUTS, IM, instArgs(TARGET, TS), HS) then covered(J, TS, instArgs(TARGET, TS))
+      else chooseFactor(C, IM, TARGET, J, INPUTS, HS, MS:Matches) fi
+    else chooseFactor(C, IM, TARGET, J, INPUTS, HS, MS:Matches) fi .
+
+  eq appendC(nilC, C) = C .
+  eq appendC(c(I, C), D) = c(I, appendC(C, D)) .
+  eq lenC(nilC) = 0 .
+  eq lenC(c(I, C)) = s(lenC(C)) .
+  eq sumC(nilC) = 0 .
+  eq sumC(c(I, C)) = I + sumC(C) .
+  eq nthC(0, c(I, C)) = I .
+  eq nthC(s(I), c(J, C)) = nthC(I, C) .
+  eq zeros(0) = nilC .
+  eq zeros(s(I)) = c(0, zeros(I)) .
+  eq repeatC(I, 0) = nilC .
+  eq repeatC(I, s(J)) = c(I, repeatC(I, J)) .
+  eq boolVectors(0) = vec(nilC, nilV) .
+  eq boolVectors(s(I)) = boolExtend(boolVectors(I)) .
+  eq boolExtend(nilV) = nilV .
+  eq boolExtend(vec(C, VS)) = vec(c(0, C), vec(c(1, C), boolExtend(VS))) .
+  eq appendV(nilV, VS) = VS .
+  eq appendV(vec(C, VS), WS) = vec(C, appendV(VS, WS)) .
+  eq prefixV(C, nilV) = nilV .
+  eq prefixV(C, vec(D, VS)) = vec(appendC(C, D), prefixV(C, VS)) .
+  eq gridProduct(nilV, WS) = nilV .
+  eq gridProduct(vec(C, VS), WS) = appendV(prefixV(C, WS), gridProduct(VS, WS)) .
+  eq grids(0, J) = vec(nilC, nilV) .
+  eq grids(s(I), J) = gridProduct(boolVectors(J), grids(I, J)) .
+  eq bagVariables(nilC, I, HS) = nilC .
+  eq bagVariables(c(S, C), I, HS) = if S == bagSort(HS)
+    then c(I, bagVariables(C, s(I), HS)) else bagVariables(C, s(I), HS) fi .
+  eq variableTerms(nilC) = nilT .
+  eq variableTerms(c(I, C)) = t(v(I), variableTerms(C)) .
+  eq slotText(nilC, HS) = "" .
+  eq slotText(c(S, nilC), HS) = if S == bagSort(HS) then "true" else "false" fi .
+  eq slotText(c(S, C), HS) = (if S == bagSort(HS) then "true," else "false," fi) + slotText(C, HS) [owise] .
+  eq onlyVars(nilT) = true .
+  eq onlyVars(t(v(I), TS)) = onlyVars(TS) .
+  eq onlyVars(t(a(H, US), TS)) = false .
+  eq countVar(I, nilT) = 0 .
+  eq countVar(I, t(v(J), TS)) = (if I == J then 1 else 0 fi) + countVar(I, TS) .
+  eq coefficients(nilC, TS) = nilC .
+  eq coefficients(c(I, C), TS) = c(countVar(I, TS), coefficients(C, TS)) .
+  eq subtractC(nilC, nilC) = nilC .
+  --- Maude sd is ABSOLUTE difference, not truncated subtraction.
+  eq subtractC(c(I, C), c(J, D)) = c(if I > J then sd(I, J) else 0 fi, subtractC(C, D)) .
+  eq minimumC(nilC, nilC) = nilC .
+  eq minimumC(c(I, C), c(J, D)) = c(min(I, J), minimumC(C, D)) .
+  eq labels(nilC, I) = nilC .
+  eq labels(c(J, C), I) = appendC(repeatC(I, J), labels(C, s(I))) .
+  eq copiesTerm(0, A, HS) = a(bagZero(HS), nilT) .
+  eq copiesTerm(s(I), A, HS) = a(bagAdd(HS), t(A, t(copiesTerm(I, A, HS), nilT))) .
+  eq weightedSum(nilC, nilT, HS) = a(bagZero(HS), nilT) .
+  eq weightedSum(c(I, C), t(A, TS), HS) = a(bagAdd(HS), t(copiesTerm(I, A, HS), t(weightedSum(C, TS, HS), nilT))) .
+  eq rowSum(I, 0, K, MAT) = 0 .
+  eq rowSum(I, s(J), K, MAT) = nthC(I * K + J, MAT) + rowSum(I, J, K, MAT) .
+  eq colSum(0, J, K, MAT) = 0 .
+  eq colSum(s(I), J, K, MAT) = nthC(I * K + J, MAT) + colSum(I, J, K, MAT) .
+  eq rowDegrees(0, K, MAT, I) = nilC .
+  eq rowDegrees(s(J), K, MAT, I) = c(rowSum(I, K, K, MAT), rowDegrees(J, K, MAT, s(I))) .
+  eq colDegrees(J, K, MAT, I) = if I < K then c(colSum(J, I, K, MAT), colDegrees(J, K, MAT, s(I))) else nilC fi .
+  eq raiseAt(0, I, c(J, C)) = c(max(I, J), C) .
+  eq raiseAt(s(I), J, c(K, C)) = c(K, raiseAt(I, J, C)) .
+  eq accumulate(nilC, nilC, DEG) = DEG .
+  eq accumulate(c(I, C), c(J, D), DEG) = accumulate(C, D, raiseAt(I, J, DEG)) .
+  eq marginsOK(nilC, nilC, DEG) = true .
+  eq marginsOK(c(I, C), c(J, D), DEG) = (nthC(I, DEG) == J) and marginsOK(C, D, DEG) .
+  op supportN : Nat Context Context Context -> Context .
+  eq supportN(I, ROWS, COLS, MAT) = accumulate(COLS, colDegrees(lenC(ROWS), lenC(COLS), MAT, 0),
+    accumulate(ROWS, rowDegrees(lenC(ROWS), lenC(COLS), MAT, 0), zeros(I))) .
+  --- Include inactive bag slots too: support vectors have EXACTLY n entries.
+  op supportsN : Nat Vectors Context Context -> Vectors .
+  eq supportsN(I, nilV, ROWS, COLS) = nilV .
+  eq supportsN(I, vec(MAT, VS), ROWS, COLS) = retainSupport(sumC(MAT) > 0 and
+    marginsOK(ROWS, rowDegrees(lenC(ROWS), lenC(COLS), MAT, 0), supportN(I, ROWS, COLS, MAT)) and
+    marginsOK(COLS, colDegrees(lenC(ROWS), lenC(COLS), MAT, 0), supportN(I, ROWS, COLS, MAT)),
+    supportN(I, ROWS, COLS, MAT), supportsN(I, VS, ROWS, COLS)) .
+  eq retainSupport(true, DEG, VS) = vec(DEG, VS) .
+  eq retainSupport(false, DEG, VS) = VS .
+  eq generatorCount(nilV) = 0 .
+  eq generatorCount(vec(C, VS)) = s(generatorCount(VS)) .
+  eq generatorImage(I, nilV, J, HS) = a(bagZero(HS), nilT) .
+  eq generatorImage(I, vec(DEG, VS), J, HS) = a(bagAdd(HS),
+    t(copiesTerm(nthC(I, DEG), v(J), HS), t(generatorImage(I, VS, s(J), HS), nilT))) .
+  eq imageTable(nilC, VARS, LEFT, RIGHT, VS, I, J, HS) = nilT .
+  eq imageTable(c(S, C), VARS, LEFT, RIGHT, VS, I, J, HS) =
+    if S == bagSort(HS) then
+      t(if nthC(J, LEFT) == 0 and nthC(J, RIGHT) == 0 then v(I + generatorCount(VS))
+        else generatorImage(J, VS, 0, HS) fi, imageTable(C, VARS, LEFT, RIGHT, VS, s(I), s(J), HS))
+    else t(v(I + generatorCount(VS)), imageTable(C, VARS, LEFT, RIGHT, VS, s(I), J, HS)) fi .
+  eq countsItems(nilC) = "" .
+  eq countsItems(c(I, nilC)) = "\"rfl\"" .
+  eq countsItems(c(I, C)) = "\"rfl\"," + countsItems(C) [owise] .
+  eq countsText(C) = "[" + countsItems(C) + "]" .
+  eq slotSortText(nilC, S) = "" .
+  eq slotSortText(c(K, nilC), S) = if K == S then "true" else "false" fi .
+  eq slotSortText(c(K, C), S) = (if K == S then "true," else "false," fi) + slotSortText(C, S) [owise] .
+  eq sharingFields(C, S, LEFT, RIGHT, ROWS, COLS) = "\"sort\":" + natText(S) +
+    ",\"slots\":[" + slotSortText(C, S) + "],\"left\":" + ctxText(LEFT) + ",\"right\":" + ctxText(RIGHT) +
+    ",\"rows\":" + ctxText(ROWS) + ",\"cols\":" + ctxText(COLS) + ",\"counts\":[" + countsText(LEFT) + "," + countsText(RIGHT) + "]" .
+  eq sharingPremise(A, B, VARS, LEFT, RIGHT, HS, P) = "{\"rule\":\"cancel\",\"common\":" +
+    termText(weightedSum(minimumC(LEFT, RIGHT), variableTerms(VARS), HS)) +
+    ",\"left\":" + termText(weightedSum(subtractC(LEFT, RIGHT), variableTerms(VARS), HS)) +
+    ",\"right\":" + termText(weightedSum(subtractC(RIGHT, LEFT), variableTerms(VARS), HS)) +
+    ",\"child\":{\"rule\":\"trans\",\"left\":{\"rule\":\"axiom\",\"equality\":" +
+    eqProof(bagSort(HS), a(bagAdd(HS), t(weightedSum(minimumC(LEFT, RIGHT), variableTerms(VARS), HS),
+      t(weightedSum(subtractC(LEFT, RIGHT), variableTerms(VARS), HS), nilT))), A, HS) +
+    "},\"right\":{\"rule\":\"trans\",\"left\":" + P + ",\"right\":{\"rule\":\"axiom\",\"equality\":" +
+    eqProof(bagSort(HS), B, a(bagAdd(HS), t(weightedSum(minimumC(LEFT, RIGHT), variableTerms(VARS), HS),
+      t(weightedSum(subtractC(RIGHT, LEFT), variableTerms(VARS), HS), nilT))), HS) + "}}}}" .
+  eq sharingState(HS, C, IM, ES, F, ORIG, AS, INPUTS, A, B, P) =
+    prepareSharing(HS, C, IM, ES, F, ORIG, AS, INPUTS, A, B, P, bagVariables(C, 0, HS),
+      coefficients(bagVariables(C, 0, HS), flatBag(A, HS)), coefficients(bagVariables(C, 0, HS), flatBag(B, HS))) .
+  eq prepareSharing(HS, C, IM, ES, F, ORIG, AS, INPUTS, A, B, P, VARS, LEFT, RIGHT) =
+    launchSharing(HS, C, IM, ES, F, ORIG, AS, INPUTS, bagSort(HS), VARS,
+      subtractC(LEFT, RIGHT), subtractC(RIGHT, LEFT), labels(subtractC(LEFT, RIGHT), 0),
+      labels(subtractC(RIGHT, LEFT), 0), sharingPremise(A, B, VARS, LEFT, RIGHT, HS, P),
+      supportsN(lenC(VARS), grids(sumC(subtractC(LEFT, RIGHT)), sumC(subtractC(RIGHT, LEFT))),
+        labels(subtractC(LEFT, RIGHT), 0), labels(subtractC(RIGHT, LEFT), 0))) .
+  eq launchSharing(HS, C, IM, ES, F, ORIG, AS, INPUTS, S, VARS, LEFT, RIGHT, ROWS, COLS, P, VS) =
+    sharingPending(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, F,
+      solve(HS, appendC(repeatC(S, generatorCount(VS)), C),
+        instArgs(IM, imageTable(C, VARS, LEFT, RIGHT, VS, 0, 0, HS)),
+        instEqs(ES, imageTable(C, VARS, LEFT, RIGHT, VS, 0, 0, HS)), endF, ORIG, AS, INPUTS)) .
+  eq balanceOnly(S, A, B, HS, P) = if S == bagSort(HS)
+    then balanceChoice(A, B, P) else noBag fi .
+  eq outputSort(H, head(H, S, C, ROLE, HS)) = S .
+  eq outputSort(H, head(K, S, C, ROLE, HS)) = outputSort(H, HS) [owise] .
+  eq preferAtom(noAtom, AT) = AT .
+  eq preferAtom(foundAtom(A), AT) = foundAtom(A) .
+  eq findAtom(v(I), HS) = noAtom .
+  eq findAtom(a(H, TS), HS) = if isFree(H, HS) and outputSort(H, HS) == bagSort(HS)
+    then foundAtom(a(H, TS)) else findArgsAtom(TS, HS) fi .
+  eq findArgsAtom(nilT, HS) = noAtom .
+  eq findArgsAtom(t(A, TS), HS) = preferAtom(findAtom(A, HS), findArgsAtom(TS, HS)) .
+  eq problemAtom(eqn(S, A, B), HS) = preferAtom(findAtom(A, HS), findAtom(B, HS)) .
+  eq abstractTerm(R, R) = v(0) .
+  eq abstractTerm(R, v(I)) = v(s(I)) [owise] .
+  eq abstractTerm(R, a(H, TS)) = a(H, abstractArgs(R, TS)) [owise] .
+  eq abstractArgs(R, nilT) = nilT .
+  eq abstractArgs(R, t(A, TS)) = t(abstractTerm(R, A), abstractArgs(R, TS)) .
+  eq abstractEq(R, eqn(S, A, B)) = eqn(S, abstractTerm(R, A), abstractTerm(R, B)) .
+  eq scanBag(nilE, E, J, HS) = noBag .
+  eq scanBag(e(eqn(S, A, B), ES), E, J, HS) =
+    firstBag(if normalized(S, A, HS) == normalized(S, B, HS) then noBag
+      else markBalance(selectBagTerm(S, A, B, HS, hypText(J)), eqn(S, A, B), E, ES, HS) fi,
+      scanBag(ES, appendEqs(E, e(eqn(S, A, B), nilE)), s(J), HS)) .
+  eq markBalance(balanceChoice(A, B, P), Q, E, ES, HS) =
+    markAtom(A, B, P, Q, E, ES, problemAtom(Q, HS)) .
+  eq markBalance(BC, Q, E, ES, HS) = BC [owise] .
+  eq markAtom(A, B, P, Q, E, ES, noAtom) = balanceChoice(A, B, P) .
+  eq markAtom(A, B, P, Q, E, ES, foundAtom(R)) = purifyChoice(R, abstractEq(R, Q), E, ES) .
+  eq beginPurify(HS, C, IM, ES, F, ORIG, AS, INPUTS, R, Q, E, ES2:Equations) =
+    purifyPending(C, IM, bagSort(HS), R, Q, E, ES2:Equations, F,
+      preparing(HS, c(bagSort(HS), C), instArgs(IM, identities(C, 1)),
+        e(eqn(bagSort(HS), v(0), inst(R, identities(C, 1))),
+          e(Q, instEqs(appendEqs(E, ES2:Equations), identities(C, 1)))), ORIG, AS, INPUTS)) .
+  eq prepareMore(HS, C, IM, e(Q, e(eqn(S, A, B), ES)), ORIG, AS, INPUTS, noAtom) =
+    prepareClean(HS, C, IM, e(Q, e(eqn(S, A, B), ES)), ORIG, AS, INPUTS,
+      selectBagTerm(S, A, B, HS, hypText(1))) .
+  eq prepareMore(HS, C, IM, e(Q, e(OtherQ:Equation, ES)), ORIG, AS, INPUTS, foundAtom(R)) =
+    beginPurify(HS, C, IM, e(Q, e(OtherQ:Equation, ES)), endF, ORIG, AS, INPUTS,
+      R, abstractEq(R, OtherQ:Equation), e(Q, nilE), ES) .
+  eq prepareClean(HS, C, IM, ES, ORIG, AS, INPUTS, balanceChoice(A, B, P)) =
+    sharingState(HS, C, IM, ES, endF, ORIG, AS, INPUTS, A, B, P) .
+
+  eq occurs(I, v(J)) = (I == J) .
+  eq occurs(I, a(H, TS)) = occursArgs(I, TS) .
+  eq occursArgs(I, nilT) = false .
+  eq occursArgs(I, t(A, TS)) = occurs(I, A) or occursArgs(I, TS) .
+  eq freePath(I, v(J), HS) = if I == J then path("{\"rule\":\"root\"}") else noPath fi .
+  eq freePath(I, a(H, TS), HS) =
+    if isFree(H, HS) then pathArgs(I, TS, H, TS, HS, 0) else noPath fi .
+  eq pathArgs(I, nilT, H, TS, HS, J) = noPath .
+  eq pathArgs(I, t(A, US), H, TS, HS, J) =
+    preferPath(wrapPath(H, TS, J, freePath(I, A, HS)), pathArgs(I, US, H, TS, HS, s(J))) .
+  eq wrapPath(H, TS, J, noPath) = noPath .
+  eq wrapPath(H, TS, J, path(PATH)) = path("{\"rule\":\"field\",\"head\":" + natText(H) +
+    ",\"args\":" + argsText(TS) + ",\"field\":" + natText(J) + ",\"child\":" + PATH + "}") .
+  eq preferPath(noPath, path(PATH)) = path(PATH) .
+  eq preferPath(noPath, noPath) = noPath .
+  eq preferPath(path(PATH), CH:PathChoice) = path(PATH) .
+  eq selectOccurs(S, I, A, noPath, P) = none .
+  eq selectOccurs(S, I, A, path(PATH), P) = occursChoice(S, I, A, PATH, P) .
+  eq lower(I, v(J)) = v(if J < I then J else sd(J, 1) fi) .
+  eq lower(I, a(H, TS)) = a(H, lowerArgs(I, TS)) .
+  eq lowerArgs(I, nilT) = nilT .
+  eq lowerArgs(I, t(A, TS)) = t(lower(I, A), lowerArgs(I, TS)) .
+  eq subst(I, R, v(J)) = if I == J then R else lower(I, v(J)) fi .
+  eq subst(I, R, a(H, TS)) = a(H, substArgs(I, R, TS)) .
+  eq substArgs(I, R, nilT) = nilT .
+  eq substArgs(I, R, t(A, TS)) = t(subst(I, R, A), substArgs(I, R, TS)) .
+  eq substEqs(I, R, nilE) = nilE .
+  eq substEqs(I, R, e(eqn(S, A, B), ES)) =
+    e(eqn(S, subst(I, R, A), subst(I, R, B)), substEqs(I, R, ES)) .
+  eq drop(0, c(S, C)) = C .
+  eq drop(s(I), c(S, C)) = c(S, drop(I, C)) .
+  eq lookup(H, head(H, S, C, ROLE, HS)) = C .
+  eq lookup(H, head(K, S, C, ROLE, HS)) = lookup(H, HS) [owise] .
+  eq isFree(H, nilH) = false .
+  eq isFree(H, head(H, S, C, ROLE, HS)) = (ROLE == "free") .
+  eq isFree(H, head(K, S, C, ROLE, HS)) = isFree(H, HS) [owise] .
+  eq first(none, NEXT) = NEXT .
+  eq first(CH, NEXT) = CH [owise] .
+  eq choose(nilE, J, HS) = none .
+  eq choose(e(eqn(S, A, B), ES), J, HS) =
+    first(chooseTerm(S, A, B, HS, hypText(J)), choose(ES, s(J), HS)) .
+  eq chooseTerm(S, A, A, HS, P) = none .
+  eq chooseTerm(S, v(I), A, HS, P) =
+    if occurs(I, A) then selectOccurs(S, I, A, freePath(I, A, HS), P)
+    else pick(S, I, A, P) fi [owise] .
+  eq chooseTerm(S, a(H, TS), v(I), HS, P) =
+    chooseTerm(S, v(I), a(H, TS), HS, symmText(P)) .
+  eq chooseTerm(S, a(H, TS), a(K, US), HS, P) =
+    if isFree(H, HS) and isFree(K, HS) then
+      if H == K then chooseArgs(lookup(H, HS), TS, US, H, S, TS, US, HS, P, 0)
+      else clashChoice(H, K, TS, US, P) fi
+    else none fi .
+  eq chooseArgs(nilC, nilT, nilT, H, S, TS, US, HS, P, J) = none .
+  eq chooseArgs(c(K, C), t(A, IM), t(B, TARGET), H, S, TS, US, HS, P, J) =
+    first(chooseTerm(K, A, B, HS, decompText(H, TS, US, J, P)),
+      chooseArgs(C, IM, TARGET, H, S, TS, US, HS, P, s(J))) .
+  eq selectCover(C, IM, nilA, J, INPUTS, HS) = noCover .
+  eq selectCover(C, IM, answer(D, TARGET, AS), J, INPUTS, HS) =
+    if HS == nilH then
+      if C == D and IM == TARGET then covered(J, identities(C, 0), TARGET)
+      else selectCover(C, IM, AS, s(J), INPUTS, HS) fi
+    else coverMatch(C, IM, D, TARGET, J, AS, INPUTS, HS,
+      matchVector(INPUTS, TARGET, IM, matched(initialBindings(D, 0)), HS)) fi .
+  eq identities(nilC, I) = nilT .
+  eq identities(c(S, C), I) = t(v(I), identities(C, s(I))) .
+  eq get(0, t(A, TS)) = A .
+  eq get(s(I), t(A, TS)) = get(I, TS) .
+  eq inst(v(I), TS) = get(I, TS) .
+  eq inst(a(H, US), TS) = a(H, instArgs(US, TS)) .
+  eq instArgs(nilT, TS) = nilT .
+  eq instArgs(t(A, US), TS) = t(inst(A, TS), instArgs(US, TS)) .
+  eq instEqs(nilE, TS) = nilE .
+  eq instEqs(e(eqn(S, A, B), ES), TS) = e(eqn(S, inst(A, TS), inst(B, TS)), instEqs(ES, TS)) .
+  eq reflexive(nilE) = true .
+  eq reflexive(e(eqn(S, A, B), ES)) = (A == B) and reflexive(ES) .
+  eq finish(TR, endF) = TR .
+  eq finish(TR, frame(C, D, S, I, R, IM, ES, P, F)) =
+    finish(bindNode(C, D, S, I, R, IM, ES, P, TR), F) .
+
+  rl [start] : certify(HS, C, IM, ES, AS) => emit(HS, ES, AS, solve(HS, C, IM, ES, endF, ES, AS, C)) .
+  crl [emit] : emit(HS, ORIG, AS, done(TR)) =>
+    result("{\"proof\":" + traceText(TR) + ",\"sound\":[" + answersProof(ORIG, AS, HS) + "]}")
+    if answersSound(ORIG, AS, HS) .
+  crl [cover-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    done(finish(coverNode(C, IM, ES, J, TS,
+        if HS == nilH then derivedText(IM) else vectorProof(INPUTS, IM, TARGET, HS) fi), F))
+    if covered(J, TS, TARGET) := selectCover(C, IM, AS, 0, INPUTS, HS) .
+  crl [bind] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    solve(HS, drop(I, C), substArgs(I, lower(I, A), IM), substEqs(I, lower(I, A), ES),
+      frame(C, drop(I, C), S, I, lower(I, A), IM, ES, P, F), ORIG, AS, INPUTS)
+    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ pick(S, I, A, P) := choose(ES, 0, HS) .
+  crl [clash-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    done(finish(clashNode(C, IM, ES, H, K, TS, US, P), F))
+    if clashChoice(H, K, TS, US, P) := choose(ES, 0, HS) .
+  crl [occurs-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    done(finish(occursNode(C, IM, ES, S, I, A, PATH, P), F))
+    if occursChoice(S, I, A, PATH, P) := choose(ES, 0, HS) .
+
+  --- Exhaustive singleton splitting: one child for EVERY flattened occurrence.
+  eq appendTerms(nilT, TS) = TS .
+  eq appendTerms(t(A, TS), US) = t(A, appendTerms(TS, US)) .
+  eq appendEqs(nilE, ES) = ES .
+  eq appendEqs(e(Q, ES), ORIG) = e(Q, appendEqs(ES, ORIG)) .
+  eq flatBag(v(I), HS) = t(v(I), nilT) .
+  eq flatBag(a(H, TS), HS) = if role(H, HS) == "zero" then nilT
+    else if role(H, HS) == "add" then appendTerms(flatBag(get(0, TS), HS), flatBag(get(1, TS), HS))
+    else t(a(H, TS), nilT) fi fi .
+  eq lengthTerms(nilT) = 0 .
+  eq lengthTerms(t(A, TS)) = s(lengthTerms(TS)) .
+  eq sumTerms(nilT, HS) = a(bagZero(HS), nilT) .
+  eq sumTerms(t(A, TS), HS) = a(bagAdd(HS), t(a(bagAdd(HS), t(A, t(a(bagZero(HS), nilT), nilT))), t(sumTerms(TS, HS), nilT))) .
+  eq sumPremise(TS, A, HS, P) = "{\"rule\":\"trans\",\"left\":{\"rule\":\"axiom\",\"equality\":" +
+    eqProof(bagSort(HS), sumTerms(TS, HS), A, HS) + "},\"right\":" + P + "}" .
+  eq firstBag(noBag, BNEXT) = BNEXT .
+  eq firstBag(BC, BNEXT) = BC [owise] .
+  eq selectBag(ES, J, HS) = scanBag(ES, nilE, J, HS) .
+  eq selectBagTerm(S, A, A, HS, P) = noBag .
+  eq selectBagTerm(S, A, a(H, TS), HS, P) = if S == bagSort(HS) then
+    if role(H, HS) == "zero" then
+      if isFreeTerm(A, HS) then nonemptyTerm(A, P)
+      else zeroChoice(flatBag(A, HS), sumPremise(flatBag(A, HS), A, HS, P)) fi
+    else if role(H, HS) == "free" then
+      atomChoice(flatBag(A, HS), H, TS, sumPremise(flatBag(A, HS), A, HS, P))
+    else if isFreeTerm(A, HS) then selectBagTerm(S, a(H, TS), A, HS, symmText(P))
+      else balanceOnly(S, A, a(H, TS), HS, P) fi fi fi
+    else nestedBag(A, a(H, TS), HS, P) fi [owise] .
+  eq selectBagTerm(S, a(H, TS), v(I), HS, P) = balanceOnly(S, a(H, TS), v(I), HS, P) .
+  eq selectBagTerm(S, v(I), v(J), HS, P) = noBag [owise] .
+  eq nestedBag(a(H, TS), a(K, US), HS, P) = if H == K and isFree(H, HS)
+    then nestedArgs(lookup(H, HS), TS, US, H, TS, US, HS, P, 0) else noBag fi .
+  eq nestedBag(A, B, HS, P) = noBag [owise] .
+  eq nestedArgs(nilC, nilT, nilT, H, TS, US, HS, P, J) = noBag .
+  eq nestedArgs(c(S, C), t(A, IM), t(B, TARGET), H, TS, US, HS, P, J) =
+    firstBag(if normalized(S, A, HS) == normalized(S, B, HS) then noBag
+      else selectBagTerm(S, A, B, HS, decompText(H, TS, US, J, P)) fi,
+      nestedArgs(C, IM, TARGET, H, TS, US, HS, P, s(J))) .
+  op isFreeTerm : Term Heads -> Bool .
+  op nonemptyTerm : Term String -> BagChoice .
+  eq isFreeTerm(v(I), HS) = false .
+  eq isFreeTerm(a(H, TS), HS) = isFree(H, HS) .
+  eq nonemptyTerm(a(H, TS), P) = nonemptyChoice(H, TS, P) .
+  eq requirements(S, nilT, A, I, J, HS) = nilE .
+  eq requirements(S, t(B, TS), A, I, J, HS) =
+    e(eqn(S, B, if I == J then A else a(bagZero(HS), nilT) fi), requirements(S, TS, A, I, s(J), HS)) .
+  eq zeroReqs(S, nilT, HS) = nilE .
+  eq zeroReqs(S, t(A, TS), HS) = e(eqn(S, A, a(bagZero(HS), nilT)), zeroReqs(S, TS, HS)) .
+  eq atomStates(nilT, TARGET, S, H, US, HS, C, IM, ES, ORIG, AS, INPUTS, J) = nilStates .
+  eq atomStates(t(A, TS), TARGET, S, H, US, HS, C, IM, ES, ORIG, AS, INPUTS, J) =
+    stateCons(solve(HS, C, IM, appendEqs(requirements(S, TARGET, a(H, US), J, 0, HS), ES), endF, ORIG, AS, INPUTS),
+      atomStates(TS, TARGET, S, H, US, HS, C, IM, ES, ORIG, AS, INPUTS, s(J))) .
+  eq readyStates(nilStates) = true .
+  eq readyStates(stateCons(done(TR), STS)) = readyStates(STS) .
+  eq readyStates(STS) = false [owise] .
+  eq statesText(nilStates) = "" .
+  eq statesText(stateCons(done(TR), nilStates)) = traceText(TR) .
+  eq statesText(stateCons(done(TR), STS)) = traceText(TR) + "," + statesText(STS) [owise] .
+  eq onesText(nilT) = "" .
+  eq onesText(t(A, nilT)) = "1" .
+  eq onesText(t(A, TS)) = "1," + onesText(TS) [owise] .
+  crl [atom-split] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    atomPending(C, IM, ES, bagSort(HS), TS, H, US, P, F,
+      atomStates(TS, TS, bagSort(HS), H, US, HS, C, IM, ES, ORIG, AS, INPUTS, 0))
+    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+      atomChoice(TS, H, US, P) := selectBag(ES, 0, HS) .
+  crl [atom-collect] : atomPending(C, IM, ES, S, TS, H, US, P, F, STS) =>
+    done(finish(atomNode(C, IM, ES, S, TS, H, US, P, statesText(STS)), F)) if readyStates(STS) .
+  crl [zero-split] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    zeroPending(C, IM, ES, bagSort(HS), TS, P, F,
+      solve(HS, C, IM, appendEqs(zeroReqs(bagSort(HS), TS, HS), ES), endF, ORIG, AS, INPUTS))
+    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+      zeroChoice(TS, P) := selectBag(ES, 0, HS) .
+  rl [zero-collect] : zeroPending(C, IM, ES, S, TS, P, F, done(TR)) =>
+    done(finish(zeroNode(C, IM, ES, S, TS, P, TR), F)) .
+  crl [nonempty-close] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    done(finish(nonemptyNode(C, IM, ES, H, TS, P), F))
+    if none := choose(ES, 0, HS) /\ nonemptyChoice(H, TS, P) := selectBag(ES, 0, HS) .
+  crl [finite-sharing] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    sharingState(HS, C, IM, ES, F, ORIG, AS, INPUTS, A, B, P)
+    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+      balanceChoice(A, B, P) := selectBag(ES, 0, HS) .
+  crl [purify] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    beginPurify(HS, C, IM, ES, F, ORIG, AS, INPUTS, R, Q, E, ES2:Equations)
+    if noCover := selectCover(C, IM, AS, 0, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+      purifyChoice(R, Q, E, ES2:Equations) := selectBag(ES, 0, HS) .
+  rl [prepare-next] : preparing(HS, C, IM, e(Q, e(OtherQ:Equation, ES)), ORIG, AS, INPUTS) =>
+    prepareMore(HS, C, IM, e(Q, e(OtherQ:Equation, ES)), ORIG, AS, INPUTS, problemAtom(OtherQ:Equation, HS)) .
+  rl [purify-collect] : purifyPending(C, IM, S, R, Q, E, ES, F, done(TR)) =>
+    done(finish(purifyNode(C, IM, S, R, Q, E, ES, TR), F)) .
+  rl [sharing-collect] : sharingPending(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, F, done(TR)) =>
+    done(finish(sharingNode(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, TR), F)) .
+
+  eq natText(I) = string(I, 10) .
+  eq ctxText(C) = "[" + ctxItems(C) + "]" .
+  eq ctxItems(nilC) = "" .
+  eq ctxItems(c(S, nilC)) = natText(S) .
+  eq ctxItems(c(S, C)) = natText(S) + "," + ctxItems(C) [owise] .
+  eq termText(v(I)) = "{\"var\":" + natText(I) + "}" .
+  eq termText(a(H, TS)) = "{\"app\":" + natText(H) + ",\"args\":" + argsText(TS) + "}" .
+  eq argsText(TS) = "[" + argItems(TS) + "]" .
+  eq argItems(nilT) = "" .
+  eq argItems(t(A, nilT)) = termText(A) .
+  eq argItems(t(A, TS)) = termText(A) + "," + argItems(TS) [owise] .
+  eq eqText(eqn(S, A, B)) = "{\"sort\":" + natText(S) + ",\"left\":" + termText(A) + ",\"right\":" + termText(B) + "}" .
+  eq eqsText(ES) = "[" + eqItems(ES) + "]" .
+  eq eqItems(nilE) = "" .
+  eq eqItems(e(Q, nilE)) = eqText(Q) .
+  eq eqItems(e(Q, ES)) = eqText(Q) + "," + eqItems(ES) [owise] .
+  eq reflText(C, A) = "{\"rule\":\"refl\",\"scope\":" + ctxText(C) + ",\"term\":" + termText(A) + "}" .
+  eq derivedText(nilT) = "" .
+  eq derivedText(t(A, nilT)) = "{\"rule\":\"axiom\",\"equality\":{\"rule\":\"refl\",\"term\":" + termText(A) + "}}" .
+  eq derivedText(t(A, TS)) = derivedText(t(A, nilT)) + "," + derivedText(TS) [owise] .
+  eq traceText(coverNode(C, IM, ES, J, TS, P)) = "{\"rule\":\"cover\",\"scope\":" + ctxText(C) + ",\"images\":" + argsText(IM) +
+    ",\"eqs\":" + eqsText(ES) + ",\"index\":" + natText(J) + ",\"beta\":" + argsText(TS) + ",\"derived\":[" + P + "]}" .
+  eq traceText(bindNode(C, D, S, I, R, IM, ES, P, TR)) = "{\"rule\":\"bind\",\"scope\":" + ctxText(C) +
+    ",\"after\":" + ctxText(D) + ",\"sort\":" + natText(S) + ",\"remove\":" + natText(I) + ",\"replacement\":" + termText(R) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"premise\":" + P +
+    ",\"child\":" + traceText(TR) + "}" .
+  eq traceText(clashNode(C, IM, ES, H, K, TS, US, P)) = "{\"rule\":\"clash\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"leftHead\":" + natText(H) +
+    ",\"rightHead\":" + natText(K) + ",\"leftArgs\":" + argsText(TS) + ",\"rightArgs\":" + argsText(US) +
+    ",\"premise\":" + P + "}" .
+  eq traceText(occursNode(C, IM, ES, S, I, A, PATH, P)) = "{\"rule\":\"occurs\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"variable\":" + natText(I) +
+    ",\"rhs\":" + termText(A) + ",\"path\":" + PATH + ",\"premise\":" + P + "}" .
+  eq traceText(atomNode(C, IM, ES, S, TS, H, US, P, PATH)) = "{\"rule\":\"atom\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"sort\":" + natText(S) +
+    ",\"terms\":" + argsText(TS) + ",\"coefficients\":[" + onesText(TS) + "],\"head\":" + natText(H) +
+    ",\"args\":" + argsText(US) + ",\"premise\":" + P + ",\"children\":[" + PATH + "]}" .
+  eq traceText(zeroNode(C, IM, ES, S, TS, P, TR)) = "{\"rule\":\"zero\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"sort\":" + natText(S) +
+    ",\"terms\":" + argsText(TS) + ",\"coefficients\":[" + onesText(TS) + "],\"premise\":" + P + ",\"child\":" + traceText(TR) + "}" .
+  eq traceText(nonemptyNode(C, IM, ES, H, TS, P)) = "{\"rule\":\"nonempty\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"head\":" + natText(H) +
+    ",\"args\":" + argsText(TS) + ",\"premise\":" + P + "}" .
+  eq vectorsText(nilV) = "" .
+  eq vectorsText(vec(C, nilV)) = ctxText(C) .
+  eq vectorsText(vec(C, VS)) = ctxText(C) + "," + vectorsText(VS) [owise] .
+  eq traceText(sharingNode(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, TR)) = "{\"rule\":\"sharing\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + "," +
+    sharingFields(C, S, LEFT, RIGHT, ROWS, COLS) +
+    ",\"generators\":[" + vectorsText(VS) + "],\"premise\":" + P + ",\"child\":" + traceText(TR) + "}" .
+  eq traceText(purifyNode(C, IM, S, R, Q, E, ES, TR)) = "{\"rule\":\"purify\",\"scope\":" + ctxText(C) +
+    ",\"images\":" + argsText(IM) + ",\"sort\":" + natText(S) + ",\"term\":" + termText(R) +
+    ",\"template\":" + eqText(Q) + ",\"before\":" + eqsText(E) + ",\"after\":" + eqsText(ES) +
+    ",\"child\":" + traceText(TR) + "}" .
+  eq hypText(J) = "{\"rule\":\"hyp\",\"index\":" + natText(J) + "}" .
+  eq symmText(P) = "{\"rule\":\"symm\",\"child\":" + P + "}" .
+  eq decompText(H, TS, US, J, P) = "{\"rule\":\"decompose\",\"head\":" + natText(H) +
+    ",\"leftArgs\":" + argsText(TS) + ",\"rightArgs\":" + argsText(US) + ",\"field\":" + natText(J) +
+    ",\"child\":" + P + "}" .
+  eq soundText(C, nilE) = "" .
+  eq soundText(C, e(eqn(S, A, B), nilE)) = "[" + reflText(C, A) + "]" .
+  eq soundText(C, e(Q, ES)) = soundText(C, e(Q, nilE)) + "," + soundText(C, ES) [owise] .
+  eq soundOK(ORIG, nilA) = true .
+  eq soundOK(ORIG, answer(C, TS, AS)) = reflexive(instEqs(ORIG, TS)) and soundOK(ORIG, AS) .
+  eq soundRows(nilE, AS) = "" .
+  eq soundRows(e(Q, nilE), AS) = "[" + soundAnswers(Q, AS) + "]" .
+  eq soundRows(e(Q, ES), AS) = "[" + soundAnswers(Q, AS) + "]," + soundRows(ES, AS) [owise] .
+  eq soundAnswers(Q, nilA) = "" .
+  eq soundAnswers(eqn(S, A, B), answer(C, TS, nilA)) = reflText(C, inst(A, TS)) .
+  eq soundAnswers(eqn(S, A, B), answer(C, TS, AS)) = reflText(C, inst(A, TS)) + "," +
+    soundAnswers(eqn(S, A, B), AS) [owise] .
+  eq soundNormalized(nilE, AS, HS) = true .
+  eq soundNormalized(e(Q, ES), nilA, HS) = true .
+  eq soundNormalized(e(eqn(S, A, B), ES), answer(C, TS, AS), HS) =
+    (normalized(S, inst(A, TS), HS) == normalized(S, inst(B, TS), HS)) and
+    soundNormalized(e(eqn(S, A, B), ES), AS, HS) and soundNormalized(ES, answer(C, TS, AS), HS) .
+  eq normalizedRows(nilE, AS, HS) = "" .
+  eq normalizedRows(e(Q, nilE), AS, HS) = "[" + normalizedAnswers(Q, AS, HS) + "]" .
+  eq normalizedRows(e(Q, ES), AS, HS) = "[" + normalizedAnswers(Q, AS, HS) + "]," + normalizedRows(ES, AS, HS) [owise] .
+  eq normalizedAnswers(Q, nilA, HS) = "" .
+  eq normalizedAnswers(eqn(S, A, B), answer(C, TS, nilA), HS) = scoped(C, eqProof(S, inst(A, TS), inst(B, TS), HS)) .
+  eq normalizedAnswers(eqn(S, A, B), answer(C, TS, AS), HS) = scoped(C, eqProof(S, inst(A, TS), inst(B, TS), HS)) + "," +
+    normalizedAnswers(eqn(S, A, B), AS, HS) [owise] .
+endm
+
 --- Run manually (no automatic Lean/editor calls):
 --- unify in LEAN-READY-BOUNDARY-NATIVE : union(P:Bag, empty) =? Q:Bag .
 --- rew in LEAN-READY-BOUNDARY-EMITTER : solve(plus(v("P"), unit), v("Q"), idFrame) .

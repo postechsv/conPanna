@@ -1,4 +1,5 @@
 import conPanna.Certification.Enumeration
+import conPanna.Certification.Frontend
 
 /-! Registered profile generation, typed certificate rules, and term acceptance. -/
 
@@ -130,9 +131,43 @@ elab "derive_direct_profile " name:ident " for " theory:ident : command => do
   match Parser.runParserCategory (← getEnv) `command source with
   | .ok stx => elabCommand stx
   | .error e => throwError "generated profile syntax: {e}"
+  -- Serialize the registered signature once. Names do not choose algorithms:
+  -- only finite sort/head codes and registered free/zero/add roles are exported.
+  let sortTags := (← getConstInfoInduct sortName).ctors.toArray
+  let mut schema : Array Lean.Json := #[]
+  for i in [:symbolNames.length] do
+    let symbol := symbolNames[i]!
+    let (inputs, output) ← liftTermElabM do
+      let ty ← whnf (← getConstInfoCtor symbol).type
+      let args := ty.getAppArgs
+      let output ← whnf args[1]!
+      let mut inputs := #[]
+      let mut rest := args[0]!
+      while true do
+        let cell ← whnf rest
+        if cell.getAppFn.constName? == some ``List.nil then break
+        let fields := cell.getAppArgs
+        inputs := inputs.push (← whnf fields[1]!)
+        rest := fields[2]!
+      return (inputs, output)
+    let tagCode := fun (e : Expr) => (sortTags.findIdx? (fun n => e.constName? == some n)).getD sortTags.size
+    let role := if zeroHeads.any (·.1 == symbol) then "zero"
+      else if addHeads.any (·.1 == symbol) then "add" else "free"
+    schema := schema.push (Lean.Json.mkObj [("id", toJson i),
+      ("inputs", toJson (inputs.map tagCode)), ("output", toJson (tagCode output)),
+      ("role", toJson role)])
+  let text := (Lean.Json.arr schema).compress
+  let schemaSource := "def " ++ name.getId.toString ++ "_signature : Lean.Json := " ++
+    "(Lean.Json.parse " ++ (Lean.Json.str text).compress ++ ").toOption.get!"
+  match Parser.runParserCategory (← getEnv) `command schemaSource with
+  | .ok stx => elabCommand stx
+  | .error e => throwError "generated signature syntax: {e}"
   -- Forward existing decidable metadata through opaque registration projections.
   -- This is generated here, not a new user registration obligation.
   for source in [
+      "def " ++ name.getId.toString ++ "_sortCode : " ++ q sortName ++ " → Nat := fun s => match s with\n" ++
+        String.intercalate "\n" ((← getConstInfoInduct sortName).ctors.toArray.mapIdx
+          (fun i tag => "  | " ++ q tag ++ " => " ++ toString i)).toList,
       "local instance " ++ name.getId.toString ++ "_decidableSorts : DecidableEq (" ++
         q theoryName ++ ".Sorts) := inferInstanceAs (DecidableEq " ++ q sortName ++ ")",
       "local instance " ++ name.getId.toString ++ "_decidableSymbols : ∀ ss s, DecidableEq (" ++
@@ -369,6 +404,46 @@ theorem split_native (profile : Profile sig) (reg : Registration sig) {s}
   unfold NativeEq
   rw [reg.quote_apply, reg.quote_apply]
   exact split_atom profile op _ _ _ ha
+
+namespace NativeRules
+
+/-- The surface ATOM rule. Its premises mention registered constructors and
+native values only; quotation, mass, and sorted variable positions stay internal.
+
+    x + y =B f(args)
+    ------------------------------- ATOM (f is a singleton constructor)
+    (x =B 0 ∧ y =B f(args)) ∨ (x =B f(args) ∧ y =B 0)
+
+This is a derived presentation of the existing semantic split rule, not search
+or a new trusted axiom. The `.atom` replay node handles the general finite sum. -/
+theorem singletonCases (profile : Profile sig) (reg : Registration sig) {s ss}
+    (op : sig.ACUOp s) (f : sig.Symbol ss s) (free : profile.view f = .atom f)
+    (args : Args reg.Carrier ss) (x y : reg.Carrier s) :
+    NativeEq sig reg (reg.apply (sig.add op) (x, y, PUnit.unit)) (reg.apply f args) ↔
+      (NativeEq sig reg x (reg.apply (sig.zero op) PUnit.unit) ∧
+        NativeEq sig reg y (reg.apply f args)) ∨
+      (NativeEq sig reg x (reg.apply f args) ∧
+        NativeEq sig reg y (reg.apply (sig.zero op) PUnit.unit)) := by
+  apply split_native profile reg op x y (reg.apply f args)
+  simp [reg.quote_apply, mass, Tree.eval, measure, free]
+
+/-- Surface UNIT-R: the dump expands this to COMM followed by UNIT-L. -/
+theorem rightUnit (reg : Registration sig) {s} (op : sig.ACUOp s)
+    (x : reg.Carrier s) :
+    NativeEq sig reg
+      (reg.apply (sig.add op) (x, reg.apply (sig.zero op) PUnit.unit, PUnit.unit)) x :=
+  native_trans reg (native_comm reg op _ _) (native_unit reg op x)
+
+/-- A unary CONGR rule. No source-level quotation or argument-vector bookkeeping
+is required when the user lifts an equality through a unary constructor. -/
+theorem unaryCongruence (reg : Registration sig) {s t}
+    (f : sig.Symbol [s] t) {x y : reg.Carrier s} (same : NativeEq sig reg x y) :
+    NativeEq sig reg (reg.apply f (x, PUnit.unit)) (reg.apply f (y, PUnit.unit)) := by
+  unfold NativeEq
+  rw [reg.quote_apply, reg.quote_apply]
+  exact .congr f (.cons same .nil)
+
+end NativeRules
 
 /-- Native MutateACU. Fresh pieces are native values, not a wrapper datatype. -/
 theorem mutate_native (profile : Profile sig) (reg : Registration sig) {s}
@@ -1914,6 +1989,73 @@ inductive Complete (profile : Profile sig) {inputs} (proposed : List (Answer sig
       (selected : Derives profile eqs (.app f a) (.app g b)) :
       Complete profile proposed images eqs
 
+/-- A typed replay boundary. The original input vector is fixed, while Γ is the
+current variable scope. A rule changes this whole state, not independently
+reconstructed images/equations. This is presentation data, not a new calculus. -/
+structure ReplayState (sig : Signature Sorts) (inputs Γ : List Sorts) where
+  images : Terms sig Γ inputs
+  equations : List (Problem sig Γ)
+
+namespace ReplayState
+
+abbrev Certified {inputs Γ} (profile : Profile sig) (proposed : List (Answer sig inputs))
+    (state : ReplayState sig inputs Γ) : Type :=
+  Complete profile proposed state.images state.equations
+
+/-- Compute the successor of a substitution rule at the SAME original inputs. -/
+def substitute {inputs Γ Δ} (state : ReplayState sig inputs Γ) (bindings : Terms sig Δ Γ) :
+    ReplayState sig inputs Δ :=
+  ⟨state.images.subst bindings, substituteEquations bindings state.equations⟩
+
+/-- Add rule-generated obligations without changing the original image vector. -/
+def prepend {inputs Γ} (state : ReplayState sig inputs Γ) (extra : List (Problem sig Γ)) :
+    ReplayState sig inputs Γ :=
+  ⟨state.images, extra ++ state.equations⟩
+
+/-- PURIFY extends the scope by exactly one variable and retains its defining
+equation. The source snapshot's equation list is fixed by Complete.purify. -/
+def purify {inputs Γ s} (state : ReplayState sig inputs Γ) (term : Term sig Γ s)
+    (template : Problem sig (s :: Γ)) (rest : List (Problem sig Γ)) :
+    ReplayState sig inputs (s :: Γ) :=
+  ⟨state.images.subst Purification.embedding, Purification.state term template rest⟩
+
+/-- A transition's computed successor is checked equal to the external snapshot
+ONCE. Its already checked child is then transported. No semantic premise or
+producer-correctness assumption is introduced: checked is ordinary Lean equality.
+The states have the same sorted Γ; a wrong scope cannot even type this interface. -/
+def accept {inputs Γ} {profile : Profile sig} {proposed : List (Answer sig inputs)}
+    (expected actual : ReplayState sig inputs Γ) (checked : expected = actual)
+    (child : Certified profile proposed actual) : Certified profile proposed expected :=
+  Eq.mpr (congrArg (Certified profile proposed) checked) child
+
+end ReplayState
+
+/-- External producers may supply an explicit finite support table. Its equality
+to the EXHAUSTIVE enumeration is still checked, not trusted. Keeping the child
+scope/substitution in terms of this table avoids unfolding enumeration at every
+dependent variable/equality in a large emitted proof. This is the SAME sharing
+rule, with a proved change of presentation; no search or semantic axiom is added. -/
+def Complete.sharingTable {profile : Profile sig} {inputs proposed Γ images eqs s n rows cols}
+    (op : sig.ACUOp s) (slots : Sharing.Slots s Γ n)
+    (left right : FiniteSharing.Vector n)
+    (rowLabels : Fin rows → Fin n) (colLabels : Fin cols → Fin n)
+    (rowCounts : ∀ i, FiniteSharing.labelCount rowLabels i = left i)
+    (colCounts : ∀ i, FiniteSharing.labelCount colLabels i = right i)
+    (disjoint : FiniteSharing.Disjoint left right)
+    (selected : Derives profile eqs (Sharing.problem op slots left right).left
+      (Sharing.problem op slots left right).right)
+    (table : List (FiniteSharing.Vector n))
+    (checked : FiniteSharing.supportGenerators rowLabels colLabels = table)
+    (child : Complete profile proposed (inputs := inputs)
+      (images.subst (Sharing.substitution op slots left right table))
+      (substituteEquations (Sharing.substitution op slots left right table) eqs)) :
+    Complete profile proposed (Γ := Γ) images eqs := by
+  let motive := fun gs => Complete profile proposed
+    (images.subst (Sharing.substitution op slots left right gs))
+    (substituteEquations (Sharing.substitution op slots left right gs) eqs)
+  exact .sharing op slots left right rowLabels colLabels rowCounts colCounts disjoint selected
+    (Eq.mpr (congrArg motive checked) child)
+
 theorem Complete.sound (reg : Registration sig) {profile : Profile sig} {inputs proposed Γ images eqs}
     (proof : Complete profile (inputs := inputs) proposed (Γ := Γ) images eqs) :
     ∀ values, Holds reg eqs values → Solutions reg proposed (images.eval reg values) := by
@@ -2116,35 +2258,55 @@ A producer emits an explicit proof TERM using the existing semantic/replay rules
 Lean parses that term against a FIXED expected proposition and kernel-checks it.
 There is no kernel evaluation of a proof-producing interpreter.
 
-This small experiment accepts a hand-prepared string, not arbitrary external
-commands. A production exporter/loader must restrict output to approved rule
-templates; the full Lean term language is not a security sandbox.
+The wrapper exports typed data and compiles restricted external rule records to
+ordinary Lean applications. The current session checks them; the producer does
+not invoke another Lean verifier. The full Lean term language is not a security
+sandbox: the supported boundary uses approved rule templates, not arbitrary
+external tactics or commands.
 -/
 namespace LeanReady
 
 open Lean Meta Elab Term
 
-/-- Preparation happens in elaboration, outside kernel reduction. The caller
-fixes the proposition independently of the dump. No holes/sorry are accepted. -/
-def prepareProof (expectedSyntax : Syntax) (dump : String) : TermElabM (Expr × Expr) :=
-  withoutErrToSorry do
-    let started ← IO.monoMsNow
-    let stx ← match Parser.runParserCategory (← getEnv) `term dump with
-      | .ok stx => pure stx
-      | .error message => throwError "invalid prepared certificate: {message}"
-    let parsed ← IO.monoMsNow
-    let expected ← elabType expectedSyntax
-    let proof ← elabTermEnsuringType stx (some expected)
-    synthesizeSyntheticMVarsNoPostponing
-    let expected ← instantiateMVars expected
-    let proof ← instantiateMVars proof
-    if expected.hasMVar || proof.hasMVar || expected.hasFVar || proof.hasFVar then
-      throwError "prepared certificate is not closed"
-    if expected.hasSorry || proof.hasSorry then
-      throwError "prepared certificate contains sorry"
-    let elaborated ← IO.monoMsNow
-    logInfo m!"Lean-ready parsing: {parsed - started} ms; elaboration: {elaborated - parsed} ms"
-    pure (expected, proof)
+/-- Export only typed syntactic DATA already held by Lean. The finite sort/head
+codes come from the registered signature, not a second native-answer parser. -/
+def variableIndex {Γ : List Sorts} {s : Sorts} : Variable Γ s → Nat
+  | .here => 0
+  | .there v => variableIndex v + 1
+
+mutual
+  def termJson (profile : Profile sig) {Γ s} : Term sig Γ s → Json
+    | .var v => Json.mkObj [("var", toJson (variableIndex v))]
+    | .app f args => Json.mkObj [("app", toJson (profile.code f)), ("args", termsJson profile args)]
+  def termsJson (profile : Profile sig) {Γ ss} : Terms sig Γ ss → Json
+    | .nil => toJson ([] : List Json)
+    | .cons a rest => match termsJson profile rest with
+      | .arr xs => .arr (#[termJson profile a] ++ xs)
+      | _ => .null -- unreachable: the recursive result is always an array
+end
+
+def requestJson (profile : Profile sig) (sortCode : Sorts → Nat) {inputs}
+    (eqs : List (Problem sig inputs)) (proposed : List (Answer sig inputs))
+    (problemName answerName : String) (signature : Json := .null) : Json :=
+  Json.mkObj [("aggregate", toJson "system"), ("problem", toJson problemName),
+    ("answers", toJson answerName), ("signature", signature), ("scope", toJson (inputs.map sortCode)),
+    ("eqs", toJson (eqs.map fun p => Json.mkObj [
+      ("sort", toJson (sortCode p.sort)), ("left", termJson profile p.left),
+      ("right", termJson profile p.right)])),
+    ("proposed", toJson (proposed.map fun p => Json.mkObj [
+      ("parameters", toJson (p.parameters.map sortCode)),
+      ("images", termsJson profile p.images)]))]
+
+/-- Ask for evidence of a FIXED answer family. This subprocess neither invokes
+native unify nor starts Lean. The current elaborator checks the returned term.
+The producer enforces its own CPU/wall limits on Maude. No certificate cache or
+precompilation is performed while elaborating a user's proof. -/
+def produce (request : Json) (compiler : System.FilePath := "certification_compiler.py") : IO String := do
+  let out ← IO.Process.output { cmd := "python3", args := #[compiler.toString, "--certify"] }
+    (some request.compress)
+  unless out.exitCode == 0 do
+    throw (IO.userError s!"certificate producer failed: {out.stderr}")
+  pure out.stdout
 
 end LeanReady
 

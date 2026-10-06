@@ -24,9 +24,11 @@ The equality is Structural.Indexed.NativeEq, written `=[BakeryTheory.certified]`
 Quotients and multiplicity vectors are INTERNAL proof tools, not user encodings.
 Only the last section uses Bakery; the rules work over a generic signature.
 The profile command generates/checks syntactic metadata, not semantic user proofs.
-Scoped binding preparation and free-step classification now compute checked data;
-proper free-occurrence/clash closure is automatic. A repeated worklist driver,
-bag-phase scheduling, and complete whole-vector factor search remain unfinished.
+Scoped binding preparation and free-step classification compute checked data;
+proper free-occurrence/clash closure is automatic. The external worklist driver,
+bag-phase schedule, and complete factor matcher now live in certification.maude;
+their informal search argument is in CERTIFICATION.md §§7.4–8.1. A formal Lean
+search-success theorem remains unfinished; individual certificates are checked.
 
 Proved acceptance is not proved search success:
 * equality traces establish SOUNDNESS of each proposed substitution;

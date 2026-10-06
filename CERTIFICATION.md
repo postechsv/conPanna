@@ -16,6 +16,21 @@ their soundness and proves their completeness; it does not trust their origin.
 The guarantee is conditional on the actual properties of the proposed set, not
 on the statement “Maude returned it.”
 
+The certification input is the triple `(E₀, B, Σ)`: the original equation
+system, its registered structural theory, and an ALREADY COMPUTED proposed
+answer set. In the intended integration, Lean has obtained `Σ` from the earlier
+native Maude unification call before certification begins. Certification does
+not invoke native `unify` again, discover the requested answers, or replace `Σ`
+by a different set. Its task is to construct evidence of exactness for that
+fixed `Σ` against the fixed `E₀` and `B`.
+
+“Certification search” means searching for that evidence, guided by the known
+answers. It is hosted in Maude; Python constructs proof terms and Lean checks
+them. Section 9 describes targeted early coverage, while Sections 6–8 supply
+the complete fallback when those shortcuts cannot close a branch. The fallback
+may repeat unification work, but this is not another native-answer acquisition
+stage or a claim that the answers were unknown when certification started.
+
 This document supplies definitions, informal inference rules, a complete fallback
 strategy, and a mathematical sufficiency argument. It is a proposed technical
 specification, **not an already formalized search theorem or an implemented
@@ -687,6 +702,99 @@ Finiteness follows from finite branching and decreasing pending-list length.
 An empty reference list means every branch ended with a proved contradiction.
 It is not the consequence of an arbitrary search cutoff.
 
+### 7.4 Retained-worklist implementation of the finite strategy
+
+`CERTIFICATION-PRODUCER` retains equations for replay instead of physically
+deleting every solved equation. Consequently, the length of its stored list is
+NOT a termination measure. Its correspondence with Sections 6–7 is the following
+phase argument. This is an informal implementation audit, not a Lean proof of
+the Maude interpreter or a bounded-resource success guarantee.
+
+**An original frontier** is a maximal bag-sort equation exposed by decomposing
+matching free constructors in an input equation. For example,
+`pair(P+[a], R+[b]) =B pair(Q+[a], S+[b])` has two frontiers. Defining equations
+introduced by PURIFY, and requirements introduced by ATOM/ZERO, are instead
+local obligations of the selected frontier.
+
+1. **Free bindings cannot continue indefinitely.** `choose` traverses every
+   stored equation and matching free-constructor field. A BIND removes one live
+   variable; no rule introduces a non-bag variable. Therefore there are at most
+   the original number of non-bag bindings along any branch. Free traversal
+   itself is structural, not a rewriting loop that repeatedly reintroduces the
+   same DECOMPOSE or ORIENT state. A clash or proper free occurrence closes the
+   branch. Payloads cannot introduce bag equations by stratification.
+
+2. **Between non-bag bindings, the original frontier structure is fixed.** Any
+   unresolved configuration-variable binding would already be found by `choose`.
+   Bag substitutions cannot introduce free configuration structure above a bag
+   or inside its payload. There are finitely many frontier positions in the
+   remaining finite free skeletons. Purification replaces one equation by one
+   template; it does not duplicate that skeleton. It may name a singleton in a
+   sibling field as well: this creates a retained defining equation, not another
+   copy of that sibling frontier.
+
+3. **Preparation is finite.** `prepareMore` replaces a chosen explicit singleton
+   in the enclosing template by a fresh variable and retains its definition.
+   The number of explicit singleton occurrences in that template strictly
+   decreases. Replacing all identical occurrences at once is safe because one
+   defining equation fixes their shared value. Preparation performs no bindings
+   or sharing before it finishes. The selected balance's union/variable outer
+   shape is preserved, so `prepareClean` reaches FINITE-SHARING rather than an
+   unsupported preparation state.
+
+4. **Sharing finishes that balance permanently.** `prepareSharing` cancels common
+   variable occurrences and enumerates every balanced nonempty grid support.
+   Its substitution makes the selected pure equation equal modulo B for ALL
+   assignments of its parameters. Later substitutions preserve this equality.
+   Thus `scanBag`, which skips normalized-equal equations and fields, never
+   shares that frontier again. Fresh old-variable passthrough slots do not
+   reactivate a solved equation. A zero-sided grid sends every active variable
+   to empty and preserves all inactive variables.
+
+5. **Local requirements do not start another sharing phase.** After sharing,
+   each retained definition has the form `sum =B [payload]`. Substitution and
+   flattening make each summand a variable or a singleton. ATOM creates EVERY
+   occurrence choice; its children require each variable to equal that singleton
+   or empty, and compare any explicit singletons through their free payloads.
+   ZERO similarly requires every summand to be empty. These equations are solved
+   by BIND, free payload processing, or NONEMPTY/CLASH; they do not require new
+   PURIFY or FINITE-SHARING. Repeated occurrences keep the same variable: assigning
+   it both singleton and empty closes that branch rather than dropping the case.
+   Requirements are prepended; `scanBag` processes the first unresolved one.
+   Solved requirements stay normalized-equal under all later substitutions.
+
+6. **Every unresolved frontier has an applicable step.** At a bag sort the only
+   heads are a variable, empty, singleton, and union. Variable binding or identity
+   is handled by `choose`; a self-containing union is a balance, not free OCCURS.
+   Singleton/singleton equations expose free payload equations. Singleton/empty
+   closes by NONEMPTY. Union/singleton uses ATOM, union/empty uses ZERO, and the
+   remaining union balances use preparation/sharing. A union already equal to
+   its other side is skipped. This exhausts the contract's constructor shapes.
+
+These observations give a finite hierarchical schedule. Partition a branch at
+non-bag BIND steps; there are finitely many such partitions. Within a partition,
+there are finitely many original frontiers. Each selected frontier has finite
+preparation, at most one sharing step, and finite local requirement processing.
+Bag BIND decreases the current finite scope between expansions; ATOM/ZERO adds
+no variables. Every branching factor is finite. Hence the complete tree is
+finite, even though the retained list and fresh bag scopes can grow.
+
+Each completed frontier is preserved permanently under substitution. At a live
+terminal state all equations normalize to identities, and the composed original
+image vector is a symbolic unifier of the original problem. Completeness of the
+SUPPLIED answer family gives a factor for that vector; the exhaustive matcher
+of Section 8.1 finds it. Checked early COVER may stop sooner. If the family is
+empty, no such live terminal state can exist; all branches must close by proved
+contradictions. Thus retained storage changes the evidence representation, not
+the complete fallback of Theorem 8.3.
+
+The argument assumes unbounded execution of the finite enumerations, a correct
+typed signature, and the stated stratification. Resource exhaustion is failure
+to obtain a certificate, never a contradiction certificate. It does not assert
+that arbitrary finite inputs fit the prototype's safety caps. General conditional
+EARLY-COVER and further sharing optimizations remain optional improvements;
+they are not prerequisites for this fallback argument.
+
 ## 8. Factor search and the answer-guided guarantee
 
 ### Lemma 8.1 — Complete finite whole-vector matching
@@ -723,6 +831,58 @@ none does not justify failure. The abstract guarantee uses the complete finite
 matcher above as fallback; it is not conditional on an external process behaving
 correctly or returning within a particular timeout.
 
+#### Executable matching invariant
+
+The producer implements this fallback with `allSorted`, `allArgs`, and `bagMatch`.
+These match a **proposed-answer pattern** against the **rigid current image**;
+they do not unify the two sides or instantiate current branch variables.
+One partial parameter environment is threaded through the whole vector.
+Its invariant is that an assigned parameter always denotes the same normalized
+term in the current scope, including at repeated occurrences and other fields.
+
+The complete cases are:
+
+- A non-bag pattern variable receives the normalized subject term. A repeated
+  occurrence must agree with its previous assignment.
+- A free constructor pattern matches only the same subject head. `allArgs`
+  recursively matches every corresponding field with the SAME environment;
+  this includes bag fields inside free configuration constructors.
+- An unassigned bag parameter receives each submultiset of the remaining finite
+  subject, INCLUDING the empty one. A repeated assigned parameter removes exactly
+  that multiset, with multiplicities, before matching the remaining pattern.
+- A singleton pattern tries every subject singleton with the same head, recursively
+  matches its free payload, and continues with that occurrence removed. A rigid
+  subject bag variable is not a singleton and cannot be assigned by the matcher.
+- Exhausting the pattern succeeds only when the subject is also exhausted.
+  All vector components must succeed under one environment. A candidate factor
+  is finally rechecked by normalization of every original input image.
+
+For completeness, fix any factor extending the current partial environment.
+At a free head its corresponding fields must match. At an unassigned bag
+parameter its contribution is a submultiset of the remaining subject: with no
+idempotence or absorption, no extra contribution can disappear. The partition
+enumeration contains that submultiset. At a singleton some matching subject
+occurrence must exist; the occurrence enumeration includes it. These choices
+retain the fixed factor and reduce to smaller matching problems. Thus induction
+over the remaining pattern occurrences and fields yields a successful branch.
+Assignments can be replaced by their canonical normal forms without changing
+the factor modulo B.
+
+For finiteness, each bag has finitely many occurrence subsets. Recursive matching
+consumes a pattern occurrence or descends to strict constructor fields; stored
+assignments are only inspected/removed, not expanded into new pattern problems.
+The finite lists of alternatives are combined across fields, not truncated.
+There is no fixed arity, coefficient, or matcher-depth cutoff in this procedure.
+This is an implementation-level informal argument, not a Lean search theorem.
+
+Every answer parameter must occur in its image vector. The wrapper rejects
+unused parameters instead of silently removing them from an already-fixed Σ:
+doing the latter can change existential semantics when a parameter sort is empty.
+Upstream normalization must remove them BEFORE fixing the certification goal.
+Likewise, a process timeout is a failure to obtain evidence, never a proof that
+there is no factor or unifier. Runtime safety caps do not provide a universal
+bounded-time success guarantee.
+
 ### Lemma 8.2 — Finite equality evidence
 
 If two open terms are equal modulo `B`, their finite normalized constructor
@@ -734,6 +894,10 @@ soundness can be witnessed by finite checked equality data, not just Booleans.
 
 Assume the contract, finite `E₀`, and finite `Σ` with `Sound(Σ)` and
 `Complete(Σ)`. The following reconstruction procedure terminates successfully:
+
+`Σ` is supplied BEFORE this procedure starts. None of the steps below calls
+native `unify` to obtain it. The internal reference family `Θ` is coverage
+evidence for the supplied `Σ`, not a replacement answer set returned to Lean.
 
 1. Construct checked equality traces establishing each proposed answer's soundness.
 2. Obtain the finite reference derivation/list `Θ` by Section 7.
@@ -777,6 +941,11 @@ a false proposition. The search-success theorem is an external guarantee about
 correct inputs, not an axiom used when checking an individual certificate.
 
 ## 9. Where native answers can accelerate search
+
+The targeted search receives the same already known `Σ` as Section 8. At each
+branch, it can select one of those answers and attempt a checked factor/closure
+before exhaustive expansion. It searches for a certificate of the supplied
+answers, not for native answers that have yet to be computed.
 
 The exhaustive reference derivation is the fallback, not necessarily the path
 performed first. Add this optional general closure rule:
@@ -910,9 +1079,9 @@ No linear-equation solver or Hilbert-basis completeness assertion is trusted in
 an individual certificate. Arithmetic appears in the general completeness proof;
 problem search uses finite sharing, singleton cases, free rules, and matching.
 
-Maude can host these rules and their control, while its native solver proposes
-answers. This document does not yet specify a wire format or prove the correctness
-of that Maude implementation. Raw rule traces must contain enough context and
+Maude hosts these rules and their control, while its native solver proposes
+answers upstream. Section 12.1 describes the implemented evidence boundary;
+the Maude implementation itself is not verified in Lean. Raw rule traces must contain enough context and
 branch information for replay; a successful rewrite path alone is not a complete
 proof of exhaustiveness.
 
@@ -920,7 +1089,8 @@ proof of exhaustiveness.
 
 ### 12.1 What already exists
 
-The active prototype is `certification.lean`. It has reusable semantic rules,
+The reusable prototype lives in `conPanna/Certification`; `certification.lean`
+contains its handwritten examples and metatheorem audits. It has semantic rules,
 native constructor decomposition, bag flattening/permutation transport, sorted
 substitutions, finite equality evidence, whole-vector factors, and soundness/
 coverage aggregation. Its numeric finite-sharing namespace also proves minimal
@@ -1011,7 +1181,8 @@ equation, the template, and every lifted residual equation. This is a general
 typed abstraction primitive, specialized to singleton terms by the intended
 algorithm. It is NOT automatic occurrence extraction or a phase scheduler.
 
-Automatic free-step selection is now implemented, but not its repeated driver.
+The library supplies automatic free-step selection; repeated external scheduling
+is implemented in `CERTIFICATION-PRODUCER`, not in a second Lean-side solver.
 `Binding.prepare` computes deletion of the selected sorted variable and traverses
 the complete replacement, returning a checked term in the reduced scope.
 `FreePhase.classify` selects DELETE, ORIENT, BIND, DECOMPOSE, CLASH, FREE-OCCURS,
@@ -1029,8 +1200,9 @@ failure alone is NOT a contradiction: `P =B P+Q` is postponed, since Q may be ze
 completeness data. Two automatic Bakery examples certify empty answer families
 for `n =B succ(n)` and `wait(n) =B crit(n)`, without user-supplied witnesses or
 problem-specific lemmas. Full-file LSP and axiom audits pass without admissions.
-Binding/decomposition/deletion selection is tested, but repeatedly executing
-those steps and scheduling the residual ACU equations remains to be implemented.
+The external producer repeatedly executes free steps and schedules residual ACU
+equations. Its contract-wide scheduling audit remains separate from these
+kernel-checked rule-validity results.
 
 ### Precompiled checker and external certificate construction
 
@@ -1040,22 +1212,36 @@ The general infrastructure is compiled independently of individual certificates:
 - `Sharing.lean`: finite-sharing arithmetic and semantic existence proofs.
 - `Enumeration.lean`: exhaustive supports and singleton/zero metatheorems.
 - `Replay.lean`: typed certificate data, acceptance, and generated profiles.
+- `Frontend.lean`: semantic-independent loading of closed rule evidence.
 
 `certification.lean` contains examples using these modules, not a second copy
 of the calculus. `examples/certification-demo.lean` is a lightweight consumer.
 
-The external pipeline separates discovery from trusted justification:
+Native answer acquisition is UPSTREAM of certification and is already performed
+by the existing unification functionality:
 
 ```text
-native Maude unify -> proposed answer set
-Maude certification rules -> structured rule trace
-Python constructor compiler -> explicit Lean proof term
-Lean, with an independently fixed goal -> kernel-checked exactness theorem
+Lean's existing unification call -> native Maude unify -> Σ available in Lean
 ```
+
+The intended CERTIFICATION pipeline then takes the fixed `(E₀, B, Σ)`:
+
+```text
+current Lean session: certification request (E₀, B, Σ)
+  -> Python wrapper: forward that request, without calling native unify
+  -> Maude certification rules: answer-guided evidence for the supplied Σ
+  -> Python constructor compiler: explicit Lean proof term
+  -> current Lean session: elaboration and kernel checking against the fixed goal
+```
+
+Python does not run a second Lean executable in this intended interface. Lean
+remains the host and checker. Internal coverage/factor search belongs to the
+Maude certification procedure described above, not to Python or Lean.
 
 The trace supplies sorted contexts, binding/removal positions, replacement terms,
 whole image vectors, residual equations, premise references, and coverage factors.
-Sharing steps additionally supply coefficients and finite-layout evidence.
+Sharing steps additionally supply coefficients and finite-layout evidence,
+including an explicit support table checked equal to the exhaustive enumeration.
 Python constructs applications of existing general rules; it is not a trusted
 solver and needs no compiler-correctness theorem. An incorrect translation must
 fail Lean checking against the independently specified problem and answer set.
@@ -1068,24 +1254,98 @@ The backend is precompiled once; individual proofs import it rather than
 re-elaborating its metatheorems. No proof-producing dependent interpreter runs
 inside kernel reduction.
 
-The runnable demo uses native Maude proposals and actual BIND/BIND/COVER rule
-evidence for `P =B Q, Q =B [wait(n)]`. Its final theorem expresses both directions
-in native Bakery constructors. The wrapper's answer parser and signature map
-are deliberately specific to that demonstration. General automated ACU
-certification search, general model export, and general native-answer parsing
-remain separate implementation obligations; this example is not their guarantee.
+The constructor compiler may share repeated typed terms, state data, equality
+evidence, and completeness nodes in a finite dependency-ordered bundle.
+Lean assigns fresh internal names,
+checks each closed value, and then checks the aggregate against the independently
+fixed goal. Term/state data are reducible definitions; equality and completeness
+nodes are opaque definitions with checked bodies and their original indexed
+rule types. Neither form introduces an axiom or a new proof
+rule. Each declaration retains Lean's ordinary local checking budget; process
+CPU, wall-time, and memory limits still bound the complete request.
+
+`Worklist.ReplayState` groups the current sorted image vector and residual
+equations at the same original inputs. Each nonterminal replay node supplies an
+explicit successor snapshot. Lean computes the existing rule's required successor
+and checks an ordinary equality with that snapshot; `ReplayState.accept` then
+transports the independently checked child certificate. BIND/SHARING use one
+substitution on both fields, PURIFY uses the existing scope-extension/definition
+functions, and ATOM/ZERO prepend their exact requirements. The equality is
+checked once as a named node; it is not a new semantic assumption or a
+producer-correctness certificate. Python assembles these applications without
+duplicating substitution, variable shifting, or requirement computation.
+Errors identify the failed rule node, including its successor check.
+
+The baseline consumer exports typed equations, scopes, and fixed proposed answers
+with generated constructor metadata. It calls `LeanReady.produce`, then checks
+the returned bundle in the same Lean session. The reusable object-level producer
+lives in `CERTIFICATION-PRODUCER` inside `certification.maude`. It applies free,
+singleton/zero, purification, sharing, and whole-vector factor rules. Section 7.4
+audits its unbounded schedule; no formal implementation/search theorem or
+uniform success within the resource caps is claimed. Demonstration cases alone
+are not that audit.
+
+The optional standalone test harness separately PREPARES a binding-chain input
+using native `unify` and launches Lean as its test consumer. Its native-answer
+parser is intentionally demo-specific. Neither that preparation call nor its
+external Lean invocation belongs to the baseline certification interface.
+No new general native-answer parser is needed there: the host already has Σ.
 
 Run from the repository root:
 
 ```sh
 python3 certification_compiler.py --build
 python3 certification_compiler.py --demo
+CONPANNA_CERT_STRESS=1 python3 certification_compiler.py --demo
+CONPANNA_CERT_NEGATIVES=1 python3 certification_compiler.py --demo
+python3 -B -m unittest discover -s tests -v
 ```
 
 The first command precompiles the backend; the second reuses cached modules,
 calls Maude, saves its trace/proof under `.lake/build/certification`, and checks
 the final theorem. A built project dependency environment is required.
 Compilation and subprocesses are sequential and resource-limited.
+
+The smaller suite also presents `overlap_certificate` in native constructors:
+`P+Q=[wait(n)]` and `Q+R=[wait(m)]` have two supplied families. Either Q is
+empty and P/R are the independent singletons, or Q is the common singleton,
+n and m share its ticket, and P/R are empty. This checks correlated equation
+processing, exhaustive branches, payload decomposition, and whole-vector
+coverage. It is not a problem-specific semantic proof hidden in a tactic.
+
+The same file presents `atom_automated_certificate` and `atom_manual_certificate`
+with IDENTICAL native propositions for `P+Q=[wait(n)]` and its two supplied
+unifiers. The manual theorem is an ordinary explicit proof term: ATOM case
+analysis, a COVER witness in each branch, then CONGR and UNIT for both answers'
+soundness. `NativeRules.singletonCases` hides quoting and the singleton-mass
+witness; `unaryCongruence` hides the unary argument tuple; `rightUnit` is the
+derived COMM/UNIT composition. These are generic proved rules, not problem
+certification lemmas or tactics. Constructor aliases are syntactic metadata only.
+
+The expanded producer has ATOM with two BIND/BIND/COVER children. At the native
+surface, each branch's equalities already state those binding assignments;
+the witness N:=n supplies COVER. Comments record this grouping and the different
+branch order. This is a correspondence of proof rules and branches, not literal
+identity of serialized proof trees. The manual theorem calls neither producer,
+parser, generated-proof loader, nor certification tactic. The automated theorem
+only unfolds representation data after the generated certificate is checked.
+
+The optional negative suite corrupts freshly produced binding evidence after
+checking an unmodified control. A wrong successor must fail at its transition
+node; scope errors, admissions, duplicate/unsupported node declarations, and a
+wrong final proof must also be rejected. The Python tests separately check
+signature/input validation and answer-guided matching using a different
+constructor-code fixture. Passing these tests does not establish contract-wide
+search success or turn the Lean term parser into a security sandbox.
+
+The opt-in stress command checks `examples/certification-balance.lean` separately
+from the smaller regression suite. This focused Lean demonstration certifies
+`2P =B [wait(n)] + Q` against a supplied answer family, using purification,
+exhaustive sharing, singleton branches, binding, contradiction, and coverage
+rules. Its ordinary `certificate` theorem states both directions using native
+Bakery constructors; the final simplification only unfolds the representation
+after replay. It does not add another implementation, native-unification call,
+problem-specific certification lemma, or user registration proof.
 
 The proof groups equal required totals when finding a rectangle. This may merge
 several label classes, which only enlarges the available class and weakens the
@@ -1132,9 +1392,11 @@ stratified frontend contract using existing registered constructor metadata.
 The old shape-specific recognizers and elaboration-time Maude search have been
 removed from this file; separate Maude experiment files remain historical work.
 
-Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. In
-particular, exhaustive general solver, complete factor-search implementation, and their
-combined search-success theorem are not established by those existing examples.
+Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. The finite
+whole-vector matcher is implemented and has the informal invariant/coverage
+argument in §8.1. The retained-worklist scheduler now has the informal
+progress/exhaustiveness audit in §7.4; their combined FORMAL search-success
+theorem remains open. Successful examples alone establish neither argument.
 The retained semantic mutation/split rules are useful derived steps, not a
 complete fallback algorithm or a replacement for the finite-sharing theorem.
 
@@ -1153,11 +1415,12 @@ factorization and matching completeness. The difficult formalization lies in:
    propagation through postponed bag equations. Typed BIND and whole-state
    propagation, scoped replacement extraction, automatic free-step selection,
    and proper free-occurrence rejection are proved/implemented. The repeated
-   driver and its exhaustive scheduling argument remain unfinished.
+   external driver and its informal audit exist; formalizing that exact control
+   remains unfinished.
 3. Composing the now-proved exhaustive singleton/zero replay rules with
    the now-proved PURIFY/BIND primitives, and proving single-bag solver exactness
    while tracking all parameter contexts and shared images.
-4. Implementing and proving a complete whole-vector matcher and its equality-trace
+4. Formalizing the implemented complete whole-vector matcher and its equality-trace
    construction, rather than assuming that a successful external query supplies it.
 5. Connecting these constructive algorithms to certificate data and native replay.
 
@@ -1190,17 +1453,20 @@ wait until the algorithm and all component proofs are actually completed.
 ### 12.3 Design verdict and next gate
 
 Under the stated one-bag stratified contract, the argument above gives a credible
-finite complete calculus and a conditional reconstruction-success theorem. Its
+finite complete calculus and a conditional reconstruction-success argument. Its
 reasoning does not depend on variable-linearity restrictions or finitely many
 hand-picked examples. It is not a proof of general mixed-theory combination, an
-efficiency result, or a claim that the current prototype already realizes it.
+efficiency result, or a formal verification of the implementation. The prototype
+implements the finite fallback, with the retained-storage audit in §7.4 and
+independently kernel-checked evidence for successful runs.
 
-The next design gate is to review Lemma 5.4, Proposition 6.1, and the symbolic
-factorization premise in Theorem 8.3 against counterexamples and the intended
-model contract. If these are accepted, implement the specified finite strategy
-in small increments. Completing every Lean meta-theorem before attempting a
-scientific prototype is optional; silently replacing the strategy by bounded
-case-by-case search is not.
+The remaining gates are formalizing the search/control guarantee if desired,
+reducing certificates with optional conditional EARLY-COVER, and extending the
+modeling contract with a separate combination argument. The prototype's safety
+timeouts do not replace the finite complete schedule or justify contradiction.
+Completing every Lean search meta-theorem before using the scientific prototype
+is optional; silently replacing the strategy by bounded case-by-case search is
+not. Narrowing integration is outside this document's present implementation.
 
 ## 13. References and attribution boundaries
 

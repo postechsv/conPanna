@@ -1,5 +1,18 @@
 # TODO
 
+## Certification integration constraint: preserve on every next step
+
+- Input is `(E₀, B, Σ)`; Lean already has Σ from the earlier native Maude call.
+- Certification must NOT rerun native `unify` or replace the supplied answers.
+- Maude searches for soundness/completeness evidence targeted at that fixed Σ;
+  complete fallback search constructs coverage evidence, not new requested answers.
+- Python forwards/compiles evidence; the CURRENT Lean session kernel-checks it.
+  An external Lean process belongs only to the standalone testing harness.
+- The Lean-driven entry point is now separate from the optional standalone
+  harness. See CERTIFICATION.md §§0, 8.3, 9, and 12.1 for the specification.
+- Later optimization only: fuse upstream native answer acquisition and evidence
+  production if useful. The baseline certifier must still accept fixed Σ.
+
 ## Urgent: a general, terminating ACU certification algorithm (2026-10-05)
 
 This DESIGN milestone takes priority over the implementation stages below.
@@ -313,6 +326,68 @@ Goal: native Maude proposes unifiers; answer-guided search supplies a kernel-che
 soundness/completeness certificate, with no nontrivial user registration/proofs.
 Constrained narrowing will consume this only after unification certification works.
 
+Executable producer checklist (supersedes the historical implementation notes):
+
+- [x] Promote reusable rule production to certification.maude; the demo Maude
+  file contains only optional upstream native-unification test input.
+- [x] Export typed equations, scopes, proposed answers, and generated constructor
+  metadata from Lean. No new per-model semantic registration proof.
+- [x] Current Lean session -> Python -> Maude evidence -> current Lean kernel;
+  no native unify or external Lean invocation inside certification.
+- [x] Standalone --demo forwards its actual generated proof bundle to the Lean
+  consumer (rather than regenerating the first proof); all twelve certificates
+  pass the capped harness. Failure output retains status and elapsed time.
+- [x] Actual free binding/decomposition/clash/occurs and ACU equality evidence.
+  Substitutions propagate through the whole image vector and equation system.
+- [x] Actual exhaustive sharing and singleton/zero trace production: the twelve
+  smaller demos include two answers and nonlinear 2P = 3Q; no certificate holes.
+- [x] Kernel-check finite ACU factor fallback with an empty parameter assignment,
+  and singleton splitting under a three-field configuration constructor.
+- [x] Kernel-check PURIFY -> SHARING -> BIND for the common-singleton cancellation
+  case P+[wait(n)] = Q+[wait(n)].
+- [x] Kernel-check correlated two-equation input P+Q=[wait(n)], P=0; reject
+  corrupted binding/factor evidence in Lean and incomplete/unsound Σ in Maude.
+- [x] Validate purification + sharing + retained singleton constraints end-to-end
+  for 2P = [wait(n)] + Q under the unchanged caps. The focused Lean demo is
+  examples/certification-balance.lean; its ordinary native `certificate` theorem
+  proves soundness AND completeness by replay, with standard axioms only.
+  Shared typed terms and separately checked completeness nodes avoid the earlier
+  oversized nested elaboration. The larger demo runs separately from the suite.
+- [x] Simplify the replay boundary: one typed ReplayState groups images/equations.
+  BIND/PURIFY/SHARING/ATOM/ZERO check one computed-successor equality and transport
+  an independently checked child. Python duplicates no substitution/variable shift.
+  Failed nodes report their rule label. Existing calculus/semantics are unchanged.
+- [x] Audit finite whole-vector ACU factor matching against §8.1 and document its
+  invariant/completeness/finiteness argument. Check unit assignments, repeated
+  parameters, and shared assignments across fields; skip an incorrect diagonal
+  candidate. Reject unused parameters WITHOUT altering the already-fixed Σ.
+  This is an informal implementation audit, NOT a Lean matcher/search theorem.
+- [x] Broader regressions: seventeen smaller Lean certificates, including ACU
+  cycles and a two-equation/two-answer common-singleton problem with shared payload
+  tickets. Together with the separately checked balance demo, these give eighteen
+  positive demos without admissions. Fresh corruption tests check successor,
+  scope, hole, duplicate/unsupported node, and final-proof rejection. Python tests
+  check omitted/unsound answers and invalid signatures/scopes with different codes.
+- [x] Audit the retained-worklist scheduler against §6–7; §7.4 documents a finite
+  hierarchical schedule, exhaustive constructor cases, once-only sharing,
+  permanent solved frontiers, and local requirement processing. This is an
+  INFORMAL unbounded-execution argument, not a Lean search-success theorem or
+  a guarantee that every input fits resource caps. Alternate-signature tests
+  cover free configuration binding and two independently purified bag fields.
+- [x] Readable manual two-answer native certificate in certification-demo.lean:
+  ordinary proof term, general ATOM/CONGR/UNIT rules, explicit branches/witnesses;
+  no producer/parser/tactics/variable-index bookkeeping in the manual proof.
+  Comments distinguish grouped surface rules from the expanded actual dump.
+  A producer test checks the actual ATOM/BIND/BIND/COVER correspondence.
+- [x] Kernel-check configuration binding and two distinct purified bag fields
+  using a temporary model with TWO bag fields (no extra permanent Lean file).
+  Both replay certificates have standard axioms only. The automatic/manual
+  two-answer examples present the same ordinary native proposition.
+- [ ] NEXT: formalize the implementation-level search argument if required for
+  the technical report, or improve conditional EARLY-COVER for smaller traces.
+  Neither is an additional user certification/registration obligation.
+- [ ] Only afterward connect exact unifier certification to constrained narrowing.
+
 - [x] State the restricted modeling contract and the informal complete fallback /
   targeted early-closure argument in CERTIFICATION.md. This is NOT a formal Lean
   search-success theorem or a claim of universal speedup.
@@ -404,27 +479,9 @@ Constrained narrowing will consume this only after unification certification wor
   exactness and presents it in native Bakery constructors, without holes.
   Backend modules are cached. The parser/map/query are DEMO-specific, not a
   general translator or complete ACU search implementation.
-- [ ] NEXT: extend actual Maude trace production to nonlinear SHARING/COVER;
-  retain the same lightweight consumer, independent goal, and existing rules.
-  Then produce all singleton/zero branches and complete trace-template coverage.
-- [ ] Finish automatic free-equation processing: repeatedly execute the selected
-  binding/decomposition/deletion steps, propagate substitutions through ALL
-  images/equations, and revisit postponed equations. Then automate singleton
-  occurrence abstraction, cancellation/coefficient collection, and bag-phase
-  equation scheduling. The selector/closure compiler above do NOT yet constitute
-  an automatic complete equation-system solver.
-- [ ] Implement complete whole-vector factor search and native-answer-guided
-  early closure, with the complete finite fallback on shortcut failure.
-- [ ] Connect finite dump/replay data to actual Maude certification search; validate
-  the exact signature, input, original-variable scopes, and WHOLE answer family.
-- [ ] Lift checked unifier exactness into constrained narrowing and remove Bakery's
-  completeness holes. Production narrowing is deliberately unchanged so far.
-
-NEXT: extend Maude-side evidence production from the working binding-chain demo
-to nonlinear sharing, then the documented general search. Full-proof acceptance
-and actual binding trace production pass; general ACU trace search is unfinished.
-Do not build another Lean-side unification engine or raise resource limits.
-The numeric proof is general; the overall automatic ACU certifier is NOT finished.
+Continue the executable producer checklist above. Production narrowing remains
+unchanged; do not build another Lean-side unification engine or raise process
+resource limits. The overall automatic ACU certifier is NOT yet finished.
 
 ### Historical integration notes
 

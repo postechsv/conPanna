@@ -2,7 +2,246 @@
 
 This document records the design decisions and current implementation state needed to continue development in a new conversation. The current repository is `/home/byhoson/workspace/conPanna`.
 
+## Non-negotiable certification input and integration boundary
+
+Certification receives `(E₀, B, Σ)` from Lean. The proposed native answer set Σ
+is ALREADY AVAILABLE: existing unification called native Maude BEFORE the
+certification attempt. Do not design or implement certification as another
+native `unify` call. It constructs soundness/completeness evidence for this
+fixed Σ, using its answers to guide Maude-side proof search and coverage.
+The complete fallback is evidence construction, not replacement of Σ.
+
+Production flow: current Lean session -> Python wrapper -> Maude certification
+evidence -> Python proof construction -> current Lean session/kernel checking.
+Python does NOT launch another Lean executable in that interface. The current
+standalone demo invokes native unify for input preparation and launches Lean
+as a TEST HARNESS ONLY; do not mistake that harness for the intended integration.
+CERTIFICATION.md §§0, 8.3, 9, and 12.1 explicitly specify these boundaries.
+
 ## Current runnable demo: Maude -> Python -> precompiled Lean (2026-10-06)
+
+### Readable native certificate and scheduler audit — 2026-10-07 (latest)
+
+User clarified that metaprogramming is acceptable UNDER THE HOOD. The manual
+certificate's surface must be ordinary and abstract, not a dump parser or sorted
+variable-index proof. Sustained implementation remains authorized; narrowing is
+still deliberately untouched. No extra permanent Lean file or tactic was added.
+
+- `atom_automated_certificate` and `atom_manual_certificate` in
+  examples/certification-demo.lean state IDENTICAL native exactness propositions:
+  P union Q =B singleton(wait n) iff either singleton/empty assignment, with a
+  shared ticket parameter. The manual proof is one ordinary explicit term with
+  ATOM cases, COVER witnesses, then CONGR/UNIT soundness for each answer. It calls
+  no producer/parser/replay loader/tactic and has no generated variable indices.
+- General proved `NativeRules.singletonCases`, `rightUnit`, `unaryCongruence`
+  expose existing semantic rules while hiding quoting/mass/argument tuples.
+  Named constructor aliases are trivial syntactic data, not registration proofs
+  or problem-specific certificate lemmas. Other original replay rules unchanged.
+- Comments explain ACTUAL dump correspondence: ATOM -> two BIND/BIND/COVER
+  branches, N:=n. The native surface groups binding equalities/witness emission
+  and reverses branch order; it is NOT falsely described as byte-identical to
+  the serialized proof. A producer test checks the expanded tree and both βs.
+- CERTIFICATION.md §7.4 gives the retained-worklist scheduler's INFORMAL finite
+  phase audit: finitely many non-bag bindings; finitely many original frontiers
+  between them; decreasing explicit atoms in preparation; once-only sharing;
+  permanent solved equations; finite ATOM/ZERO local obligations processed by
+  binding/payload checks, not another sharing phase; exhaustive constructor
+  cases; final fixed-Σ coverage by the existing exhaustive matcher.
+  This advances the previous open implementation audit. It is NOT a formal Lean
+  search theorem or a guarantee that all inputs fit the unchanged resource caps.
+- Python tests now total 20, all pass: added actual manual-trace correspondence,
+  free configuration binding, and two bag fields with distinct purified atoms.
+  The latter fixtures use the alternate constructor-code signature, not Bakery
+  specific heuristics. Scope includes arbitrary repeated variables as before.
+- BOTH new scheduler cases also kernel-check on a freshly registered temporary
+  model with TWO bag fields. File: /tmp/conpanna-scheduler-audit.lean (560 checked
+  nodes total, standard axioms only). No permanent test Lean file was added.
+- Concrete small debugging issues: NativeEq carrier sort cannot be inferred by
+  `native_refl registration n` without an expected sort; expected-type `.refl _`
+  solves it without exposing tags. The automated native unfolding must qualify
+  Substitution.add/zero to avoid collision with Indexed tree constructors.
+  A test initially expected ZERO for a cancelled bag cycle; the producer
+  correctly uses zero-sided SHARING. These were corrected, not new proof axioms.
+- Smaller suite plus SIX fresh corruptions passes after the final manual-proof
+  rewrite (destructured native hypotheses, no tuple projection noise).
+  Manual axioms: propext, Quot.sound; generated proofs additionally Classical.choice.
+  No sorryAx. All jobs sequential under existing -j1/-M512 and OS safety caps.
+  The separate 754-node balance demo and original certification.lean handwritten
+  suite also pass after the changes. git diff --check passes; no owned jobs remain.
+- NEXT: optional conditional EARLY-COVER for smaller certificates; formalize the
+  unbounded scheduler/matcher guarantee if desired; then extend the modeling
+  contract with a proper combination argument. Do not make these new user
+  registration/certification obligations, and do not touch narrowing yet.
+
+### Previous replay-boundary and factor-audit checkpoint
+
+User authorized improving the implementation difficulties and continuing through
+several checkpoints while they sleep. No new calculus/search engine/tactics,
+narrowing changes, commits, or extra permanent Lean files were added this turn.
+Unrelated disunification.lean is untouched.
+
+- Reusable ReplayState in Worklist groups current images/equations at a fixed
+  original input scope. substitute/prepend/purify compute the SAME existing rule
+  transformations. The compiler emits checked successor equalities for
+  BIND/PURIFY/SHARING/ATOM/ZERO, then ReplayState.accept transports an opaque child.
+  Python duplicates no substitution/shifting/requirement algorithm.
+- Frontend failures identify the offending rule node. Explicit projections avoid
+  Lean parsing `generatedName.images` as one identifier during fresh renaming;
+  explicit `(sig := Sig)` avoids deferred operator inference in sharing transport.
+  These were concrete implementation issues, not missing semantic proof rules.
+- Seventeen smaller certificates pass, plus the separate larger balance demo.
+  Added ACU cycle P=P+Q (Q=0), impossible P=P+[wait(n)], repeated factor parameter
+  2U+V, correlated whole-vector factor with shared U=0, and actual two-equation /
+  TWO-answer `overlap_certificate` using native Bakery constructors. That theorem
+  certifies P+Q=[wait(n)] and Q+R=[wait(m)]: Q is empty, or the shared singleton
+  forces n/m to share its ticket. No problem-specific certificate lemma/hole.
+- Optional fresh negative replay suite passes. It validates a positive binding
+  control, then rejects wrong successor AT bind_successor, wrong scope, hole,
+  duplicate/unsupported node, and wrong final proof. Saved elaboration state is
+  restored between fixtures, including their messages/admission warnings.
+  Commands: CONPANNA_CERT_NEGATIVES=1 python3 -B certification_compiler.py --demo;
+  CONPANNA_CERT_STRESS=1 python3 -B certification_compiler.py --demo separately.
+- tests/test_certification_compiler.py uses alternate constructor codes, tests
+  typed-input rejection and whole-vector/shared/repeated factor search, omitted
+  and unsound families. All 17 tests pass. A two-SHARING regression checks that
+  2P=3Q and 3R=2S preserve two INDEPENDENT parameters through both equations.
+  The same problem was also kernel-checked separately in the temporary
+  /tmp/conpanna-system-audit.lean (533 generated nodes, standard axioms only).
+  No additional permanent Lean test file was created for that probe.
+  Run python3 -B -m unittest discover -s tests -v.
+- validate_request enforces the generated one-bag stratified contract and typed
+  term/image data. It rejects UNUSED parameters instead of silently modifying Σ;
+  normalization must happen before fixing the semantic goal (empty-sort issue).
+  Signature-less legacy binding harness input is retained, not covered by this
+  new signature validation. Normal typed Lean requests always export metadata.
+- Removed the compiler's unused duplicate equality-text storage; equality node
+  numbering now uses a counter. The emitted proof is unchanged by that cleanup.
+- Final checks: seventeen-case suite plus SIX fresh corruptions pass again;
+  the original certification.lean metatheorem/handwritten suite passes with no
+  sorryAx. The focused balance demo remains separately capped. All Lean jobs
+  ran sequentially with the unchanged safety limits; no owned test stays running.
+- CERTIFICATION.md §8.1 now documents the executable matcher invariant and its
+  informal completeness/finiteness argument. Its replay section documents the
+  successor boundary and test commands. It remains technical documentation,
+  not a timing diary. TODO.md marks these checkpoints and the remaining boundary.
+- NEXT: audit the external scheduler's progress with RETAINED solved equations,
+  several nonlinear bag fields/equations, and free configuration bindings. No
+  contract-wide producer search-success claim yet. Runtime caps can fail to
+  obtain evidence; that never certifies impossibility. Narrowing stays deferred.
+
+### Previous continued checkpoint
+
+User authorized continued work and specified the target: a WORKING LEAN demo
+certifying a unification problem with the documented calculus. A significant
+milestone now passes; no narrowing changes or commits were made.
+
+- Focused demo: examples/certification-balance.lean, ordinary native theorem
+  CertificationBalance.certificate. It certifies 2P=[wait(n)]+Q against the fixed
+  answer (N, [wait(N)]+R, [wait(N)]+2R), including n's component. No holes or
+  problem-specific supporting certification lemmas. Comments describe the ACTUAL
+  2-by-2 support table and PURIFY/SHARING/ATOM/BIND/NONEMPTY/COVER structure.
+- Run CONPANNA_CERT_STRESS=1 python3 -B certification_compiler.py --demo. It
+  checks that focused file separately, without another native unify. Latest
+  successful consumer: 19.51 s, 685 checked nodes, root elaboration 90 ms,
+  standard axioms [propext, Classical.choice, Quot.sound] only. Same resource caps.
+- Breakthrough: share typed TERM data using exported sort/head metadata, then
+  share closed completeness nodes with their SAME original indexed types.
+  Term sharing reduced the large bundle from ~530 KB to ~200 KB (before adding
+  completeness nodes); completeness-node sharing reduced root elaboration from
+  ~14 seconds with 20 postponed obligations to ~80-100 ms with NONE. All nodes
+  still kernel checked. Python performs only syntactic constructor assembly.
+- The earlier claim that the stall was final kernel checking was too coarse:
+  finer live checkpoints located a stall at synthetic-obligation completion
+  BEFORE the explicit final addDecl call. Some runs also exhausted node-checking
+  memory. This does not conclusively diagnose every historical WSL failure.
+- Tried smaller batches and restoring Term elaboration state: did NOT solve
+  the issue; reverted both. Batch size remains 50. Temporary phase debug logs
+  are gated by CONPANNA_CERT_DEBUG. Successful subprocess stderr is now retained.
+- Tried optional generated native theorem inside the existing demo: hygiene /
+  combined-suite cap problems made that awkward. REMOVED that block and the
+  wrapper's source slicing. One focused ordinary Lean demo file replaces those
+  experiments; there is no additional calculus/backend implementation.
+- All thirteen in ONE process exceeded the CPU cap. Separate capped checks are
+  deliberate; do not raise caps. Normal --demo covers twelve smaller cases.
+- Final checks PASS: focused balance demo (685 nodes, root 77 ms, consumer
+  19.05 s), twelve-regression --demo (consumer 14.46 s), original certification.lean
+  metatheorem/examples suite, and freshly produced valid evidence plus corrupt
+  binding/factor rejection. No sorryAx in axiom audits. Python syntax and
+  git diff checks pass. Generated completeness names retain their rule label;
+  #print checked in the focused demo shows PURIFY -> named SHARING directly.
+  Maude-only probes for P=P+Q (unit collapse) and P=P+[wait(n)] (failure) close,
+  but those probes were NOT separately kernel-checked as new examples.
+  Remaining NEXT: complete factor
+  matching audit for normalized answers, more sort/scope negatives, then scheduler
+  audit. Examples are NOT a contract-wide automatic-search guarantee.
+- /tmp/conpanna-purify-check.lean is now only an export/debug harness, and accepts
+  CONPANNA_EXPORT_ONLY=1. Request and old/shared bundles are under /tmp/conpanna-*.
+
+### Previous bounded resume checkpoint
+
+User authorized a small resume ("as much as 10% token"); stopped after one focused
+harness correction. No test remains running. No narrowing changes.
+
+- The twelve-certificate capped CLI check passed again: 24.80 s wall, 17.77 s
+  user+system CPU, peak RSS 1,404,540 KiB. This does NOT explain the earlier 137
+  exit or establish a memory/speed guarantee.
+- Found and fixed a test-harness defect: --demo saved its proof but never handed
+  it to the Lean consumer. It now writes a rule bundle to
+  .lake/build/certification/demo.proof.json and passes that exact bundle via
+  CONPANNA_CERTIFICATE. Remaining eleven regression certificates still run.
+- Corrected --demo passed unchanged caps: Maude+Python 0.097 s, Lean consumer
+  18.72 s, standard axioms only, no certificate holes. Production --certify still
+  does not run native unify or an external Lean process.
+- Failure diagnostics now retain exit/signal, elapsed time, AND subprocess output;
+  a deliberate exit-7/output test passed. Python syntax and git diff checks pass.
+- Larger 2P=[wait(n)]+Q replay remains unverified. Next resolve its normalization /
+  final kernel-check cost; complete factor and scheduler audits still remain.
+
+### Previous paused checkpoint
+
+User requested pause. Do not resume implementation until asked.
+
+Final pending --demo test finished before shutdown: backend modules were ready,
+Maude/Python produced bind -> bind -> cover evidence in 0.219s, but its Lean
+consumer exited 137. This wrapper test did NOT pass; distinguish it from the
+previous successful twelve-certificate CLI check below. No test remains running.
+
+- Twelve certificates in examples/certification-demo.lean PASS the capped CLI
+  check, with standard axioms only and no certificate holes: binding, payload,
+  clash, occurs, unit, two singleton answers, repeated-variable rejection,
+  nonlinear 2P=3Q, finite factor with an empty assignment, configuration fields,
+  common-singleton purification/cancellation, and a correlated two-equation case.
+- certification.maude now has reusable CERTIFICATION-PRODUCER rules driven by
+  exported metadata. The demo Maude file contains only upstream test input.
+  Certification takes already-known E/B/Sigma; no native unify or external Lean
+  subprocess inside --certify. Python compiles proof constructors, not search.
+- Finite whole-vector subbag matching fallback is implemented in Maude, with
+  one shared parameter table. Unused answer parameters remain an audit boundary.
+- Frontend.lean is the one new, semantic-independent loader module; Replay imports
+  it. Closed equality proofs and repeated state data are checked in small batches.
+  Identity proof compositions are removed syntactically. No new tactics/rules or
+  changes to narrowing. The failed completeness-node splitting was removed.
+- Important FAILURE: 2P=[wait(n)]+Q produces Maude evidence quickly, but capped
+  Lean replay has NOT completed its final kernel check. One retained variant
+  checks all 296 nodes and elaborates the root, then reaches CPU cap. Other
+  variants hit memory caps. Do not call this certificate verified or the general
+  documented search guarantee implemented. Next discuss/resolve larger replay
+  representation before extending the hard cases; do not raise resource caps.
+- Original certification.lean regressions pass. Lean rejects corrupt binding and
+  factor evidence; Maude rejects omitted/unsound answer families. Frontend LSP
+  diagnostics are clean. ONLY our LSP processes 42143/42138/42091 were stopped
+  after verified ownership, releasing about 4 GiB; VS Code was untouched.
+- Debug stderr is buffered by run_elab unless stderrAsMessages=false; missing
+  live messages did NOT locate the earlier failure. Moving the loader exposed
+  a syntax error in a trial version; compilation failure was not conclusively
+  attributable solely to Replay module size. Retained loader now builds cleanly.
+- Resource caps remain -j1/-M512, data 768 MiB, CPU 25 s, wall 30 s. No commits
+  made. Untracked disunification.lean is unrelated and untouched. TODO.md contains
+  the authoritative executable checklist. Temporary negative/stress files are
+  under /tmp/conpanna-*; no additional permanent experiment Lean files were added.
+
+Older details below are historical and some implementation-status claims are
+superseded by this checkpoint. CERTIFICATION.md remains technical documentation.
 
 Run `python3 certification_compiler.py --demo` from the repository root.
 `--build` precompiles only the backend. Four sequential cached modules live in
