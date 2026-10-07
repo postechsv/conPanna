@@ -1,55 +1,54 @@
 # A finite, answer-guided ACU certification calculus
 
-Technical design note — 2026-10-05.
+Technical design note — study-oriented revision, 2026-10-07.
 
-## 0. Purpose and status
+## 0. Purpose, reading guide, and status
 
-The objective is a **search guarantee**, established mathematically before
-implementing more Lean proof rules:
+This document explains how to certify an ALREADY COMPUTED finite unifier set
+against registered constructor semantics. The certification input is
+`(E₀, B, Σ)): the original equations, structural theory, and supplied answers.
+Native Maude `unify` is upstream; certification does not call it again to
+discover or replace Σ. It constructs evidence for this FIXED requested set.
 
-> For every finite constructor-unification problem under the contract below,
-> and every finite sound, symbolically complete proposed answer set, a specified
-> finite reconstruction procedure produces an exactness certificate.
+The goal is exactness: every proposed answer solves the equations (soundness),
+and every solution is an instance of some proposed answer (completeness).
+The answer's origin is not trusted. The current Lean session checks the proof
+against its independently fixed original problem and answers.
 
-The proposed answers may come from native Maude `unify`. Reconstruction checks
-their soundness and proves their completeness; it does not trust their origin.
-The guarantee is conditional on the actual properties of the proposed set, not
-on the statement “Maude returned it.”
+**Suggested reading order:**
 
-The certification input is the triple `(E₀, B, Σ)`: the original equation
-system, its registered structural theory, and an ALREADY COMPUTED proposed
-answer set. In the intended integration, Lean has obtained `Σ` from the earlier
-native Maude unification call before certification begins. Certification does
-not invoke native `unify` again, discover the requested answers, or replace `Σ`
-by a different set. Its task is to construct evidence of exactness for that
-fixed `Σ` against the fixed `E₀` and `B`.
+1. Sections 1–2 fix the allowed models and the proposition being certified.
+2. Section 3 distinguishes equality evidence, state transformations, coverage
+   closure, and their final aggregation.
+3. Section 4 gives the rules, state/evidence displays, and Lean definition links.
+4. Section 5 works through concrete certificates and readable Maude dump trees.
+5. Sections 6–8 explain answer-guided control, the evidence pipeline, and the
+   implementation boundary. Sections 9–10 give references and rule provenance.
+6. Appendix A collects the search-guarantee arguments. It is not a prerequisite
+   for understanding the structure of an individual certification proof.
 
-“Certification search” means searching for that evidence, guided by the known
-answers. It is hosted in Maude; Python constructs proof terms and Lean checks
-them. Section 9 describes targeted early coverage, while Sections 6–8 supply
-the complete fallback when those shortcuts cannot close a branch. The fallback
-may repeat unification work, but this is not another native-answer acquisition
-stage or a claim that the answers were unknown when certification started.
+**Status:** the reusable rule checker and restricted external producer are
+implemented, with kernel-checked demonstrations. General rule-validity and
+accepted-certificate exactness proofs exist in Lean. The whole search-success
+argument is informal, not a formally verified end-to-end search theorem.
+Supported examples are evidence of implementation behavior, not a general
+guarantee that every request succeeds within the prototype's resource limits.
 
-This document supplies definitions, informal inference rules, a complete fallback
-strategy, and a mathematical sufficiency argument. It is a proposed technical
-specification, **not an already formalized search theorem or an implemented
-general solver**. Its key finite-sharing argument is proved below rather than
-left as a conjectured property of mutation search.
+Keep three claims separate:
 
-Three results must remain distinct:
+- **Rule validity:** a checked rule has its stated semantic effect.
+- **Search success:** a specified finite strategy can construct a certificate
+  for every legal problem with a finite sound, symbolically complete supplied set.
+- **Implementation correctness:** the exporter, search program, compiler, and
+  replay mechanism actually implement that strategy and preserve the request.
 
-1. **Rule validity:** each checked transformation has its claimed semantic effect.
-2. **Search success:** the specified strategy finds a finite certificate whenever
-   the proposed set has the required properties.
-3. **Implementation correctness:** the actual exporter, search program, parser,
-   and replay mechanism implement that strategy and preserve the request.
+Appendix A argues the second under the contract below; Lean checks the first
+and final aggregation for individual accepted certificates. It need not invoke
+a search-success theorem when checking one certificate.
 
-Only the second is the central design question here. Establishing the second
-requires mathematical arguments for the first, but does not require first
-formalizing those arguments in Lean. A Lean checker will eventually need formal
-rule-validity lemmas; it need not use a formal search-success theorem to accept
-an individual certificate.
+Maude hosts certification search, Python assembles explicit rule applications,
+and Lean checks them. Supplied answers can close branches early (§6); the
+finite fallback remains available when these checked shortcuts fail.
 
 ## 1. Scope and modeling contract
 
@@ -213,737 +212,1039 @@ for every native input valuation v,
 An empty answer list gives `E₀(v) iff False`. It therefore requires exhaustive
 contradiction evidence, not an unsuccessful search or match.
 
-## 3. State invariant and proof judgement
+## 3. States, proof levels, and how they fit together
+
+### 3.1 What a state represents
 
 A search state is:
 
 ```text
-⟨α : X ⇒ Γ ; E over Γ⟩.
+S = ⟨α : X ⇒ Γ ; E over Γ⟩.
 ```
 
-For any target context `Δ`, its represented original-input solutions are:
+Here `X` is the FIXED original input-variable context, `Γ` is the CURRENT
+parameter context, `α` records every original variable's current image, and
+`E` is the remaining equation list. Introducing or removing a parameter changes
+`Γ`; it does not change which original variables must be accounted for.
+
+For any target context `Δ`, the state represents:
 
 ```text
 Denote(α, E, Δ) =
   { ρ : X ⇒ Δ |
       exists δ : Γ ⇒ Δ,
-      δ unifies E and ρ =B αδ on X }.
+      δ unifies E and ρ =B αδ on ALL original variables }.
 ```
 
-The initial state is `⟨identity ; E₀⟩`. Fresh-variable introduction, binding,
-decomposition, and bag solving replace a state by states whose denotations have
-exactly the same union. A dead branch has empty denotation.
+The initial state is `⟨identity ; E₀⟩`. An exact state transformation preserves
+this set, or represents it as the union of its children's sets. A dead state
+represents no solutions.
 
-The coverage judgement is:
+Example: after binding `P := Q`, the original inputs `(P,Q)` are still
+recorded, now by the image vector `(Q,Q)`. Keeping both components prevents
+later coverage from silently forgetting the original P.
+
+Lean: [ReplayState](conPanna/Certification/Replay.lean#L1995),
+[ReplayState.substitute](conPanna/Certification/Replay.lean#L2006).
+
+### 3.2 Three proof levels, followed by one final aggregation
+
+The same word “rule” has been used for different jobs. Keep these separate:
+
+| Level | Input → output | What it establishes | Lean representation |
+| --- | --- | --- | --- |
+| Equality evidence | Terms, optionally equations E → proof of a term equality | A law, or a consequence of E; it does NOT change the search state | `Equality`; `Worklist.Derives` |
+| State transformation | One state → one state or a finite family of states | Every parent solution is represented by a child; the abstract transformations below are exact | Constructors such as `Complete.bind`, `purify`, `atom`, `sharing` |
+| Coverage closure | State and supplied answer σᵢ, with a factor β → coverage proof | All solutions of this state factor through that answer; no further child is needed | `Complete.cover`; contradiction leaves close empty states |
+| Final aggregation | Root coverage AND supplied-answer soundness → exactness | The requested unifier set has neither missing solutions nor junk | `Worklist.exact_system` |
+
+There are two equality judgements, not two user-facing equalities:
 
 ```text
-Σ ⊢ ⟨α ; E⟩ covered
+⊢B s = t       equality valid without assuming the current equations
+E ⊢B s = t     equality valid for every valuation satisfying E
 ```
 
-meaning every solution represented by the state factors through some answer in
-`Σ`. A coverage closure can prove inclusion without reproducing the state's
-exact solution family. Checking `Sound(Σ)` separately then supplies the reverse
-inclusion at the root.
+Both conclude the SAME structural relation `=B`. The distinction is whether
+the proof may use hypotheses from E. Lean's
+[Equality](conPanna/Certification/Replay.lean#L824) records the first;
+[Derives](conPanna/Certification/Replay.lean#L1683) records the second.
 
-## 4. Informal inference rules
+Write the coverage judgement as:
 
-In the displays, `E` means the entire remaining worklist. Every substitution is
-applied both to `α` and to that entire worklist. Side conditions must be checked,
-not accepted because an external dump asserts them.
+```text
+Σ ⊢ S covered
 
-### 4.1 Free constructor and substitution rules
+meaning: every solution represented by S factors through some σᵢ in Σ.
+```
+
+Search follows state arrows DOWN a tree. Checking combines child proofs UP
+that tree:
+
+```text
+Unary exact step:                 Exhaustive branching step:
+
+S → S'                           S → {S₁, …, Sₖ}
+Σ ⊢ S' covered                   Σ ⊢ S₁ covered  …  Σ ⊢ Sₖ covered
+────────────────                 ────────────────────────────────
+Σ ⊢ S covered                    Σ ⊢ S covered
+```
+
+ALL children are required, not just the branch corresponding to one successful
+unifier. An empty branch family is acceptable only when a checked rule proves
+that the parent has no solutions.
+
+A COVER leaf supplies inclusion in the proposed answers, not exactness by itself.
+Independently check that every proposed answer solves every original equation:
+
+```text
+Σ ⊢ ⟨identity ; E₀⟩ covered       Sound(E₀, Σ)
+─────────────────────────────────────────────
+Exact(E₀, Σ)
+```
+
+This is [exact_system](conPanna/Certification/Replay.lean#L2232).
+[Complete.sound](conPanna/Certification/Replay.lean#L2059) proves the validity of
+a COVERAGE tree; despite its name, it is not the separate proposed-answer
+soundness proof. That reverse direction is supplied by
+[SystemSoundness.sound](conPanna/Certification/Replay.lean#L2217).
+
+### 3.3 The overall procedure
+
+The inputs `E₀, B, Σ` are already fixed. Native unification has supplied Σ;
+none of the following steps acquires a new answer set.
+
+```text
+Completeness side:
+  root ⟨identity ; E₀⟩
+    → try checked COVER using a supplied answer
+    → otherwise transform/split the state
+    → cover EVERY child, or prove it contradictory
+    → combine the children into root coverage
+
+Soundness side:
+  for EVERY σᵢ and EVERY equation s =B t in E₀,
+    construct unconditional equality evidence for sσᵢ =B tσᵢ
+
+Final step:
+  combine these two proofs into the original exactness proposition.
+```
+
+The fallback first processes free constructors, then bag balances, singleton
+requirements, and their free payload equations. The detailed search-success
+argument is in Appendix A; understanding individual certificates does not require
+reading it first.
+
+## 4. Proof rules and their Lean counterparts
+
+### Reading convention
+
+A state arrow describes the mathematical transformation. A displayed equality
+judgement describes evidence used BY a transformation or closure. A coverage
+inference closes a proof; it is not another state transition.
+
+In state displays, `E` denotes ALL other equations, and `ασ` means apply the
+same substitution σ to EVERY original input image. Substitution must also act on
+EVERY equation; substitutions are never selected independently per component.
+
+The abstract presentation may delete a solved equation. The implementation often
+RETAINS it, adds derived requirements, and closes by conditional COVER.
+Consequently, DELETE, ORIENT, DECOMPOSE, NORMALIZE, and CANCEL need not appear as
+separate completeness-tree nodes. Their evidence can instead occur inside a
+node's `premise` or `derived` fields. This is not a different semantics.
+
+### 4.1 Free constructors and substitution — state transformations
+
+**Intuition: compare constructor heads, then their arguments.** For example,
+`wait(n) =B wait(m)` reduces to `n =B m`; binding `n:=m` changes the
+original image vector `(n,m,P)` to `(m,m,P)` everywhere. In contrast,
+`wait(n) =B crit(m)` is impossible because the free constructor heads differ.
+Likewise, `n =B succ(n)` would require a finite free-constructor term to contain
+itself strictly, so FREE-OCCURS closes that case.
+The formal rules make these steps explicit:
 
 ```text
 DELETE
-  ⟨α ; t =B t, E⟩
-  → ⟨α ; E⟩
+  ⟨α ; t =B t, E⟩ → ⟨α ; E⟩
 
 ORIENT
-  ⟨α ; t =B x, E⟩
-  → ⟨α ; x =B t, E⟩
-  where x is a variable; use a fixed orientation, not repeated flipping.
+  ⟨α ; t =B x, E⟩ → ⟨α ; x =B t, E⟩
+  x is a variable; orient consistently rather than flipping repeatedly.
 
 DECOMPOSE
   ⟨α ; f(s₁,…,sₖ) =B f(t₁,…,tₖ), E⟩
   → ⟨α ; s₁ =B t₁,…,sₖ =B tₖ, E⟩
-  where f is a free constructor.
+  f is a free constructor.
 
 CLASH
   ⟨α ; f(…) =B g(…), E⟩ → dead
-  where f and g are distinct free heads at the same non-Bag result sort.
+  f and g are distinct free heads at the same non-Bag result sort.
 
-BIND
-  ⟨α ; x =B t, E⟩
-  → ⟨α[x:=t] ; E[x:=t]⟩
-  where x is not in t; remove x from the live parameter context.
+BIND                         θ = [x := t]
+  ⟨α ; x =B t, E⟩ → ⟨αθ ; Eθ⟩
+  t is scoped WITHOUT x; remove x from the live context.
 
 FREE-OCCURS
   ⟨α ; x =B t, E⟩ → dead
-  where x occurs strictly below only free constructors in t.
+  x occurs strictly below free constructors in t, along a free-only path.
 ```
 
-`BIND` is valid at any sort when its side condition holds. The mandatory free
-phase uses it only at non-bag sorts; optional bag bindings may be shortcuts.
-`DECOMPOSE` includes singleton injectivity, although the mandatory bag strategy
-handles singleton equations in its dedicated phase.
+| Rule | Lean definition or evidence constructor |
+| --- | --- |
+| DELETE / ORIENT | [Equality.refl](conPanna/Certification/Replay.lean#L824) / [Derives.symm](conPanna/Certification/Replay.lean#L1683); producer bookkeeping, not separate `Complete` constructors |
+| DECOMPOSE | [Derives.decompose](conPanna/Certification/Replay.lean#L1698), justified by [decompose_native](conPanna/Certification/Replay.lean#L353) |
+| CLASH | [Complete.clash](conPanna/Certification/Replay.lean#L1985) |
+| BIND | [Complete.bind](conPanna/Certification/Replay.lean#L1930), [Binding.Removal](conPanna/Certification/Replay.lean#L1082), [Binding.complete](conPanna/Certification/Replay.lean#L1312) |
+| FREE-OCCURS | [Complete.occurs](conPanna/Certification/Replay.lean#L1936), [FreeOccurs.Proper.sound](conPanna/Certification/Replay.lean#L1395) |
+| Free-step selection | [FreePhase.classify](conPanna/Certification/Replay.lean#L1480) |
 
-The Lean replay now represents BIND by a typed context-removal table. Its
-replacement term is scoped in the context with x removed, enforcing the
-no-occurrence side condition structurally. This also gives a strict one-variable
-decrease, without assuming sort distinctness or literal equality of bag trees.
-The SAME generated substitution acts on every remaining equation and input image.
+BIND is valid at any sort when the scoped-replacement condition holds. The
+mandatory free phase uses it at non-bag sorts; optional bag bindings are shortcuts.
+Typed context removal enforces no occurrence of x in the replacement and a
+strict one-variable decrease. The SAME generated substitution changes the
+entire worklist and image vector.
 
-Do not apply `CLASH` to the raw roots `empty` and `union`, or an unrestricted
-occurs failure to a bag variable. Unit collapse invalidates such inferences.
-
-Under the contract, a strict occurrence of a non-bag variable in a same-sort
-right-hand side cannot run through a bag. If its sort reaches bags, it cannot
-also occur inside their payloads; otherwise the forbidden dependency cycle
-would exist. If it is below bags, its right-hand side cannot contain bags at all.
-Thus ordinary free occurs checking is legitimate in the free phase.
+Do not clash raw `empty` and `union` heads or reject arbitrary bag occurrences:
+`P =B P+Q` has solutions with `Q=0`. Under the stratified contract, a
+same-sort non-bag occurrence cannot run through a bag and return to its own sort,
+so the ordinary free occurs argument is legitimate in the mandatory free phase.
 
 ### 4.2 Bag normalization, cancellation, and purification
 
+**Intuition: separate bag distribution from singleton requirements.** A
+**pure balance** is an equation containing only bag variables combined by union,
+possibly repeated. “Balance” simply means an equation between two bag sums;
+“pure” means no explicit singletons remain in that equation.
+
+We prepare such an equation by flattening unions, canceling common occurrences,
+and naming each remaining explicit singleton with a fresh bag variable:
+
 ```text
-NORMALIZE
-  flatten unions and remove empty summands using ACU equality.
+Original:    ((P+0)+P)+C =B ([wait(n)]+Q)+C
+NORMALIZE:          2P+C =B [wait(n)]+Q+C
+CANCEL:              2P =B [wait(n)]+Q
+PURIFY:              2P =B A+Q          ← pure balance
+                      A =B [wait(n)]    ← separate retained requirement
+```
 
-CANCEL
-  ⟨α ; C + L =B C + R, E⟩
-  → ⟨α ; L =B R, E⟩.
+Here `2P` means `P+P`. We have not discarded the singleton: its defining
+equation remains a requirement. FINITE-SHARING will first describe how the bags
+P,A,Q can be distributed; later rules enforce that A is exactly `[wait(n)]`.
 
+**Formal rules.** NORMALIZE makes the union structure explicit without changing
+the original-variable context. It is equality evidence plus an optional change
+of presentation:
+
+```text
+NORMALIZE                                  nf flattens + and removes 0
+  ⊢B s = nf(s)       ⊢B t = nf(t)
+  ⟨α ; s =B t, E⟩ → ⟨α ; nf(s) =B nf(t), E⟩
+```
+
+Its proofs use `Equality.assoc`, `comm`, `unit`, `congr`, `trans`,
+and `symm`; see [Equality](conPanna/Certification/Replay.lean#L824).
+
+CANCEL removes the same bag contribution from both sides. It has a state
+presentation and an evidence presentation:
+
+```text
+CANCEL — state
+  ⟨α ; C+L =B C+R, E⟩ → ⟨α ; L =B R, E⟩
+
+CANCEL — evidence                         MULTIPLICITY-CANCEL — evidence
+  E ⊢B C+L = C+R                           E ⊢B kU = kV     k > 0
+  ───────────────                          ──────────────────────
+  E ⊢B L = R                               E ⊢B U = V
+```
+
+Here `kU` means k repeated copies, not arithmetic on payloads. Replay can
+retain the original equation and use the derived equality for the next step.
+Lean: [Derives.cancel](conPanna/Certification/Replay.lean#L1691),
+[Derives.multiplicity](conPanna/Certification/Replay.lean#L1694),
+[cancel_native](conPanna/Certification/Replay.lean#L488),
+[multiplicity_native](conPanna/Certification/Replay.lean#L324).
+
+Both rules rely on the FREE bag algebra, not just an arbitrary ACU monoid.
+Common syntactic occurrences can be canceled without comparing payloads.
+
+PURIFY names a singleton while retaining its defining equation. It is an exact
+state transformation introducing a fresh witness:
+
+```text
 PURIFY
-  replace an explicit singleton [t] in the selected bag equation by fresh A,
-  and retain A =B [t] in a local singleton-requirement list D.
+  ⟨α ; e[[t]], E⟩ in scope Γ
+  → ⟨lift(α) ; e[A], A =B [t], lift(E)⟩ in scope Γ,A
+
+  A is fresh. e[·] selects ONE occurrence in the equation.
+  All pre-existing terms are lifted into the extended scope.
 ```
 
-`CANCEL` follows from the free commutative-monoid representation of bags; it is
-not justified in an arbitrary ACU algebra. Syntactically common occurrences can
-be canceled without solving payload equations. Cancellation of additional
-provably equal terms is an optional checked optimization.
+An old solution extends with `A:=[t]`; the defining equation ensures that
+every new solution restricts back to an old one.
 
-`PURIFY` introduces an existentially quantified fresh bag variable. An original
-solution extends by assigning `A := [t]`; a solution of the purified system
-restricts to an original solution. Occurrence-by-occurrence fresh names are
-allowed because all retained equations are subsequently enforced.
+Lean: [Complete.purify](conPanna/Certification/Replay.lean#L1939),
+[Purification.state](conPanna/Certification/Replay.lean#L1813),
+[Purification.exact](conPanna/Certification/Replay.lean#L1859).
+The typed fresh-slot template must reconstruct the exact old equation when its
+slot is filled; an external dump cannot simply assert that the replacement is valid.
 
-In the checked replay, the rewritten equation is a typed fresh-slot template.
-Filling that slot with the named term computes the exact old equation. The
-defining equation and lifted residual equations are all retained. The general
-`Purification.exact` theorem proves both directions, modulo the existing native
-relation. Automatic occurrence selection and once-only phase scheduling remain
-separate from this checked primitive.
-
-After cancellation, the pure selected equation is:
+After preparation, the selected pure balance has the general form:
 
 ```text
-a₁X₁ + … + aᵣXᵣ =B b₁Y₁ + … + bₛYₛ,                 (Balance)
+a₁X₁ + … + aᵣXᵣ =B b₁Y₁ + … + bₛYₛ.
 ```
 
-where coefficients are positive, `kZ` denotes k repeated unions, and no active
-variable occurs on both sides. Other live variables remain passthroughs.
+Coefficients are positive; no active variable occurs on both sides. Other live
+variables remain passthroughs.
 
-### 4.3 FINITE-SHARING
+### 4.3 FINITE-SHARING — a state transformation introducing parameters
 
-Let `p = sum aᵢ` and `q = sum bⱼ`. Construct `p` occurrence rows and `q`
-occurrence columns, labelled by their original variables.
+This rule solves a PURE variable balance. It does not decide singleton or payload
+requirements; those equations are carried to its child.
 
-A **support** is a nonempty subset of the `p*q` cells. It is balanced if:
-
-- All rows labelled `Xᵢ` have the same degree `dᵢ(S)`.
-- All columns labelled `Yⱼ` have the same degree `eⱼ(S)`.
-
-The degree is the number of selected cells in that row or column. Let `H` be
-the set of **all** balanced supports. Give each `S in H` one fresh bag parameter
-`Z_S`. Define `θ` by:
+**Intuition: describe how the two sides share their contents.** Start with:
 
 ```text
-θ(Xᵢ) = sum over S in H of dᵢ(S) copies of Z_S
-θ(Yⱼ) = sum over S in H of eⱼ(S) copies of Z_S.
+P + Q =B R + S
 ```
 
-Other live variables receive distinct same-sort passthrough parameters, retaining
-all existing sharing. The rule is:
+The same total bag is divided in two ways: into P/Q on the left, and R/S on the
+right. Introduce pieces describing where contents belong in BOTH divisions:
 
 ```text
+                    Right occurrence
+                      R       S
+Left occurrence  P    a       b
+                 Q    c       d
+
+P =B a+b    Q =B c+d    R =B a+c    S =B b+d
+```
+
+For example, a is the piece contributed by P on the left and R on the right.
+Reading row sums reconstructs the left variables; reading column sums
+reconstructs the right variables. Both totals contain exactly a,b,c,d, so they
+agree. These are bags of occurrences, not set intersections: duplicate elements
+are preserved. Any piece may be empty.
+
+**Repeated variables need an extra consistency check.** In `P+P =B Q+Q+Q`,
+there are TWO rows labelled P and THREE columns labelled Q. The rows represent
+occurrences of the SAME variable, not two independently assignable bags.
+Therefore their reconstructed expressions must agree; likewise for the Q columns.
+
+To see this, put a copy of the SAME fresh bag Z in each selected cell;
+`.` means no contribution. Compare these two patterns:
+
+```text
+Consistent pattern                      Inconsistent pattern
+
+           Q₁   Q₂   Q₃   row sum                   Q₁   Q₂   Q₃   row sum
+     P₁     Z    Z    Z      3Z               P₁     Z    .    .       Z
+     P₂     Z    Z    Z      3Z               P₂     .    .    .       0
+column     2Z   2Z   2Z                  column      Z    0    0
+sum                                     sum
+```
+
+The subscripts distinguish occurrences, NOT variables. On the left, BOTH P
+rows reconstruct 3Z and ALL Q columns reconstruct 2Z. Thus `P:=3Z, Q:=2Z`
+works: the left total is `2(3Z)` and the right total is `3(2Z)`.
+
+On the right, the two P occurrences would require `P =B Z` AND `P =B 0`;
+the Q occurrences disagree too. This is not a valid family for an arbitrary Z.
+Z=0 could make those particular equations hold, but a sharing parameter must
+remain freely assignable, not require a new constraint.
+
+**How enumeration works: continue `2P =B 3Q`.** There are six cells. For each
+cell, choose selected or unselected: this gives `2⁶ = 64` grids. These choices
+enumerate patterns, NOT concrete values for P or Q. Write a grid as two rows
+of digits: `1` selects a cell and `0` does not. For example, `100 / 000`
+selects only the top-left cell.
+
+For each grid, count selected cells in each row and column:
+
+| Grid: P₁ row / P₂ row | Row counts | Column counts | Keep? |
+| --- | --- | --- | --- |
+| `000 / 000` | 0, 0 | 0, 0, 0 | No: no cells are selected. |
+| `100 / 000` | 1, 0 | 1, 0, 0 | No: repeated P and Q occurrences disagree. |
+| `111 / 000` | 3, 0 | 1, 1, 1 | No: the P occurrences disagree. |
+| `110 / 110` | 2, 2 | 2, 2, 0 | No: the Q occurrences disagree. |
+| `111 / 111` | 3, 3 | 2, 2, 2 | Yes: both P rows agree, and all Q columns agree. |
+
+These trials explain the terminology: a nonempty selection of cells is a
+**support** (a sharing pattern). It is **balanced** when repeated occurrences of
+each variable have equal counts. Thus the full grid is balanced, whereas the
+other nonempty grids shown above are not. FINITE-SHARING keeps exactly the
+balanced supports.
+
+The table shows representative trials, not all 64. In fact only the full grid
+survives: if each P row has d cells and each Q column has e, counting all selected
+cells gives `2d=3e`, with `0≤d≤3` and `0≤e≤2`. The only nonempty possibility
+is d=3,e=2.
+
+Now give that ONE retained support ONE fresh bag parameter Z, placing a copy of
+the SAME Z in EVERY selected cell. Each P row has three selected cells, so a P
+occurrence receives three copies of Z; each Q column has two, so a Q occurrence
+receives two. The output substitution is:
+
+```text
+θ(P) := Z+Z+Z
+θ(Q) := Z+Z
+```
+
+That is the entire pattern-generation step for this equation: enumerate grids,
+check counts, allocate a parameter, and read off copies. No bag values have been
+guessed. Discarding the empty grid does not discard the empty solution: assigning
+Z:=0 already gives `P =B 0` and `Q =B 0`.
+
+**What if several patterns survive? Change the example to `2P =B 2Q`.** Its
+2-by-2 grid has 16 selections. Exactly THREE are nonempty and balanced:
+
+```text
+Pattern U             Pattern V             Pattern W
+           Q₁ Q₂                 Q₁ Q₂                 Q₁ Q₂
+     P₁     1  0           P₁     0  1           P₁     1  1
+     P₂     0  1           P₂     1  0           P₂     1  1
+```
+
+Give each retained support its OWN independent fresh bag U,V,W. Replace every
+`1` in that support's grid with a copy of its bag, then read the counts:
+
+| Pattern | Copies in EACH P row | Copies in EACH Q column | Contribution to θ(P) and θ(Q) |
+| --- | --- | --- | --- |
+| U: diagonal | 1 | 1 | U |
+| V: opposite diagonal | 1 | 1 | V |
+| W: full grid | 2 | 2 | W+W |
+
+Add these contributions, rather than choosing one of the patterns:
+
+```text
+θ(P) := U+V+W+W
+θ(Q) := U+V+W+W
+```
+
+This is how several balanced supports coexist: their independent contributions
+are ADDED to reconstruct each variable. This is ONE unifier with THREE
+parameters, not three alternative unifiers.
+For example, assigning U:=[a], V:=[b], W:=0 gives `P =B [a]+[b]` and
+`Q =B [a]+[b]`: both diagonal patterns contribute at once.
+Keeping the full-grid parameter is redundant here, but harmless; the exhaustive
+rule does not try to minimize its generated family.
+
+For the earlier `P+Q =B R+S` example, no variable labels repeat, so the same
+2-by-2 enumeration keeps all 15 nonempty selections. Its four single-cell
+patterns reproduce the parameters a,b,c,d in the introductory grid when all
+other pattern parameters are assigned 0.
+
+**Formal construction.**
+
+Let `p = sum aᵢ` and `q = sum bⱼ`. Make p occurrence rows and q occurrence
+columns, labelled by their original variables. A support is a nonempty subset of
+the p*q cells. Keep ALL supports satisfying:
+
+- Every row labelled Xᵢ has the same degree dᵢ(S).
+- Every column labelled Yⱼ has the same degree eⱼ(S).
+
+A degree counts selected cells. With one fresh bag parameter Z_S per retained
+support S, define:
+
+```text
+θ(Xᵢ) = sum over all retained S of dᵢ(S) copies of Z_S
+θ(Yⱼ) = sum over all retained S of eⱼ(S) copies of Z_S
+
 FINITE-SHARING
-  ⟨α ; Balance, D, E⟩
-  → ⟨αθ ; Dθ, Eθ⟩.
+  ⟨α ; Balance, D, E⟩ → ⟨αθ ; Dθ, Eθ⟩
 ```
 
-It produces one parameterized family for the pure balance, not a branch for
-each support. Different supports coexist as independent parameters; any of them
-may be empty. No nonemptiness constraint is introduced.
+D denotes retained singleton requirements. Unrelated live variables have
+same-sort passthrough images. This is ONE parameterized family, not one branch
+per support: all Z_S coexist and any may be empty.
 
-The essential exactness lemma is:
+For `2P =B 3Q`, the only nonempty balanced support is the full rectangle shown
+in the intuitive example above. Hence `θ(P)=3Z, θ(Q)=2Z`. Section 5.3 shows
+the corresponding certificate.
 
-```text
-For every target context Δ and every δ over the old live variables,
+Why keep ALL balanced supports? A selected pattern can describe only part of
+the solution space. The general rule retains every such pattern, so every
+solution can be assembled from their parameter bags. The finite-sharing theorem
+justifies that last completeness claim; it is not inferred merely from this
+example. Parameters may be empty, making unused patterns harmless. The family
+can be redundant: for `P+Q =B R+S`, the four single-cell patterns already give
+the four-piece description above, but the exhaustive rule retains larger
+supports too. It prioritizes complete coverage over a minimal answer.
 
-  δ unifies Balance
-    iff
-  exists η over θ's parameters, δ =B θη on ALL old live variables.
-```
+If one side has no occurrences, every active variable is sent to empty.
+If both sides cancel, there are no active variables and all variables pass
+through. Thus `X+Y =B X` leaves X arbitrary and forces Y=0; `X =B X`
+leaves X arbitrary.
 
-If `p=0` or `q=0`, there are no nonempty supports. Every active variable is sent
-to empty. If both sides cancel completely, there are no active variables and
-all old variables pass through. Thus `X+Y =B X` leaves arbitrary `X` and forces
-`Y=0`, whereas `X =B X` leaves arbitrary `X`.
-
-### 4.4 Exhaustive singleton and zero rules
-
-Normalize each equation of `Dθ`, composing earlier bag bindings. Combine repeated
-occurrences of each still-live bag variable. Its left side then has form:
-
-```text
-[u₁] + … + [uₖ] + c₁Z₁ + … + cₗZₗ =B [t],
-```
-
-with distinct `Zᵢ`, positive coefficients, and no bags inside any payload.
+The general semantic lemma states:
 
 ```text
-ATOM-MANY
-  k ≥ 2 → dead.
-
-ATOM-ONE
-  k = 1 → bind every Zᵢ := 0 and retain u₁ =B t.
-
-ATOM-CHOOSE
-  k = 0 → for EACH j with cⱼ = 1, make a branch:
-             Zⱼ := [t], every other Zᵢ := 0.
-           If there is no such j, dead.
-
-ZERO
-  [u₁] + … + [uₖ] + c₁Z₁ + … + cₗZₗ =B 0:
-    k > 0 → dead;
-    k = 0 → bind every Zᵢ := 0.
-```
-
-These rules follow from multiplicity/cardinality: the target singleton has
-exactly one occurrence, so exactly one coefficient-one contribution can supply
-it. A coefficient-two parameter cannot supply half an element. Equal payloads
-do not merge two occurrences because there is no idempotence.
-
-The rules apply to the WHOLE state. For example, assigning `Z := [u]` in one
-requirement changes `Z =B [v]` in another to `[u] =B [v]`, producing `u =B v`.
-Solve all resulting payload equations with the free rules. They involve only
-sorts below `Bag`, so they cannot generate bag equations.
-
-### 4.5 COVER and soundness evidence
-
-At a solved leaf `⟨θ ; []⟩`:
-
-```text
-COVER
-  choose i and β such that θ =B σᵢβ on all original variables;
-  check every component equality;
-  conclude Σ ⊢ ⟨θ ; []⟩ covered.
-```
-
-Equality evidence uses reflexivity, symmetry, transitivity, constructor
-congruence, and the registered ACU laws. Finite normalization can construct that
-evidence for equal open terms.
-
-Separately, construct such equality evidence for every equation in `E₀σᵢ` for
-every proposed answer. This is `Sound(Σ)`, not an assumption silently inserted
-into the Lean certificate.
-
-A dead leaf requires an actual `CLASH`, `FREE-OCCURS`, `ATOM-MANY`, impossible
-`ATOM-CHOOSE`, or `ZERO` contradiction. Failed matching, unsupported syntax, a
-depth bound, or a redundant branch does not establish a dead leaf.
-
-## 5. Proof of finite-sharing exactness
-
-This section proves the mathematical fact needed by the central rule. Counts
-are used in the once-for-all argument, not as a problem-specific trusted
-Diophantine solver.
-
-### Lemma 5.1 — Bag normal form
-
-For a fixed parameter context, a bag term modulo `B` is a finite multiset of:
-
-1. singleton payload terms, identified by their payload equality; and
-2. independent bag variables from that context.
-
-Two bag terms are equal precisely when the multiplicities of these generators
-agree. Free constructors at other sorts retain their heads and recursively
-normalized arguments. This is the free constructor algebra with one free
-commutative-monoid carrier. In native valuations there are no variable generators;
-the bag generators are the actual singleton payload classes.
-
-Proof outline: define normal forms recursively. At non-bag sorts retain a variable
-or a free head with normalized arguments. At `Bag`, a variable contributes its
-rigid generator, empty contributes nothing, singleton contributes its normalized
-payload generator, and union adds the two multisets. Every generating equation
-of `B` preserves this normal form, so congruence-generated equality implies equal
-normal forms. Conversely, fix a total ordering of finite generator descriptions
-and print each bag multiset as an ordered union. Structural induction, constructor
-congruence, and ACU show that every term is equal to the printed representative
-of its normal form. Equal normal forms therefore imply equality modulo `B`.
-The argument is a characterization of the registered constructor quotient, not
-an assumption that its native datatype has literal commutativity.
-
-Including bag-variable generators is important: a symbolic proof must not
-replace a fresh bag parameter by a fictitious singleton payload constructor.
-
-### Lemma 5.2 — Minimal decomposition
-
-Consider nonnegative integer vectors `(v₁,…,vᵣ,w₁,…,wₛ)` satisfying:
-
-```text
-sum aᵢvᵢ = sum bⱼwⱼ.
-```
-
-Every such vector is a finite sum of nonzero componentwise-minimal solution
-vectors, or is zero with an empty decomposition.
-
-Proof: choose a nonzero minimal subsolution below a nonzero vector, subtract it,
-and repeat. Existence follows by choosing a solution of least total weight in
-the finite box below that vector. Each subtraction strictly decreases the sum
-of the coordinates. Subtraction preserves the balance equality. Therefore the
-process ends. No effective search for this decomposition is needed at runtime.
-
-### Lemma 5.3 — Opposite-pair bound
-
-For a minimal nonzero solution `(v,w)` and every `i,j`:
-
-```text
-vᵢ ≤ bⱼ  OR  wⱼ ≤ aᵢ.
-```
-
-If both inequalities fail, the vector with `bⱼ` at coordinate `Xᵢ`, `aᵢ` at
-coordinate `Yⱼ`, and zero elsewhere is a nonzero balanced proper subsolution.
-This contradicts minimality.
-
-### Lemma 5.4 — A minimal vector has a balanced support
-
-Give each of the `aᵢ` rows labelled `Xᵢ` required row total `vᵢ`, and each of
-the `bⱼ` columns labelled `Yⱼ` required column total `wⱼ`. The two total sums
-agree, so a nonnegative integer matrix with these margins exists: successively
-allocate each row across the remaining column capacities.
-
-We turn this matrix into a zero/one matrix without changing any margin.
-Suppose a cell in row `r` labelled `Xᵢ` and column `c` labelled `Yⱼ` has value
-`A ≥ 2`. Lemma 5.3 gives one of two cases.
-
-**Case 1: `vᵢ ≤ bⱼ`.** Among the `bⱼ` columns with label `Yⱼ`, some column
-`c'` has value zero in row `r`. Otherwise that part of the row would already
-have total at least `bⱼ+1`, exceeding its required total `vᵢ`.
-
-Columns `c` and `c'` have the same required total `wⱼ`. Since row `r` has more
-in `c` than in `c'`, another row `r'` has values `C,D` there with `D>C`.
-Perform this rectangle exchange:
-
-```text
-     c  c'                c    c'
-r    A   0      →     r   A-1   1
-r'   C   D            r'  C+1  D-1
-```
-
-All entries remain nonnegative, and each row and column sum is unchanged.
-The change in the sum of squares of entries is:
-
-```text
-2(C-D-A+2) ≤ -2.
-```
-
-It strictly decreases because `A≥2` and `D≥C+1`.
-
-**Case 2: `wⱼ ≤ aᵢ`.** Apply the same argument to the transposed matrix, using
-the `aᵢ` rows with label `Xᵢ`.
-
-The sum of squares is a natural number. Repeating exchanges therefore ends,
-and it can end only when no cell exceeds one. The selected one-cells form a
-balanced support with precisely the desired repeated-variable degrees. The
-support is nonempty because the minimal vector is nonzero and the coefficients
-are positive.
-
-This argument establishes occurrence-level uniformity, not merely a capacity
-bound on a coarser variable-pair allocation.
-
-### Proposition 5.5 — Exact parameterization of a pure balance
-
-Soundness: each selected cell contributes one occurrence to each side. Equal
-degrees for equal row/column labels make repeated input-variable images agree.
-Consequently every assignment to all `Z_S` satisfies the balance equation.
-
-Completeness: fix any solution substitution. For each generator in its finite
-bag normal forms, record its multiplicities in the active variable images.
-This gives a balanced nonnegative vector. Decompose it by Lemma 5.2 and represent
-each minimal component by a support using Lemma 5.4. Assign one copy of that
-generator to the corresponding `Z_S` for each component. Multiple components
-using the same support are combined in the same parameter bag. Summing the
-degrees reconstructs the multiplicity of every generator in every input image.
-Lemma 5.1 therefore gives the required componentwise equality modulo `B`.
-Passthrough parameters reconstruct every inactive variable independently.
-
-This proves the exactness statement in FINITE-SHARING, including repeated
-variables and symbolic parameter images. Zero-sided cases are immediate from
-positivity: every active generator multiplicity must be zero.
-
-## 6. A finite strategy for a single bag equation
-
-Define `SolveOneBag(e)` as the following rule-based procedure:
-
-1. Flatten `e`; purify explicit singleton occurrences, retaining their equations.
-2. Cancel common variable occurrences and construct the canonical support family.
-3. Apply FINITE-SHARING once.
-4. Process each retained singleton requirement using the exhaustive atom rules,
-   propagating all bindings through every requirement and every image.
-5. Solve generated free payload equations, rejecting genuine free contradictions.
-6. Return all surviving composed substitutions, with unconstrained variables
-   retained as parameters.
-
-### Proposition 6.1 — Single-equation exactness
-
-The returned list is finite. Every returned substitution is a symbolic unifier
-of `e`, and every symbolic unifier of `e` factors through a returned member.
-
-Proof: purification is exact; Proposition 5.5 parameterizes the purified balance
-exactly. The atom rules are an exhaustive characterization of each singleton
-requirement. Free payload unification preserves all solutions and yields a most
-general substitution or a proved contradiction. Compose these exact steps.
-
-More explicitly, fix a symbolic unifier of the selected equation. Purification
-extends it to the named singleton variables; finite sharing factors that extension
-through the generated family. For the first singleton requirement, normal-form
-multiplicities determine either its single displayed singleton or the unique
-coefficient-one parameter contributing that singleton. The corresponding atom
-branch is present and preserves the factor witness. Repeat for the remaining
-requirements with the SAME witness, composing each binding. Finally factor its
-payload assignment through the free solver's most general substitution. This
-constructs one returned member through which the original unifier factors.
-The reverse direction follows because every returned member satisfies the
-balance and every retained requirement. No independent witness is chosen for
-different occurrences of a shared parameter.
-
-For termination: the grid has finitely many cell subsets; there are finitely
-many retained requirements. Each atom-rule branch processes one requirement
-and creates only payload equations. Processing later requirements does not
-reintroduce earlier ones. Payload solving terminates and creates no bag equation
-by stratification. Branch sizes may grow substantially, but every branching
-factor and every branch length is finite.
-
-This is not a repeated application of a mutation rule to fresh equations of the
-same complexity. It has an explicit, finite internal schedule.
-
-## 7. Whole-problem reference search
-
-### 7.1 The free phase
-
-Apply the free rules to equations whose result sort is not `Bag`, postponing bag
-equations. Propagate bindings through postponed equations and original images.
-At completion the state is either dead or `⟨α ; P⟩`, where every equation in
-`P` is a bag equation.
-
-This phase terminates. One suitable measure, ignoring orientation as a separate
-loop step, is lexicographic:
-
-```text
-(number of live non-bag variables,
- total term-node count of the remaining equation worklist).
-```
-
-A non-bag binding removes a live variable and introduces none. Decomposition
-removes the two constructor heads; deletion removes an equation. Substitution
-may increase the second component, but decreases the first. Use fixed variable
-orientation and deterministic equation selection. The free occurs side condition
-is legitimate by the contract argument in Section 4.1. Bag equations may be
-created by configuration decomposition, but do not produce free configuration
-equations in return.
-
-### 7.2 The bag phase
-
-After the free phase, run:
-
-```text
-SolveBags(α, []):
-  return [α]
-
-SolveBags(α, e :: P):
-  result := []
-  for every θ in SolveOneBag(e):
-    append SolveBags(αθ, Pθ) to result
-  return result
-```
-
-`SolveOneBag` acts on the complete current context, including passthrough
-variables; its payload bindings are propagated through `α` and `P` as well.
-The equations of `Pθ` still have bag result sort. Its length is exactly one less
-than the pending list before the step. Payload solving cannot add bag equations.
-
-### Theorem 7.3 — Finite reference CSU
-
-For every finite `E₀` under the contract, this procedure terminates with a finite
-reference list `Θ` such that:
-
-```text
-Sound(Θ) and Complete(Θ).
-```
-
-Proof: the free phase terminates and preserves the state's denotation. Induct on
-the number of pending bag equations. The empty list represents all assignments
-to the remaining parameters. For `e :: P`, Proposition 6.1 yields finitely many
-exact solution families `θ`. Substitution congruence gives:
-
-```text
-δ unifies (e :: P)
+δ unifies Balance
   iff
-there exist θ in SolveOneBag(e) and η such that
-  δ =B θη and η unifies Pθ.
+exists η, δ =B θη on ALL old live variables.
 ```
 
-The SAME `η` occurs in both conjuncts: this is the preservation of correlations.
-Apply the induction hypothesis to each `Pθ`, then compose substitutions. This
-proves coverage of every original-input unifier. Conversely, each composed
-member solves `e` and the remaining equations, so it solves the whole problem.
-Finiteness follows from finite branching and decreasing pending-list length.
+Its finite-support argument is in Appendix A.1, not an extra obligation for each
+user problem. Lean links:
 
-An empty reference list means every branch ended with a proved contradiction.
-It is not the consequence of an arbitrary search cutoff.
+- Enumeration: [supportGenerators](conPanna/Certification/Enumeration.lean#L191),
+  [supportGenerators_exact](conPanna/Certification/Enumeration.lean#L225).
+- Semantic lift: [finiteSharing_native](conPanna/Certification/Replay.lean#L292),
+  [Sharing.complete / sound](conPanna/Certification/Replay.lean#L1527).
+- Replay: [Complete.sharing](conPanna/Certification/Replay.lean#L1960);
+  [Complete.sharingTable](conPanna/Certification/Replay.lean#L2038) checks the
+  supplied table equal to the exhaustive enumeration.
 
-### 7.4 Retained-worklist implementation of the finite strategy
+Actual replay substitutes into ALL retained equations, including the selected
+balance. The abstract display omits that balance because θ already solves it;
+retaining the resulting tautology is harmless.
 
-`CERTIFICATION-PRODUCER` retains equations for replay instead of physically
-deleting every solved equation. Consequently, the length of its stored list is
-NOT a termination measure. Its correspondence with Sections 6–7 is the following
-phase argument. This is an informal implementation audit, not a Lean proof of
-the Maude interpreter or a bounded-resource success guarantee.
+### 4.4 Singleton and zero processing — exhaustive state branching
 
-**An original frontier** is a maximal bag-sort equation exposed by decomposing
-matching free constructors in an input equation. For example,
-`pair(P+[a], R+[b]) =B pair(Q+[a], S+[b])` has two frontiers. Defining equations
-introduced by PURIFY, and requirements introduced by ATOM/ZERO, are instead
-local obligations of the selected frontier.
+**Intuition: a singleton has exactly one occurrence to distribute.** Thus
+`P+Q =B [t]` has two possibilities: P supplies `[t]` and Q is empty, or the
+reverse. But `2P =B [t]` is impossible: any nonempty P contributes at least
+two occurrences. Equal payloads do not merge those occurrences, since there
+is no idempotence. For `P+Q =B 0`, both contributions must be empty.
 
-1. **Free bindings cannot continue indefinitely.** `choose` traverses every
-   stored equation and matching free-constructor field. A BIND removes one live
-   variable; no rule introduces a non-bag variable. Therefore there are at most
-   the original number of non-bag bindings along any branch. Free traversal
-   itself is structural, not a rewriting loop that repeatedly reintroduces the
-   same DECOMPOSE or ORIENT state. A clash or proper free occurrence closes the
-   branch. Payloads cannot introduce bag equations by stratification.
+The rules below generalize these observations to arbitrary positive coefficients
+and explicit singleton summands. Every possible supplier gets a branch.
+**Formal construction.**
 
-2. **Between non-bag bindings, the original frontier structure is fixed.** Any
-   unresolved configuration-variable binding would already be found by `choose`.
-   Bag substitutions cannot introduce free configuration structure above a bag
-   or inside its payload. There are finitely many frontier positions in the
-   remaining finite free skeletons. Purification replaces one equation by one
-   template; it does not duplicate that skeleton. It may name a singleton in a
-   sibling field as well: this creates a retained defining equation, not another
-   copy of that sibling frontier.
-
-3. **Preparation is finite.** `prepareMore` replaces a chosen explicit singleton
-   in the enclosing template by a fresh variable and retains its definition.
-   The number of explicit singleton occurrences in that template strictly
-   decreases. Replacing all identical occurrences at once is safe because one
-   defining equation fixes their shared value. Preparation performs no bindings
-   or sharing before it finishes. The selected balance's union/variable outer
-   shape is preserved, so `prepareClean` reaches FINITE-SHARING rather than an
-   unsupported preparation state.
-
-4. **Sharing finishes that balance permanently.** `prepareSharing` cancels common
-   variable occurrences and enumerates every balanced nonempty grid support.
-   Its substitution makes the selected pure equation equal modulo B for ALL
-   assignments of its parameters. Later substitutions preserve this equality.
-   Thus `scanBag`, which skips normalized-equal equations and fields, never
-   shares that frontier again. Fresh old-variable passthrough slots do not
-   reactivate a solved equation. A zero-sided grid sends every active variable
-   to empty and preserves all inactive variables.
-
-5. **Local requirements do not start another sharing phase.** After sharing,
-   each retained definition has the form `sum =B [payload]`. Substitution and
-   flattening make each summand a variable or a singleton. ATOM creates EVERY
-   occurrence choice; its children require each variable to equal that singleton
-   or empty, and compare any explicit singletons through their free payloads.
-   ZERO similarly requires every summand to be empty. These equations are solved
-   by BIND, free payload processing, or NONEMPTY/CLASH; they do not require new
-   PURIFY or FINITE-SHARING. Repeated occurrences keep the same variable: assigning
-   it both singleton and empty closes that branch rather than dropping the case.
-   Requirements are prepended; `scanBag` processes the first unresolved one.
-   Solved requirements stay normalized-equal under all later substitutions.
-
-6. **Every unresolved frontier has an applicable step.** At a bag sort the only
-   heads are a variable, empty, singleton, and union. Variable binding or identity
-   is handled by `choose`; a self-containing union is a balance, not free OCCURS.
-   Singleton/singleton equations expose free payload equations. Singleton/empty
-   closes by NONEMPTY. Union/singleton uses ATOM, union/empty uses ZERO, and the
-   remaining union balances use preparation/sharing. A union already equal to
-   its other side is skipped. This exhausts the contract's constructor shapes.
-
-These observations give a finite hierarchical schedule. Partition a branch at
-non-bag BIND steps; there are finitely many such partitions. Within a partition,
-there are finitely many original frontiers. Each selected frontier has finite
-preparation, at most one sharing step, and finite local requirement processing.
-Bag BIND decreases the current finite scope between expansions; ATOM/ZERO adds
-no variables. Every branching factor is finite. Hence the complete tree is
-finite, even though the retained list and fresh bag scopes can grow.
-
-Each completed frontier is preserved permanently under substitution. At a live
-terminal state all equations normalize to identities, and the composed original
-image vector is a symbolic unifier of the original problem. Completeness of the
-SUPPLIED answer family gives a factor for that vector; the exhaustive matcher
-of Section 8.1 finds it. Checked early COVER may stop sooner. If the family is
-empty, no such live terminal state can exist; all branches must close by proved
-contradictions. Thus retained storage changes the evidence representation, not
-the complete fallback of Theorem 8.3.
-
-The argument assumes unbounded execution of the finite enumerations, a correct
-typed signature, and the stated stratification. Resource exhaustion is failure
-to obtain a certificate, never a contradiction certificate. It does not assert
-that arbitrary finite inputs fit the prototype's safety caps. The finite
-conditional EARLY-COVER attempts described in Section 9 are now implemented;
-stronger shortcut strategies remain optional. Neither is a prerequisite for
-this fallback argument.
-
-## 8. Factor search and the answer-guided guarantee
-
-### Lemma 8.1 — Complete finite whole-vector matching
-
-For fixed finite substitutions `θ : X ⇒ Γ` and `σ : X ⇒ Λ`, one can decide
-whether a factor `β : Λ ⇒ Γ` satisfies:
+Normalize a singleton requirement, combining repeated variables:
 
 ```text
-θ(x) =B σ(x)β  for every x in X.
+F = [u₁]+…+[uₖ] + c₁Z₁+…+cₗZₗ =B [t].
 ```
 
-Rename contexts apart. Treat variables of `Γ` as fresh rigid symbols of their
-sorts, including bag-sort symbols; only parameters of `Λ` are assignable.
-Match the entire vector with one substitution environment.
+The Zᵢ are distinct and each cᵢ is positive. Define θ₀ to send every Zᵢ to 0,
+and θⱼ to send Zⱼ to [t] and every other Zᵢ to 0. The familiar cases are:
 
-At free constructors, match heads and recurse. At bag occurrences, flatten the
-finite rigid subject. Every occurring bag-pattern variable must receive a subbag
-of such a subject, including possibly empty. There are finitely many subbags,
-including their possible multiplicities. Enumerate assignments, reconcile all
-repeated occurrences and all vector fields, and check the resulting equalities.
-Use canonical subbag representatives, not infinitely many raw parenthesizations.
-Non-bag pattern variables match corresponding finite normalized subject subterms,
-including configuration subterms; payload terms themselves use only free heads.
-Every pattern parameter occurs somewhere in the vector after unused parameters
-are removed.
+```text
+ATOM-MANY     k ≥ 2
+  ⟨α ; F, E⟩ → dead
 
-This enumeration is finite and includes every possible factor: the nonnegative
-bag multiplicities do not allow an assigned contribution outside the subject
-to disappear. Free constructors similarly cannot hide extra terms. Equational
-normalization checks each candidate, including unit collapse and repetitions.
+ATOM-ONE      k = 1
+  ⟨α ; F, E⟩ → ⟨αθ₀ ; u₁ =B t, Eθ₀⟩
 
-Native Maude matching can propose the factor first. A bounded matcher that finds
-none does not justify failure. The abstract guarantee uses the complete finite
-matcher above as fallback; it is not conditional on an external process behaving
-correctly or returning within a particular timeout.
+ATOM-CHOOSE   k = 0
+  ⟨α ; F, E⟩ → { ⟨αθⱼ ; Eθⱼ⟩ | cⱼ = 1 }
+  If there is no coefficient-one index, the branch family is empty.
 
-#### Executable matching invariant
+ZERO          G = [u₁]+…+[uₖ] + c₁Z₁+…+cₗZₗ =B 0
+  k > 0:  ⟨α ; G, E⟩ → dead
+  k = 0:  ⟨α ; G, E⟩ → ⟨αθ₀ ; Eθ₀⟩
+```
 
-The producer implements this fallback with `allSorted`, `allArgs`, and `bagMatch`.
-These match a **proposed-answer pattern** against the **rigid current image**;
-they do not unify the two sides or instantiate current branch variables.
-One partial parameter environment is threaded through the whole vector.
-Its invariant is that an assigned parameter always denotes the same normalized
-term in the current scope, including at repeated occurrences and other fields.
+The replay uses ONE general ATOM rule, rather than primitive constructors named
+ATOM-MANY/ONE/CHOOSE. Its summands tᵢ may be variables OR explicit singletons:
 
-The complete cases are:
+```text
+ATOM — actual retained-equation presentation
+  E ⊢B sumᵢ cᵢtᵢ = [t]
 
-- A non-bag pattern variable receives the normalized subject term. A repeated
-  occurrence must agree with its previous assignment.
-- A free constructor pattern matches only the same subject head. `allArgs`
-  recursively matches every corresponding field with the SAME environment;
-  this includes bag fields inside free configuration constructors.
-- An unassigned bag parameter receives each submultiset of the remaining finite
-  subject, INCLUDING the empty one. A repeated assigned parameter removes exactly
-  that multiset, with multiplicities, before matching the remaining pattern.
-- A singleton pattern tries every subject singleton with the same head, recursively
-  matches its free payload, and continues with that occurrence removed. A rigid
-  subject bag variable is not a singleton and cannot be assigned by the matcher.
-- Exhausting the pattern succeeds only when the subject is also exhausted.
-  All vector components must succeed under one environment. A candidate factor
-  is finally rechecked by normalization of every original input image.
+  ⟨α ; E⟩
+    → { ⟨α ; tⱼ =B [t],
+                tᵢ =B 0 for every other positive-coefficient i,
+                E⟩ | cⱼ = 1 }
 
-For completeness, fix any factor extending the current partial environment.
-At a free head its corresponding fields must match. At an unassigned bag
-parameter its contribution is a submultiset of the remaining subject: with no
-idempotence or absorption, no extra contribution can disappear. The partition
-enumeration contains that submultiset. At a singleton some matching subject
-occurrence must exist; the occurrence enumeration includes it. These choices
-retain the fixed factor and reduce to smaller matching problems. Thus induction
-over the remaining pattern occurrences and fields yields a successful branch.
-Assignments can be replaced by their canonical normal forms without changing
-the factor modulo B.
+ZERO — actual retained-equation presentation
+  E ⊢B sumᵢ cᵢtᵢ = 0
 
-For finiteness, each bag has finitely many occurrence subsets. Recursive matching
-consumes a pattern occurrence or descends to strict constructor fields; stored
-assignments are only inspected/removed, not expanded into new pattern problems.
-The finite lists of alternatives are combined across fields, not truncated.
-There is no fixed arity, coefficient, or matcher-depth cutoff in this procedure.
-This is an implementation-level informal argument, not a Lean search theorem.
+  ⟨α ; E⟩
+    → ⟨α ; tᵢ =B 0 for every positive-coefficient i, E⟩
 
-Every answer parameter must occur in its image vector. The wrapper rejects
-unused parameters instead of silently removing them from an already-fixed Σ:
-doing the latter can change existential semantics when a parameter sort is empty.
-Upstream normalization must remove them BEFORE fixing the certification goal.
-Likewise, a process timeout is a failure to obtain evidence, never a proof that
-there is no factor or unifier. Runtime safety caps do not provide a universal
-bounded-time success guarantee.
+NONEMPTY
+  E ⊢B [u] = 0
+  ⟨α ; E⟩ → dead
+```
 
-### Lemma 8.2 — Finite equality evidence
+These children retain the SAME α and scope until a later BIND changes them.
+If two explicit singletons occur, choosing either forces the other empty, so
+NONEMPTY closes every case. If exactly one occurs, only its choice survives,
+and singleton decomposition yields the payload equation. These are the
+ATOM-MANY/ONE cases derived from ATOM plus general rules.
 
-If two open terms are equal modulo `B`, their finite normalized constructor
-forms agree. Flattening, reordering, and removing units can be accompanied by
-finite congruence/ACU equality traces. Thus factor matches and proposed-answer
-soundness can be witnessed by finite checked equality data, not just Booleans.
+Repeated variables stay shared. For `2P =B [a]`, the coefficient-aware ATOM
+rule has no coefficient-one choice. A dump that instead lists `P,P` as two
+occurrences has two children, each requiring BOTH `P=[a]` and `P=0`;
+both close by contradiction. Neither presentation may silently discard a case.
 
-### Theorem 8.3 — Search success for a correct proposed set
+A binding must update other requirements too: after `Z:=[u]`, a second
+requirement `Z =B [v]` becomes `[u] =B [v]`, then `u =B v`.
+Under the contract, these payload equations cannot create more bag equations.
 
-Assume the contract, finite `E₀`, and finite `Σ` with `Sound(Σ)` and
-`Complete(Σ)`. The following reconstruction procedure terminates successfully:
+Lean: [Complete.atom](conPanna/Certification/Replay.lean#L1944),
+[Complete.zero](conPanna/Certification/Replay.lean#L1951),
+[Complete.nonempty](conPanna/Certification/Replay.lean#L1956).
+Their exact requirements are computed by
+[atomRequirements](conPanna/Certification/Replay.lean#L1893) and
+[zeroRequirements](conPanna/Certification/Replay.lean#L1889);
+the general semantic lemmas are
+[AtomProcessing.sum_atom](conPanna/Certification/Enumeration.lean#L715) and
+[sum_zero](conPanna/Certification/Enumeration.lean#L694).
+Coefficient-zero entries impose only reflexive equations and remain unrestricted.
+The binary special case is also exposed as
+[Complete.split](conPanna/Certification/Replay.lean#L1977) and
+[NativeRules.singletonCases](conPanna/Certification/Replay.lean#L419).
 
-`Σ` is supplied BEFORE this procedure starts. None of the steps below calls
-native `unify` to obtain it. The internal reference family `Θ` is coverage
-evidence for the supplied `Σ`, not a replacement answer set returned to Lean.
+### 4.5 COVER — proof closure, not a state transformation
 
-1. Construct checked equality traces establishing each proposed answer's soundness.
-2. Obtain the finite reference derivation/list `Θ` by Section 7.
-3. For each `θ in Θ`, find a factor through some `σ in Σ` by Lemma 8.1, and
-   construct its equality evidence by Lemma 8.2.
-4. Combine reference completeness, the checked factors, and proposed soundness.
+**Intuition: show that a supplied answer already includes every current solution.**
+Suppose `E={P =B Q}`, the original images are `(P,Q)`, and a supplied answer is
+`σ=(Z,Z)`. Choose `β(Z)=P`: reflexivity proves `P =B P`, while the current
+equation gives `Q =B P` by symmetry. Hence `(P,Q)` agrees with `(P,P)=σβ`
+for every solution of E. The state is covered without solving anything further.
 
-Proof: soundness traces exist by the premise and Lemma 8.2. By Theorem 7.3 each
-`θ` is a symbolic unifier. The definition of `Complete(Σ)` therefore supplies a
-factor through some answer. Complete matching finds one, and equality evidence
-exists. There are finitely many reference members and proposed answers, and all
-the searches just specified terminate. Aggregation yields the exact certificate.
+**Formal closure.**
 
-If `Σ=[]`, its completeness implies that no reference leaf can be a symbolic
-unifier; hence the exhaustive reference derivation has only dead branches.
-Aggregation proves that the original problem has no solution.
+COVER takes a supplied answer σᵢ and ONE substitution β from its parameters to
+the current scope. It requires every original input image to agree:
 
-The proof does not say “the reference and Maude answer lists look the same.”
-Their lengths, orderings, parameter counts, and redundant families may differ.
-Checked factorization of whole vectors is what relates them.
+```text
+COVER / EARLY-COVER
+  σᵢ ∈ Σ       β : parameters(σᵢ) ⇒ Γ
+  E ⊢B α(x) = σᵢ(x)β       for EVERY original variable x
+  ──────────────────────────────────────────────────────
+  Σ ⊢ ⟨α ; E⟩ covered
+```
 
-This baseline reconstructs a complete reference family before comparing answers.
-Native proposals guide the factor search, but do not by themselves reduce the
-reference unification work. The search-level acceleration is the optional
-early-closure extension in Section 9, not this baseline alone.
+There is no child state. A valuation δ satisfying E supplies the answer witness
+βδ; the equalities establish factorization of the ENTIRE original input vector.
 
-### Theorem 8.4 — Accepted-certificate correctness
+At a solved leaf `E=[]`, the equalities are unconditional: this is ordinary
+COVER. At an unsolved state, they may use E: this is EARLY-COVER. Both are the
+SAME [Complete.cover](conPanna/Certification/Replay.lean#L1926) constructor.
+Early closure does NOT assert that E is trivial or that the current state is
+exactly that answer's whole family; only the required inclusion is established.
 
-Any well-checked reference derivation, factor list, and soundness traces establish
-the native exactness proposition in Section 2, irrespective of the generator
-that supplied them.
+Evidence inside COVER uses
+[Derives.hyp / symm / trans / congr](conPanna/Certification/Replay.lean#L1683),
+possibly cancellation, multiplicity cancellation, and free decomposition.
+Unconditional ACU proofs enter via `Derives.axiom`.
 
-Proof: exact rule replacements establish reference completeness for native
-valuations; factor equalities transport each reference witness into a proposed
-answer witness; soundness traces give the reverse implication. Constructor
-congruence preserves equations under componentwise modulo equality.
+A failed matcher, unsupported syntax, resource cutoff, or redundant branch is NOT
+a contradiction leaf. Empty states need checked CLASH, FREE-OCCURS, NONEMPTY,
+or the exhaustive singleton/zero argument of §4.4.
 
-This theorem does NOT assume native Maude's completeness or soundness. Incorrect
-proposals can cause reconstruction to fail but cannot make a valid checker prove
-a false proposition. The search-success theorem is an external guarantee about
-correct inputs, not an axiom used when checking an individual certificate.
+### 4.6 MUTATE — optional state transformation introducing sharing witnesses
 
-## 9. Where native answers can accelerate search
+**Intuition: make missing sharing pieces available to COVER.** For
+`P+Q =B R+S`, a supplied answer may describe the four pieces in the grid of
+§4.3: `P:=p+q, Q:=r+t, R:=p+r, S:=q+t`. We know the original bags, but have not
+yet named those pieces. MUTATE introduces them as fresh parameters with four
+defining equations; those equations can then justify a COVER factor. It does
+not guess arbitrary pieces and assume they happen to work.
 
-The targeted search receives the same already known `Σ` as Section 8. At each
+**Formal transformation.**
+
+A factor β must use terms available in the current scope. Sometimes the answer
+needs pieces of bags that are not expressible there. MUTATE introduces them:
+
+```text
+MUTATE
+  ⟨α ; A₁+A₂ =B B₁+B₂, E⟩ in scope Γ
+  → ⟨lift(α) ;
+       A₁ =B p+q, A₂ =B r+t,
+       B₁ =B p+r, B₂ =B q+t,
+       lift(A₁+A₂ =B B₁+B₂, E)⟩ in scope Γ,p,q,r,t
+
+  p,q,r,t are fresh bag variables; all old terms are lifted.
+```
+
+Every old solution has such a four-piece common refinement; conversely the
+four defining equations imply the old balance. This is a general exact rule,
+not a guess that one particular solution has those pieces.
+
+Lean: [Complete.mutate](conPanna/Certification/Replay.lean#L1973),
+[mutated](conPanna/Certification/Replay.lean#L1760),
+[mutate_native](conPanna/Certification/Replay.lean#L449).
+It may enable immediate COVER by a supplied four-parameter answer (§5.4).
+The complete fallback remains FINITE-SHARING; unrestricted MUTATE search is not
+the prescribed termination argument.
+
+### 4.7 Proposed-answer soundness and final aggregation
+
+**Intuition: coverage rules out missing solutions; soundness rules out junk.**
+For `P+Q =B [t]`, an extra proposed answer `P:=[t], Q:=[t]` would not damage
+coverage, but it is not a unifier: substitution produces `2[t] =B [t]`, which
+is false. Checking each proposed answer independently rejects such junk.
+Combining this with root coverage establishes BOTH directions of exactness.
+
+**Formal aggregation.**
+
+Soundness checks the SUPPLIED answers, independently of the coverage tree:
+
+```text
+ANSWER-SOUND
+  ⊢B sσᵢ = tσᵢ       for every (s =B t) ∈ E₀
+  ──────────────────────────────────────────
+  σᵢ solves E₀
+
+EXACT
+  Σ ⊢ ⟨identity ; E₀⟩ covered       every σᵢ ∈ Σ solves E₀
+  ───────────────────────────────────────────────────────
+  E₀(v) iff ∨ᵢ exists ηᵢ, v =B σᵢ(ηᵢ)   for every v
+```
+
+The equalities are unconditional in each answer's independent parameters.
+Assuming E₀ itself here would make soundness circular.
+
+Lean: [Soundness](conPanna/Certification/Replay.lean#L1572) records evidence for
+one equation and all answers;
+[SystemSoundness](conPanna/Certification/Replay.lean#L2211) combines equations.
+[exact_system](conPanna/Certification/Replay.lean#L2232) combines this with root
+coverage. For a single equation,
+[exact](conPanna/Certification/Replay.lean#L2243) is the convenience theorem.
+
+These are proved rule-validity/aggregation theorems. The claim that a SEARCH
+procedure can always find their premises is different, and belongs to Appendix A.
+
+## 5. Worked certificates: states, dump trees, and Lean proofs
+
+These examples use the notation `a(n)=[wait(n)]`, `0=empty`, and
+`+=union`. The constructors are those of the Bakery model; the rules are
+general. In every example, the answer family is supplied BEFORE certification.
+
+Dump displays below are READABLE PROJECTIONS of rule records: names replace
+sorted slot indices, and routine scope/image/equation fields are abbreviated.
+They are not literal JSON inputs or copy-paste Lean syntax. Rule names and the
+`child`, `children`, `premise`, `index`, `beta`, and `derived` fields
+correspond to the actual [Maude serializer](certification.maude#L1160).
+The full wire format also carries sorted constructor terms and checked snapshots.
+
+### 5.1 Two unifiers: P+Q =B [wait(n)]
+
+Input and requested answer set:
+
+```text
+Original inputs X = (n,P,Q)
+E₀ = {P+Q =B a(n)}
+
+σ₀(N): (n,P,Q) := (N, a(N), 0)
+σ₁(N): (n,P,Q) := (N, 0, a(N))
+```
+
+**Completeness, down the state tree.** ATOM must account for both singleton
+suppliers. Its actual retained-equation children are:
+
+```text
+S₀ = ⟨(n,P,Q) ; P+Q =B a(n)⟩
+  ── ATOM ──→
+  S_L = ⟨(n,P,Q) ; P =B a(n), Q =B 0, E₀⟩
+  S_R = ⟨(n,P,Q) ; P =B 0, Q =B a(n), E₀⟩
+```
+
+No variables have been substituted away yet. In S_L, choose σ₀ and β(N)=n:
+
+```text
+E_L ⊢B n = n             REFL
+E_L ⊢B P = a(n)          HYP: the branch's first requirement
+E_L ⊢B Q = 0             HYP: the branch's second requirement
+```
+
+These are precisely the three original-input component equalities required by
+COVER. S_R closes against σ₁ with the SAME kind of factor β(N)=n. Combining
+BOTH COVER proofs using ATOM establishes root coverage.
+
+**Soundness, independently.** Substitute the two proposed assignments into E₀:
+
+```text
+σ₀:  a(N)+0 =B a(N)       COMM then left UNIT
+σ₁:  0+a(N) =B a(N)       left UNIT
+```
+
+No branch hypotheses are used for these equalities. Aggregation now proves:
+
+```text
+P+Q =B a(n)
+iff
+  (exists N, n =B N and P =B a(N) and Q =B 0)
+  or
+  (exists N, n =B N and P =B 0 and Q =B a(N)).
+```
+
+The dump's completeness part and separate soundness part have this structure:
+
+```text
+{
+  proof: {
+    rule: "atom", premise: HYP(P+Q =B a(n)),
+    children: [
+      { rule: "cover", index: 0, beta: [N := n],
+        derived: [REFL(n), HYP(P=a(n)), HYP(Q=0)] },
+      { rule: "cover", index: 1, beta: [N := n],
+        derived: [REFL(n), HYP(P=0), HYP(Q=a(n))] }
+    ]
+  },
+  sound: [[ equality evidence for σ₀, equality evidence for σ₁ ]]
+}
+```
+
+The soundness array has one row per original equation and one entry per answer.
+The two syntactic levels in this record matter: `atom/cover` form the
+COMPLETENESS tree, while `hyp/refl/comm/unit` form EQUALITY evidence inside
+that tree or the independent soundness part.
+
+Python assembles the corresponding proof applications, schematically:
+
+```text
+Worklist.exact_system
+  E₀  [σ₀,σ₁]
+  (Complete.atom
+    premise = Derives.hyp(...)
+    children = [
+      Complete.cover(0, β, component derivations),
+      Complete.cover(1, β, component derivations)])
+  (SystemSoundness.cons
+    (Soundness.cons equality_for_σ₀
+      (Soundness.cons equality_for_σ₁ Soundness.nil))
+    SystemSoundness.nil)
+```
+
+The actual ATOM constructor represents children by a function over ALL eligible
+indices, not a literal list. The compiler also supplies typed data and scope
+checks omitted here. It does not perform a new search in Lean.
+
+See the same proposition in
+[atom_automated_certificate](examples/certification-demo.lean#L162) and
+[atom_manual_certificate](examples/certification-demo.lean#L200).
+The manual proof uses the semantic ATOM rule `NativeRules.singletonCases`,
+then witnesses N:=n in both branches. Its branch order differs from the dump;
+its rule/case structure agrees. It contains no parser or certification tactic.
+
+For contrast, `2P =B a(n)` has the supplied answer set `Σ=[]`. If ATOM lists
+the repeated occurrences separately, both choices require `P=a(n)` AND `P=0`:
+
+```text
+ATOM(terms=[P,P], coefficients=[1,1])
+  child 1: BIND(P:=a(n)) → NONEMPTY from a(n)=0
+  child 2: BIND(P:=0)    → NONEMPTY from 0=a(n), using SYMM
+```
+
+This is a valid expanded replay shape; equivalent branch ordering is harmless.
+A coefficient-combined ATOM instead uses `[P]` with coefficient `[2]` and has
+no eligible children. Both presentations prove absence of solutions, rather
+than interpreting a solver's failure as a proof. Soundness of the empty answer
+list is vacuous. See [repeatedSystem](examples/certification-demo.lean#L300).
+
+### 5.2 Early coverage: 2P =B 2Q
+
+```text
+E₀ = {P+P =B Q+Q}
+Σ = { σ(Z): P:=Z, Q:=Z }
+```
+
+Choose β(Z)=P directly at the root. Reflexivity proves the P component.
+For Q, use the current equation:
+
+```text
+E₀ ⊢B 2P = 2Q            HYP
+E₀ ⊢B P = Q              MULTIPLICITY-CANCEL
+E₀ ⊢B Q = P              SYMM
+```
+
+The completeness tree is a SINGLE COVER leaf:
+
+```text
+proof: COVER(index=0, beta=[Z:=P],
+             derived=[REFL(P), SYMM(MULTIPLICITY(2,HYP(0)))])
+sound: REFL(Z+Z)
+```
+
+MULTIPLICITY is an equality derivation INSIDE COVER, not a state transition
+whose child must be searched. The original equation remains in the state.
+Together these proofs certify `2P =B 2Q iff exists Z, P =B Z and Q =B Z`.
+
+See [power_certificate](examples/certification-demo.lean#L251).
+This is genuinely targeted: the supplied diagonal answer suggests the factor;
+its checked conditional equalities avoid the sharing grid. It does not imply
+that an independent solver could not discover the same cancellation.
+
+### 5.3 A fresh witness is necessary: 2P =B 3Q
+
+```text
+Original inputs: (n,P,Q), with n a passthrough
+E₀ = {2P =B 3Q}
+Σ = { σ(N,W): n:=N, P:=3W, Q:=2W }
+```
+
+The singleton-free balance has a 2-by-3 occurrence grid. Its full rectangle is
+the only nonempty balanced support: θ(P)=3Z and θ(Q)=2Z. FINITE-SHARING gives:
+
+```text
+⟨(n,P,Q) ; 2P =B 3Q⟩
+  → ⟨(n,3Z,2Z) ; 2(3Z) =B 3(2Z)⟩
+  COVER closes this child using σ with β(N)=n, β(W)=Z.
+```
+
+The final line is COVER proof closure, not another exact state transformation.
+The selected equation is shown retained, as in replay.
+All three image components agree with σβ; unconditional ACU evidence suffices.
+
+```text
+proof:
+  SHARING(rows=[P,P], cols=[Q,Q,Q], generators=[(3,2)])
+    child: COVER(index=0, beta=[N:=n,W:=Z])
+sound:
+  ACU equality evidence: 2(3W) =B 3(2W)
+```
+
+This illustrates why supplied answers do not make all witnesses available:
+there is no union-only expression in the CURRENT P,Q that universally extracts
+the required W. SHARING first introduces Z existentially. Z may be empty;
+no feasibility or nonemptiness constraint has been added.
+
+See [nonlinearAnswers and automated replay](examples/certification-demo.lean#L325)
+and the explicit rule proof
+[nonlinear_replay_certificate](certification.lean#L331).
+The finite enumeration/checking theorem is shared infrastructure, not a
+problem-specific completeness assumption.
+
+### 5.4 Four sharing pieces: P+Q =B R+S
+
+The proposed answer is:
+
+```text
+σ(p,q,r,t):
+  P:=p+q, Q:=r+t, R:=p+r, S:=q+t.
+```
+
+There is no need to run the entire 2-by-2 support enumeration if MUTATE makes
+these pieces available:
+
+```text
+⟨(P,Q,R,S) ; P+Q =B R+S⟩
+  → ⟨(P,Q,R,S) ;
+       P =B p+q, Q =B r+t, R =B p+r, S =B q+t,
+       P+Q =B R+S⟩
+  COVER closes this child with β equal to the four fresh pieces.
+```
+
+The first step extends the scope; it does not bind away P,Q,R,S.
+The final line is COVER closure using the four defining hypotheses:
+
+```text
+proof:
+  MUTATE(p,q,r,t)
+    child: COVER(index=0, beta=[p,q,r,t],
+                 derived=[the four defining hypotheses])
+sound:
+  ASSOC/COMM evidence: (p+q)+(r+t) =B (p+r)+(q+t)
+```
+
+This is the implemented optional witness-introduction shortcut. If its local
+COVER attempt fails, the fallback resumes from the original state; no unproved
+case is removed. See
+[matrix_certificate](examples/certification-demo.lean#L280) and
+[matrix_manual_certificate](examples/certification-demo.lean#L291).
+The latter is one application of `mutate_native`, whose IFF packages the
+general exact transformation.
+
+### 5.5 Naming a singleton, then handling its payload
+
+For `[wait(n)] =B [wait(m)]`, supply `σ(N)=(N,N)` for original inputs (n,m).
+One valid derivation explicitly exercises PURIFY and BIND:
+
+```text
+⟨(n,m) ; [wait(n)] =B [wait(m)]⟩
+  ── PURIFY ──→
+⟨(n,m) ; A =B [wait(n)], A =B [wait(m)]⟩
+  ── BIND A:=[wait(m)] ──→
+⟨(n,m) ; [wait(m)] =B [wait(n)], [wait(m)] =B [wait(m)]⟩
+  COVER closes this state with σ and β(N):=n,
+  using REFL(n) and the derived payload equality m =B n.
+```
+
+Payload equality is derived twice through free heads: singleton, then wait.
+No payload variable needs to be bound away: conditional COVER can use m =B n
+directly to prove that the original vector (n,m) agrees with (n,n).
+Soundness is reflexivity of `[wait(N)] =B [wait(N)]`.
+
+The corresponding proof-tree SHAPE is:
+
+```text
+PURIFY
+  BIND(A := [wait(m)])
+    COVER(N := n,
+      derived = [REFL(n), DECOMPOSE(wait, DECOMPOSE(singleton, HYP))])
+```
+
+DECOMPOSE is inside COVER's equality evidence, rather than a separate
+completeness node. See the explicit
+[purification_binding_certificate](certification.lean#L603).
+This is a valid handwritten derivation, not a claim that the producer must choose
+purification for this simple query; it can decompose the original equation directly.
+
+For purification COMBINED with nonlinear sharing, see
+[the commented balance demonstration](examples/certification-balance.lean#L45):
+`2P =B [wait(n)]+Q` produces PURIFY → SHARING → ATOM, with BIND/NONEMPTY
+for contradictions and COVER for the surviving cases. Its comments spell out
+the five generated support parameters and their images.
+
+### 5.6 Two necessary families with explicit singletons
+
+Consider one bag equation with free payload variables `n,m`:
+
+```text
+[wait(n)] + X =B [wait(m)] + Y.
+```
+
+Two solution families suffice:
+
+```text
+σ₁:
+  n := N, m := N, X := R, Y := R
+
+σ₂:
+  n := N, m := M, X := [wait(M)] + R, Y := [wait(N)] + R.
+```
+
+The first family pairs the two displayed singletons. Singleton injectivity
+generates the payload equation `n =B m`, and cancellation equates the remainders.
+The second sends each displayed singleton into the opposite remainder; their
+remaining common bag is `R`.
+
+The exhaustive grid/atom rules generate these possibilities, potentially with
+redundant presentations. Whole-vector factors close them against the proposed
+answers. Both families include `R=0`. Even when the payloads agree, two singleton
+occurrences remain two occurrences; the branches may overlap without becoming
+unsound. The first family cannot be omitted: it includes `n=m` and `X=Y=0`, which
+the second does not.
+
+Nonlinear balance is handled independently. For `2X =B 3Y`, FINITE-SHARING yields
+`X:=3Z, Y:=2Z`, including `Z=0`. For `X+Y =B X`, cancellation yields arbitrary
+`X` and `Y=0`; there is no occurs failure. Multiple equations simply reuse these
+steps with their shared substitution environment.
+
+A readable summary of the two surviving cases is:
+
+```text
+Case 1: pair the displayed singletons
+  derive n =B m, and X =B Y
+  COVER σ₁ with N:=n, R:=X
+
+Case 2: send each displayed singleton into the opposite remainder
+  introduce shared remainder R
+  X =B [wait(m)]+R, Y =B [wait(n)]+R
+  COVER σ₂ with N:=n, M:=m and that SAME R
+```
+
+These are a semantic summary of surviving branches, NOT a claim that the dump
+contains a primitive “pair” rule. The fallback obtains the cases through PURIFY,
+FINITE-SHARING, and exhaustive ATOM, then payload decomposition/binding and COVER.
+Soundness checks σ₁ by congruence and σ₂ by reordering the two displayed
+singletons and common remainder. Other generated branches can be contradictory
+or redundant, but each needs its own checked closure.
+
+For a checked two-equation example where the shared payload is forced only in
+one branch, see [overlap_certificate](examples/certification-demo.lean):
+`P+Q=[wait(n)]` and `Q+R=[wait(m)]`. Whole-state substitutions and
+whole-vector COVER preserve the correlation between the two equations.
+
+## 6. Where native answers can accelerate search
+
+The targeted search receives the same already known `Σ` as Appendix A.4. At each
 branch, it can select one of those answers and attempt a checked factor/closure
 before exhaustive expansion. It searches for a certificate of the supplied
 answers, not for native answers that have yet to be computed.
@@ -982,7 +1283,7 @@ remains available; no candidate-guided pruning may remove an unproved case.
 Perform only finite shortcut attempts before falling back, or use a fair schedule
 that cannot starve it. Unrestricted rewriting/search is not the prescribed control.
 
-### 9.1 Implemented conditional coverage
+### 6.1 Implemented conditional coverage
 
 The producer tries unconditional whole-vector coverage first. If it fails, it
 computes a proof-producing conditional view of the current image vector using
@@ -1006,7 +1307,7 @@ traverse finite lists, and factor attempts traverse the finite supplied family.
 Thus this is a finite shortcut, not an unbounded rewriting solver. Cyclic
 definitions stop expansion. If the view did not change modulo B, the already
 failed unconditional matching attempt is not repeated. Any other failure returns
-to the complete schedule in Sections 6–7. No unproved branch is pruned, and
+to the complete schedule in Appendix A.2–A.3. No unproved branch is pruned, and
 candidate soundness for the original equations is still checked separately.
 
 For `P+Q=[a]`, ATOM's two branches now close directly by conditional COVER from
@@ -1067,7 +1368,7 @@ strings; accepted equality evidence still uses the same explicit ACU rules.
 This shared implementation improvement applies to BOTH targeted and untargeted
 control, not just the targeted benchmark.
 
-### 9.2 Concrete efficiency benefit and its limits
+### 6.2 Concrete efficiency benefit and its limits
 
 The target is a coverage proof, not rediscovery of the proposed answers. Once
 EARLY-COVER proves that EVERY solution of a current branch factors through an
@@ -1116,47 +1417,37 @@ factor to attempt; they do not create a new algebraic shortcut or ensure that
 such a shortcut exists for every problem. When checked early closure fails, the
 complete fallback may still perform all the original search, plus the failed
 shortcut attempts. The document therefore specifies a genuine branch-pruning
-mechanism, but no measured speedup, general complexity improvement, or fully
-implemented targeted reconstruction engine is claimed yet.
+mechanism. The targeted shortcuts and fallback are implemented in the prototype;
+no uniform speedup, general complexity improvement, or formally verified search
+implementation follows from their successful examples.
 
-## 10. Example with two necessary families
+## 7. Dumps, replay, and cost
 
-Consider one bag equation with free payload variables `n,m`:
-
-```text
-[wait(n)] + X =B [wait(m)] + Y.
-```
-
-Two solution families suffice:
+The implemented wire format mirrors the proof levels of §3.2:
 
 ```text
-σ₁:
-  n := N, m := N, X := R, Y := R
-
-σ₂:
-  n := N, m := M, X := [wait(M)] + R, Y := [wait(N)] + R.
+Maude:  { proof: completeness tree, sound: per-equation/per-answer equalities }
+                   │                              │
+Python:     Complete rule applications      Soundness rule applications
+                   └────────── exact_system ──────┘
+Lean:       check the resulting proof against the FIXED native exactness goal
 ```
 
-The first family pairs the two displayed singletons. Singleton injectivity
-generates the payload equation `n =B m`, and cancellation equates the remainders.
-The second sends each displayed singleton into the opposite remainder; their
-remaining common bag is `R`.
+Unary state rules have a `child`; ATOM has `children`; COVER and contradiction
+nodes have no completeness children. A node's `premise` selects/derives an
+equation from its current worklist. COVER's `derived` field contains equality
+proofs for every original image, not further search branches.
+[traceText](certification.maude#L1160) serializes these records;
+[compile_components](certification_compiler.py#L428) assembles the two proof
+parts; [LeanReady.prepareProof](conPanna/Certification/Frontend.lean#L104)
+loads checked nodes against Lean's independently fixed goal.
 
-The exhaustive grid/atom rules generate these possibilities, potentially with
-redundant presentations. Whole-vector factors close them against the proposed
-answers. Both families include `R=0`. Even when the payloads agree, two singleton
-occurrences remain two occurrences; the branches may overlap without becoming
-unsound. The first family cannot be omitted: it includes `n=m` and `X=Y=0`, which
-the second does not.
+The compiler can share repeated subproofs as named, dependency-ordered nodes.
+That DAG is a compact presentation of the same inference tree, not another
+proof calculus. The readable trees in §5 omit scope encodings and this sharing,
+but retain the proof-rule nesting and all required branches.
 
-Nonlinear balance is handled independently. For `2X =B 3Y`, FINITE-SHARING yields
-`X:=3Z, Y:=2Z`, including `Z=0`. For `X+Y =B X`, cancellation yields arbitrary
-`X` and `Y=0`; there is no occurs failure. Multiple equations simply reuse these
-steps with their shared substitution environment.
-
-## 11. Dumps, exhaustiveness, and cost
-
-A suitable rule dump records:
+A rule dump records:
 
 - The exact signature/theory, original context, and input equation list.
 - Context extensions, binding substitutions, and equation selections.
@@ -1183,14 +1474,14 @@ an individual certificate. Arithmetic appears in the general completeness proof;
 problem search uses finite sharing, singleton cases, free rules, and matching.
 
 Maude hosts these rules and their control, while its native solver proposes
-answers upstream. Section 12.1 describes the implemented evidence boundary;
+answers upstream. Section 8.1 describes the implemented evidence boundary;
 the Maude implementation itself is not verified in Lean. Raw rule traces must contain enough context and
 branch information for replay; a successful rewrite path alone is not a complete
 proof of exhaustiveness.
 
-## 12. Existing Lean work and formalization difficulty
+## 8. Implementation map and remaining boundary
 
-### 12.1 What already exists
+### 8.1 What already exists
 
 The reusable prototype lives in `conPanna/Certification`; `certification.lean`
 contains its handwritten examples and metatheorem audits. It has semantic rules,
@@ -1247,8 +1538,9 @@ whole original image vector and EVERY residual equation; `Soundness.sharing`
 checks the same layout in the reverse direction. The canonical support family is
 computed, not accepted under a supplied-list coverage assumption. Old input
 slots remain behind the fresh parameters; unused active slots are harmless.
-General search remains unimplemented. These rule-validity proofs alone do not
-establish that an automatic reconstruction procedure always succeeds.
+The external producer implements the finite fallback described in Appendix A.3.4.
+These rule-validity proofs alone do not establish that its implementation always
+succeeds; that search theorem is not formalized.
 
 The coefficient-aware rules of §4.4 also have general semantic IFF proofs:
 `AtomProcessing.sum_atom` characterizes ALL singleton suppliers for arbitrary
@@ -1383,7 +1675,7 @@ The baseline consumer exports typed equations, scopes, and fixed proposed answer
 with generated constructor metadata. It calls `LeanReady.produce`, then checks
 the returned bundle in the same Lean session. The reusable object-level producer
 lives in `CERTIFICATION-PRODUCER` inside `certification.maude`. It applies free,
-singleton/zero, purification, sharing, and whole-vector factor rules. Section 7.4
+singleton/zero, purification, sharing, and whole-vector factor rules. Appendix A.3.4
 audits its unbounded schedule; no formal implementation/search theorem or
 uniform success within the resource caps is claimed. Demonstration cases alone
 are not that audit.
@@ -1496,15 +1788,833 @@ stratified frontend contract using existing registered constructor metadata.
 The old shape-specific recognizers and elaboration-time Maude search have been
 removed from this file; separate Maude experiment files remain historical work.
 
-Those are useful ingredients, NOT a formal proof of Theorem 7.3 or 8.3. The finite
+Those are useful ingredients, NOT a formal proof of Theorem A.3.3 or A.4.3. The finite
 whole-vector matcher is implemented and has the informal invariant/coverage
-argument in §8.1. The retained-worklist scheduler now has the informal
-progress/exhaustiveness audit in §7.4; their combined FORMAL search-success
+argument in §A.4.1. The retained-worklist scheduler now has the informal
+progress/exhaustiveness audit in §A.3.4; their combined FORMAL search-success
 theorem remains open. Successful examples alone establish neither argument.
 The retained semantic mutation/split rules are useful derived steps, not a
 complete fallback algorithm or a replacement for the finite-sharing theorem.
 
-### 12.2 Is formalizing the search guarantee easy?
+### 8.2 Design verdict and next gate
+
+Under the stated one-bag stratified contract, the argument above gives a credible
+finite complete calculus and a conditional reconstruction-success argument. Its
+reasoning does not depend on variable-linearity restrictions or finitely many
+hand-picked examples. It is not a proof of general mixed-theory combination, an
+efficiency result, or a formal verification of the implementation. The prototype
+implements the finite fallback, with the retained-storage audit in §A.3.4 and
+independently kernel-checked evidence for successful runs.
+
+The remaining gates are formalizing the search/control guarantee if desired,
+strengthening the finite conditional EARLY-COVER attempts, and extending the
+modeling contract with a separate combination argument. The prototype's safety
+timeouts do not replace the finite complete schedule or justify contradiction.
+Completing every Lean search meta-theorem before using the scientific prototype
+is optional; silently replacing the strategy by bounded case-by-case search is
+not. Narrowing integration is outside this document's present implementation.
+
+## 9. References and attribution boundaries
+
+- Alexandre Boudet and Evelyne Contejean, **“Syntactic” AC-Unification** (1994),
+  particularly Theorem 2 and the occurrence-sharing treatment of nonlinear
+  equations. This is the finite-support foundation; the stratified ACU strategy,
+  singleton processing, and answer-guided reconstruction theorem in this note
+  are an adaptation, not claims directly quoted from that paper.
+  [Author-hosted paper](https://www.lri.fr/~contejea/publis/1994ccl/main.pdf).
+- Alberto Martelli and Ugo Montanari, **An Efficient Unification Algorithm**
+  (1982), Section 2, for free first-order equation transformations. Applying free
+  rules while postponing the ACU carrier requires the stratification argument
+  explicitly supplied in this note.
+  [Paper](https://courses.grainger.illinois.edu/cs576/sp2017/readings/01-jan-19/martelli-montanari-unif.pdf).
+- **Maude Manual**, Chapter 13 and matching commands, for the native unification
+  and matching interfaces. Native completeness requires a supported theory and
+  no answer truncation. A returned answer list is still checked rather than
+  trusted, and the theorem here is stated by the list's mathematical properties.
+  [Unification](https://maude.cs.illinois.edu/manual/maude-manualch13.html),
+  [Matching commands](https://maude.cs.illinois.edu/manual/maude-manualap1.html).
+
+The document does not establish novelty of the underlying unification algorithm.
+Potential research contributions are the semantic registration/replay framework,
+checked answer-guided certification, and its integration with the existing Lean
+semantics; those require implementation and evaluation beyond this design note.
+
+## 10. Related work, rule provenance, and differences
+
+### 10.1 How to read the attribution
+
+The calculus is a combination and adaptation of established ideas, not a claim
+to have invented ACU unification. The following categories distinguish its
+provenance:
+
+- **Reused:** a standard mathematical rule or definition, restated with sorted
+  contexts and our structural relation.
+- **Inspired/adapted:** a mechanism based on a cited result, but changed for this
+  contract, semantics, or certification purpose.
+- **Derived:** a consequence of the free-bag semantics proved in this document;
+  no particular paper is claimed as its exclusive source. This does not imply
+  that the mathematical fact is new.
+- **Project-specific proposal:** a proposed organization or certificate interface,
+  whose novelty has not been established by a comprehensive literature review.
+
+“Reused” concerns mathematical rule patterns, not a claim that source code or
+verbatim text was copied. This is a provenance account of the proposed calculus,
+not a licensing audit of every existing prototype implementation.
+
+### 10.2 Rule-by-rule provenance
+
+| Rule or mechanism in this document | Provenance | Adaptation and limits of the claim |
+| --- | --- | --- |
+| `DELETE`, `ORIENT`, `DECOMPOSE`, `CLASH`, `BIND` (§4.1) | Reused free first-order unification transformations; Martelli–Montanari, §2. | Sorted contexts, modulo equality, and postponed bag equations are our setting. Raw free-head clash is not used on ACU roots. These are not new rules. |
+| `FREE-OCCURS` (§4.1) | Reused free occurs checking, with an equational guard. | Its use is restricted to free-constructor cycles. Stratification justifies the mandatory non-bag phase. Ordinary syntactic occurs checking is deliberately not used for bag cycles. |
+| Equality evidence and `NORMALIZE` (§4.2, §A.4.2) | Reused equational logic and standard ACU normalization. | Reconstructed evidence targets the registered relation. Neither normalization nor proof-producing equality checking is claimed novel; certified AC reasoning already exists (§10.4). |
+| `CANCEL` (§4.2) | Standard flattened AC cancellation; it already appears in Stickel's AC algorithm. | Our justification uses the constructor-generated free bag algebra, including empty remainders. It is not valid merely from assuming an arbitrary ACU interpretation. |
+| `MULTIPLICITY-CANCEL` (§6) | Derived from equality of generator multiplicities in a free commutative monoid. | Used as a general checked shortcut; no claim that the algebraic fact is new or that it is the cited papers' specific trace rule. |
+| `PURIFY` (§4.2) | Inspired by standard variable abstraction/purification in equational unification and theory combination. | We name singleton terms and retain their equations. We do not import the entire Baader–Schulz combination algorithm or its general combination theorem (§10.5). |
+| `FINITE-SHARING` (§4.3) | Adapted from Boudet–Contejean's finite-support theorem and occurrence-sharing treatment of nonlinear AC equations. | We collect all balanced supports into one parameterized pure-balance family, allow empty parameters, and later enforce singleton requirements. This is not a literal copy of their mutation/merge/pruning algorithm. |
+| `MUTATE` (§4.6) | Derived from common refinement of finite bags; reused from the existing prototype's semantic mutation rule. | Introduces four existential sharing pieces, optionally enabling supplied-answer coverage. It is not the complete fallback, and its name does not assert identity with Boudet–Contejean's mutation algorithm. |
+| Minimal decomposition and opposite-pair bound (§A.1.2–§A.1.3) | Standard nonnegative-balance arguments; the pair bound is part of the reasoning behind Boudet–Contejean's Theorem 2. | Internal completeness arguments, not a separate runtime Diophantine solver or per-problem arithmetic certificate. No novelty claim. |
+| Rectangle rounding (§A.1.4) | Our explicit proof organization for the required finite-support property. | It makes repeated occurrence degrees explicit. We claim neither a new finite-support theorem nor priority for this matrix argument. |
+| `ATOM-MANY`, `ATOM-ONE`, `ATOM-CHOOSE`, `ZERO` (§4.4) | Derived from free-bag multiplicities and singleton injectivity. | The exact branching formulation is tailored to the three-constructor fragment. These are elementary ACU consequences, not rules taken from an order-sorted membership calculus. |
+| Shared substitution propagation and composition (§4.1, §A.3) | Reused substitution composition and complete-unifier-set reasoning. | The finite free/bag/payload schedule is justified by our stratification, not a claim about arbitrary interacting theories. |
+| `COVER` and whole-vector factorization (§4.5, §A.4.1) | Reused instantiation preorder and the standard definition of a complete set of unifiers. | We make the factor a checked certificate object on every original input. Comparing complete vectors preserves correlations; the mathematical factorization principle is not new. |
+| `EARLY-COVER` (§6) | Project-specific proposed control, built from standard factorization and checked consequence derivations. | It can avoid expanding a branch when coverage is already proved. This is not a claimed new general subsumption theorem, nor a guarantee that native answers always accelerate reconstruction. |
+| Proposed-answer soundness plus coverage aggregation (§A.4.4) | Reused logical inclusion in both directions; architecturally inspired by skeptical external-solver certification, notably SMTCoq. | The target is exactness of a symbolic unifier set over registered constructor semantics, rather than a SAT/SMT result. The native solver remains outside the trust boundary. |
+| Exhaustive sharing/atom dumps (§7) | Standard explicit case-tree certification, organized for the proposed calculus. | Both branches or checked alternatives must be accounted for. A positive native computation trace alone is not completeness evidence. The prototype wire format is implemented; its producer is not formally verified. |
+
+### 10.3 Classical AC unification and the nonlinear sharing foundation
+
+Stickel's **A Complete Unification Algorithm for Associative-Commutative
+Functions** (1975) already flattens AC terms and removes common arguments before
+solving. It also gives the substitution/generalization viewpoint. These are
+classical foundations, not contributions of our framework.
+[Original proceedings paper](https://www.ijcai.org/Proceedings/75/Papers/011.pdf).
+
+Boudet and Contejean's **“Syntactic” AC-Unification** (1994) is the closest source
+for our nonlinear sharing mechanism. Their Theorem 2 represents minimal balance
+solutions by subsets of occurrence-pair generators. Their subsequent algorithm
+uses linearization, reconciliation of repeated occurrences, and a restriction on
+substitutions of introduced variables to preserve completeness while controlling
+search. [Author-hosted paper](https://www.lri.fr/~contejea/publis/1994ccl/main.pdf).
+
+Our changes are explicit:
+
+1. The initial model contract is narrower: one stratified bag component, not a
+   general mixed AC signature.
+2. It is ACU: parameters may be empty. Thus the pure balance can use all balanced
+   supports simultaneously; there is no obligation to choose only nonempty
+   contributions to every input variable.
+3. Explicit singleton requirements are discharged separately by exhaustive
+   cardinality cases and free payload unification.
+4. A complete finite reference family is used to certify an independently
+   proposed answer set, which may have a different representation.
+
+The occurrence grid is still an arithmetic balance construction in mathematical
+substance. Saying “no explicit Diophantine solver” is a statement about the search
+and certificate interface, not a claim to have removed the arithmetic foundation
+or its worst-case combinatorial cost. We do not claim that enumerating all
+supports improves on optimized classical AC/ACU unification.
+
+### 10.4 Existing certified AC algorithms and proof-assistant tactics
+
+Ayala-Rincón, Fernández, Ferreira Silva, and Nantes Sobrinho's **A Certified
+Algorithm for AC-Unification** (FSCD 2022) formalizes an adjusted Stickel algorithm
+in PVS and proves termination, soundness, and completeness. Its extended account,
+**Certified First-Order AC-Unification and Applications**, supplies further details
+and revises a completeness-proof hypothesis. These are important precedents: we
+must not claim that formal certification of AC unification is new.
+[FSCD paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.FSCD.2022.8),
+[extended account](https://www3.risc.jku.at/publications/download/risc_7111/main.pdf).
+
+The difference is the intended artifact. Those works certify an AC-unification
+algorithm itself. Our target is a reusable Lean replay interface for certifying
+the exact answer set proposed by a separate native engine, against registered
+user constructor semantics. Our initial contract is deliberately restricted and
+includes a unit law; their AC correctness results do not automatically establish
+this ACU replay theorem. Conversely, our informal argument is not a stronger
+result than their completed formal verification. Their proof rules and PVS
+development have not been ported into our prototype.
+
+Contejean's **A Certified AC Matching Algorithm** (RTA 2004) proves inference
+rules for free/C/AC matching sound, complete, and decreasing in Coq, with a
+corresponding CiME algorithm. This directly supports the feasibility of a checked
+matching component. It does not, by itself, prove completeness of an ACU unifier
+set or the composition argument of §A.3. Its rules are related work, not the rules
+already implemented by our generic matching fallback.
+[Author's abstract](https://www.lri.fr/~contejea/publis/2004rta/abstract.html).
+
+Braibant and Pous's **Tactics for Reasoning modulo AC in Coq** (CPP 2011) combines
+a certified equality decision procedure with untrusted matching. It supports
+units, multiple operations, and user-defined equivalence relations. This is a
+particularly close precedent for the acceptance principle used in `COVER`:
+a matcher proposes a substitution, and checked equality validates it.
+[Paper](https://arxiv.org/abs/1106.4448).
+
+The additional obligation in our work is exhaustive coverage of ALL unifiers.
+Validating one rewriting match requires soundness of that match, not a proof that
+the matcher returned every possibility. Hence our reference derivation and
+coverage factors cannot be replaced by equality checks on proposed unifiers.
+The earlier work also shows that registration and reasoning under an equivalence
+relation are not new in themselves. Our free-constructor contract is needed for
+exhaustiveness, cancellation, and contradiction rules; successful equality proofs
+can work under much more general registered associative/commutative operations.
+
+### 10.5 Purification and combination of equational theories
+
+Baader and Schulz's **Unification in the Union of Disjoint Equational Theories:
+Combining Decision Procedures** (1991 technical report; 1996 journal version)
+studies general combination under component-theory requirements, including
+unification with constant restrictions. This is a standard background for
+purification and for the eventual multiple-theory extension.
+[Author-affiliated report entry](https://iccl.inf.tu-dresden.de/web/LATPub24/en),
+[journal DOI](https://doi.org/10.1006/jsco.1996.0009).
+
+Our phase ordering is a special-purpose simplification justified by the sort
+dependency contract. It is not a newly invented general combination method:
+no payload equation can lead back to a bag equation, so we avoid the general
+cross-component interaction problem. We do not claim to implement that paper's
+variable-identification, constant-restriction, or full combination machinery.
+Allowing bags inside payloads, or multiple interacting structural components,
+requires revisiting this boundary rather than citing general combination as if
+its hypotheses and proof had already been instantiated.
+
+### 10.6 The supplied order-sorted paper is a different wrapper
+
+The local `ACU-certification.pdf` is Hendrix and Meseguer's **Order-sorted
+Equational Unification Revisited** (journal version, 2012). It wraps an unsorted
+equational unification engine with rule-based sort-constraint processing. The
+author-hosted version presents Intersection, Propagation, and Subsumption rules
+for membership constraints and describes Maude/CiME integration.
+[Author-hosted version](https://maude.cs.illinois.edu/papers/pdf/hendrix-meseguer-os-unify.pdf),
+[journal DOI](https://doi.org/10.1016/j.entcs.2012.11.010).
+
+It inspired the general external-engine-plus-rule-based-wrapper direction, but
+**none of those three membership rules is the FINITE-SHARING or atom calculus
+in this document**. Our contexts are many-sorted with fixed tags; there are no
+subsort choices or membership refinements. More importantly, repairing the sort
+information of an external unifier is different from proving that its proposed
+unifier set exhausts all solutions. The paper is not an existing Lean-style
+soundness/completeness checker for arbitrary external ACU answer sets.
+
+### 10.7 SMTCoq: the trust architecture, not the ACU proof rules
+
+Armand et al.'s **A Modular Integration of SAT/SMT Solvers to Coq through Proof
+Witnesses** (CPP 2011) describes a modular certified checker for external solver
+witnesses. It is the main architectural inspiration for separating expensive
+search from trusted acceptance.
+[Author-hosted paper](https://www-sop.inria.fr/marelle/Laurent.Thery/pub1.pdf).
+
+Our proposed pipeline follows that skeptical principle:
+
+```text
+native engine proposes answers
+→ untrusted certification search produces evidence
+→ Lean validates evidence against the original semantic proposition.
+```
+
+The differences matter. Native Maude unifier output does not already include the
+required completeness evidence. We must add a coverage derivation and factors,
+not just parse the answers. The target is a finite symbolic representation of an
+entire solution set, not solely a satisfiable/unsatisfiable formula. Also, our
+prototype uses finite typed proof data and semantic replay; choosing a fully
+reflective Boolean checker versus proof-term reconstruction remains a design
+decision. SMTCoq's Coq checker is not code or an ACU calculus we have copied.
+
+### 10.8 Proof-relevant unification: evidence without importing its metatheory
+
+Cockx's **Dependent Pattern Matching and Proof-Relevant Unification** (2017),
+Chapter 3, is related through evidence-producing rule transformations and their
+composition. Its applications and correctness requirements concern dependent
+pattern matching. E-unification appears as a possible extension, not a supplied
+ACU completeness algorithm.
+[Thesis](https://jesper.sikanda.be/files/thesis-final-digital.pdf).
+
+We adopt neither its dependent-telescope infrastructure nor its stronger
+requirements on proof-relevant equivalences. Our goal is propositional equality
+of solution sets, with existential factor witnesses and possibly overlapping
+answer families. We do not need invertible witnesses between all proof objects.
+The connection is methodological; it is not the source of FINITE-SHARING and
+does not discharge our search guarantee.
+
+### 10.9 Disunification and complement methods: considered, not adopted
+
+An alternative completeness formulation asks whether a solution outside every
+proposed answer exists:
+
+```text
+exists ρ,
+  E₀ρ holds
+  and, for every i, there is NO β with ρ =B σᵢβ.
+```
+
+Refuting this formula would establish completeness. However, negating family
+membership introduces quantification over substitution parameters. It is not
+equivalent to adding a finite list of ordinary term disequalities with the
+parameters left free.
+
+Fernández's **AC Complement Problems: Satisfiability and Negation Elimination**
+(1996) studies ground-instance complements modulo AC, with a rule-based
+negation-elimination result for linear complement problems and additional
+restricted nonlinear cases. This is directly related to that alternative
+formulation, but its hypotheses do not yield our arbitrary-repetition ACU
+coverage theorem automatically.
+[Author's publication entry](https://nms.kcl.ac.uk/maribel.fernandez/allpapers.html).
+
+Comon's **Unification et disunification : théorie et applications** (1988) is
+broader background on equational-formula and disunification methods; it is not
+claimed as the source of any named rule adopted here.
+[Thesis record](https://theses.hal.science/tel-00331263v1).
+
+No disequality, complement, or quantifier-elimination rule from those works is
+currently part of this calculus. Positive complete reference families and
+checked factorization establish coverage instead. We therefore do not claim
+that a candidate answer set makes general disunification easy, nor that this
+document implements a targeted complement/refutation algorithm.
+
+### 10.10 Generalized rewrite theories: application motivation only
+
+Meseguer's **Generalized Rewrite Theories and Coherence Completion** provides
+the symbolic-execution background for the broader narrowing project. It studies
+rewrite theories with background constraints and coherence/executability
+conditions, rather than this unconstrained unifier-set replay problem.
+[Paper](https://www.ideals.illinois.edu/items/105518/bitstreams/334027/data.pdf).
+
+Its role here is motivation for a reliable structural unification component
+inside later symbolic reasoning. No coherence-completion, constrained-narrowing,
+or feasibility rule from that work is adopted in the present certificate
+calculus. Neither its application results nor its executability assumptions
+replace our coverage argument.
+
+### 10.11 What can responsibly be claimed as different
+
+The intended project-specific contribution is the combination of:
+
+1. Registration of ordinary many-sorted user constructor datatypes, with checked
+   structural semantics and no nontrivial per-model certification proof.
+2. Untrusted native proposals plus rule-based, whole-family coverage certificates
+   for a supported ACU modeling contract.
+3. A rule-dump/replay interface whose accepted proposition states soundness and
+   completeness of the proposed set against the existing native semantics.
+4. Optional answer-guided early closure, backed by a finite complete fallback
+   whose success argument does not depend on bounded experiments.
+
+These are intended integration/certification contributions, not established
+priority claims. General substitution composition, CSU factorization, skeptical
+checking, proof-producing AC equality, and the finite-support foundation all have
+precedents. A publication must compare the completed pipeline with the certified
+AC algorithms and matching tactics above, not only with raw hand proofs.
+
+In particular, we must not claim “the first certified AC/ACU unification system,”
+“a new complete ACU algorithm,” or “native answers always make completeness
+checking cheaper” on the basis of this note. The current defensible claim is an
+explicit restricted calculus and an informal conditional reconstruction-success
+argument; practical automatic replay, registration coverage, and performance
+advantages remain implementation/evaluation obligations. Deferring the formal
+Lean search-success proof does not change that distinction.
+
+## Appendix A. Search guarantee and supporting arguments
+
+This appendix addresses a DIFFERENT question from checking one certificate:
+why should the prescribed strategy find a finite certificate for every legal
+input with sound, symbolically complete supplied answers?
+
+The arguments below describe the mathematical reference strategy, its
+retained-worklist implementation audit, whole-vector matching, and the conditional
+search-success claim. They are not premises silently trusted by the Lean checker.
+The numeric finite-sharing component has Lean proofs; the full search/control
+theorem remains informal. Individual accepted certificates are checked using
+the rules of §4 and `exact_system`, whether or not search success has been formalized.
+
+### A.1 Proof of finite-sharing exactness
+
+This section proves the mathematical fact needed by the central rule. Counts
+are used in the once-for-all argument, not as a problem-specific trusted
+Diophantine solver.
+
+#### Lemma A.1.1 — Bag normal form
+
+For a fixed parameter context, a bag term modulo `B` is a finite multiset of:
+
+1. singleton payload terms, identified by their payload equality; and
+2. independent bag variables from that context.
+
+Two bag terms are equal precisely when the multiplicities of these generators
+agree. Free constructors at other sorts retain their heads and recursively
+normalized arguments. This is the free constructor algebra with one free
+commutative-monoid carrier. In native valuations there are no variable generators;
+the bag generators are the actual singleton payload classes.
+
+Proof outline: define normal forms recursively. At non-bag sorts retain a variable
+or a free head with normalized arguments. At `Bag`, a variable contributes its
+rigid generator, empty contributes nothing, singleton contributes its normalized
+payload generator, and union adds the two multisets. Every generating equation
+of `B` preserves this normal form, so congruence-generated equality implies equal
+normal forms. Conversely, fix a total ordering of finite generator descriptions
+and print each bag multiset as an ordered union. Structural induction, constructor
+congruence, and ACU show that every term is equal to the printed representative
+of its normal form. Equal normal forms therefore imply equality modulo `B`.
+The argument is a characterization of the registered constructor quotient, not
+an assumption that its native datatype has literal commutativity.
+
+Including bag-variable generators is important: a symbolic proof must not
+replace a fresh bag parameter by a fictitious singleton payload constructor.
+
+#### Lemma A.1.2 — Minimal decomposition
+
+Consider nonnegative integer vectors `(v₁,…,vᵣ,w₁,…,wₛ)` satisfying:
+
+```text
+sum aᵢvᵢ = sum bⱼwⱼ.
+```
+
+Every such vector is a finite sum of nonzero componentwise-minimal solution
+vectors, or is zero with an empty decomposition.
+
+Proof: choose a nonzero minimal subsolution below a nonzero vector, subtract it,
+and repeat. Existence follows by choosing a solution of least total weight in
+the finite box below that vector. Each subtraction strictly decreases the sum
+of the coordinates. Subtraction preserves the balance equality. Therefore the
+process ends. No effective search for this decomposition is needed at runtime.
+
+#### Lemma A.1.3 — Opposite-pair bound
+
+For a minimal nonzero solution `(v,w)` and every `i,j`:
+
+```text
+vᵢ ≤ bⱼ  OR  wⱼ ≤ aᵢ.
+```
+
+If both inequalities fail, the vector with `bⱼ` at coordinate `Xᵢ`, `aᵢ` at
+coordinate `Yⱼ`, and zero elsewhere is a nonzero balanced proper subsolution.
+This contradicts minimality.
+
+#### Lemma A.1.4 — A minimal vector has a balanced support
+
+Give each of the `aᵢ` rows labelled `Xᵢ` required row total `vᵢ`, and each of
+the `bⱼ` columns labelled `Yⱼ` required column total `wⱼ`. The two total sums
+agree, so a nonnegative integer matrix with these margins exists: successively
+allocate each row across the remaining column capacities.
+
+We turn this matrix into a zero/one matrix without changing any margin.
+Suppose a cell in row `r` labelled `Xᵢ` and column `c` labelled `Yⱼ` has value
+`A ≥ 2`. Lemma A.1.3 gives one of two cases.
+
+**Case 1: `vᵢ ≤ bⱼ`.** Among the `bⱼ` columns with label `Yⱼ`, some column
+`c'` has value zero in row `r`. Otherwise that part of the row would already
+have total at least `bⱼ+1`, exceeding its required total `vᵢ`.
+
+Columns `c` and `c'` have the same required total `wⱼ`. Since row `r` has more
+in `c` than in `c'`, another row `r'` has values `C,D` there with `D>C`.
+Perform this rectangle exchange:
+
+```text
+     c  c'                c    c'
+r    A   0      →     r   A-1   1
+r'   C   D            r'  C+1  D-1
+```
+
+All entries remain nonnegative, and each row and column sum is unchanged.
+The change in the sum of squares of entries is:
+
+```text
+2(C-D-A+2) ≤ -2.
+```
+
+It strictly decreases because `A≥2` and `D≥C+1`.
+
+**Case 2: `wⱼ ≤ aᵢ`.** Apply the same argument to the transposed matrix, using
+the `aᵢ` rows with label `Xᵢ`.
+
+The sum of squares is a natural number. Repeating exchanges therefore ends,
+and it can end only when no cell exceeds one. The selected one-cells form a
+balanced support with precisely the desired repeated-variable degrees. The
+support is nonempty because the minimal vector is nonzero and the coefficients
+are positive.
+
+This argument establishes occurrence-level uniformity, not merely a capacity
+bound on a coarser variable-pair allocation.
+
+#### Proposition A.1.5 — Exact parameterization of a pure balance
+
+Soundness: each selected cell contributes one occurrence to each side. Equal
+degrees for equal row/column labels make repeated input-variable images agree.
+Consequently every assignment to all `Z_S` satisfies the balance equation.
+
+Completeness: fix any solution substitution. For each generator in its finite
+bag normal forms, record its multiplicities in the active variable images.
+This gives a balanced nonnegative vector. Decompose it by Lemma A.1.2 and represent
+each minimal component by a support using Lemma A.1.4. Assign one copy of that
+generator to the corresponding `Z_S` for each component. Multiple components
+using the same support are combined in the same parameter bag. Summing the
+degrees reconstructs the multiplicity of every generator in every input image.
+Lemma A.1.1 therefore gives the required componentwise equality modulo `B`.
+Passthrough parameters reconstruct every inactive variable independently.
+
+This proves the exactness statement in FINITE-SHARING, including repeated
+variables and symbolic parameter images. Zero-sided cases are immediate from
+positivity: every active generator multiplicity must be zero.
+
+### A.2 A finite strategy for a single bag equation
+
+Define `SolveOneBag(e)` as the following rule-based procedure:
+
+1. Flatten `e`; purify explicit singleton occurrences, retaining their equations.
+2. Cancel common variable occurrences and construct the canonical support family.
+3. Apply FINITE-SHARING once.
+4. Process each retained singleton requirement using the exhaustive atom rules,
+   propagating all bindings through every requirement and every image.
+5. Solve generated free payload equations, rejecting genuine free contradictions.
+6. Return all surviving composed substitutions, with unconstrained variables
+   retained as parameters.
+
+#### Proposition A.2.1 — Single-equation exactness
+
+The returned list is finite. Every returned substitution is a symbolic unifier
+of `e`, and every symbolic unifier of `e` factors through a returned member.
+
+Proof: purification is exact; Proposition A.1.5 parameterizes the purified balance
+exactly. The atom rules are an exhaustive characterization of each singleton
+requirement. Free payload unification preserves all solutions and yields a most
+general substitution or a proved contradiction. Compose these exact steps.
+
+More explicitly, fix a symbolic unifier of the selected equation. Purification
+extends it to the named singleton variables; finite sharing factors that extension
+through the generated family. For the first singleton requirement, normal-form
+multiplicities determine either its single displayed singleton or the unique
+coefficient-one parameter contributing that singleton. The corresponding atom
+branch is present and preserves the factor witness. Repeat for the remaining
+requirements with the SAME witness, composing each binding. Finally factor its
+payload assignment through the free solver's most general substitution. This
+constructs one returned member through which the original unifier factors.
+The reverse direction follows because every returned member satisfies the
+balance and every retained requirement. No independent witness is chosen for
+different occurrences of a shared parameter.
+
+For termination: the grid has finitely many cell subsets; there are finitely
+many retained requirements. Each atom-rule branch processes one requirement
+and creates only payload equations. Processing later requirements does not
+reintroduce earlier ones. Payload solving terminates and creates no bag equation
+by stratification. Branch sizes may grow substantially, but every branching
+factor and every branch length is finite.
+
+This is not a repeated application of a mutation rule to fresh equations of the
+same complexity. It has an explicit, finite internal schedule.
+
+### A.3 Whole-problem reference search
+
+#### A.3.1 The free phase
+
+Apply the free rules to equations whose result sort is not `Bag`, postponing bag
+equations. Propagate bindings through postponed equations and original images.
+At completion the state is either dead or `⟨α ; P⟩`, where every equation in
+`P` is a bag equation.
+
+This phase terminates. One suitable measure, ignoring orientation as a separate
+loop step, is lexicographic:
+
+```text
+(number of live non-bag variables,
+ total term-node count of the remaining equation worklist).
+```
+
+A non-bag binding removes a live variable and introduces none. Decomposition
+removes the two constructor heads; deletion removes an equation. Substitution
+may increase the second component, but decreases the first. Use fixed variable
+orientation and deterministic equation selection. The free occurs side condition
+is legitimate by the contract argument in Section 4.1. Bag equations may be
+created by configuration decomposition, but do not produce free configuration
+equations in return.
+
+#### A.3.2 The bag phase
+
+After the free phase, run:
+
+```text
+SolveBags(α, []):
+  return [α]
+
+SolveBags(α, e :: P):
+  result := []
+  for every θ in SolveOneBag(e):
+    append SolveBags(αθ, Pθ) to result
+  return result
+```
+
+`SolveOneBag` acts on the complete current context, including passthrough
+variables; its payload bindings are propagated through `α` and `P` as well.
+The equations of `Pθ` still have bag result sort. Its length is exactly one less
+than the pending list before the step. Payload solving cannot add bag equations.
+
+#### Theorem A.3.3 — Finite reference CSU
+
+For every finite `E₀` under the contract, this procedure terminates with a finite
+reference list `Θ` such that:
+
+```text
+Sound(Θ) and Complete(Θ).
+```
+
+Proof: the free phase terminates and preserves the state's denotation. Induct on
+the number of pending bag equations. The empty list represents all assignments
+to the remaining parameters. For `e :: P`, Proposition A.2.1 yields finitely many
+exact solution families `θ`. Substitution congruence gives:
+
+```text
+δ unifies (e :: P)
+  iff
+there exist θ in SolveOneBag(e) and η such that
+  δ =B θη and η unifies Pθ.
+```
+
+The SAME `η` occurs in both conjuncts: this is the preservation of correlations.
+Apply the induction hypothesis to each `Pθ`, then compose substitutions. This
+proves coverage of every original-input unifier. Conversely, each composed
+member solves `e` and the remaining equations, so it solves the whole problem.
+Finiteness follows from finite branching and decreasing pending-list length.
+
+An empty reference list means every branch ended with a proved contradiction.
+It is not the consequence of an arbitrary search cutoff.
+
+#### A.3.4 Retained-worklist implementation of the finite strategy
+
+`CERTIFICATION-PRODUCER` retains equations for replay instead of physically
+deleting every solved equation. Consequently, the length of its stored list is
+NOT a termination measure. Its correspondence with Appendix A.2–A.3 is the following
+phase argument. This is an informal implementation audit, not a Lean proof of
+the Maude interpreter or a bounded-resource success guarantee.
+
+**An original frontier** is a maximal bag-sort equation exposed by decomposing
+matching free constructors in an input equation. For example,
+`pair(P+[a], R+[b]) =B pair(Q+[a], S+[b])` has two frontiers. Defining equations
+introduced by PURIFY, and requirements introduced by ATOM/ZERO, are instead
+local obligations of the selected frontier.
+
+1. **Free bindings cannot continue indefinitely.** `choose` traverses every
+   stored equation and matching free-constructor field. A BIND removes one live
+   variable; no rule introduces a non-bag variable. Therefore there are at most
+   the original number of non-bag bindings along any branch. Free traversal
+   itself is structural, not a rewriting loop that repeatedly reintroduces the
+   same DECOMPOSE or ORIENT state. A clash or proper free occurrence closes the
+   branch. Payloads cannot introduce bag equations by stratification.
+
+2. **Between non-bag bindings, the original frontier structure is fixed.** Any
+   unresolved configuration-variable binding would already be found by `choose`.
+   Bag substitutions cannot introduce free configuration structure above a bag
+   or inside its payload. There are finitely many frontier positions in the
+   remaining finite free skeletons. Purification replaces one equation by one
+   template; it does not duplicate that skeleton. It may name a singleton in a
+   sibling field as well: this creates a retained defining equation, not another
+   copy of that sibling frontier.
+
+3. **Preparation is finite.** `prepareMore` replaces a chosen explicit singleton
+   in the enclosing template by a fresh variable and retains its definition.
+   The number of explicit singleton occurrences in that template strictly
+   decreases. Replacing all identical occurrences at once is safe because one
+   defining equation fixes their shared value. Preparation performs no bindings
+   or sharing before it finishes. The selected balance's union/variable outer
+   shape is preserved, so `prepareClean` reaches FINITE-SHARING rather than an
+   unsupported preparation state.
+
+4. **Sharing finishes that balance permanently.** `prepareSharing` cancels common
+   variable occurrences and enumerates every balanced nonempty grid support.
+   Its substitution makes the selected pure equation equal modulo B for ALL
+   assignments of its parameters. Later substitutions preserve this equality.
+   Thus `scanBag`, which skips normalized-equal equations and fields, never
+   shares that frontier again. Fresh old-variable passthrough slots do not
+   reactivate a solved equation. A zero-sided grid sends every active variable
+   to empty and preserves all inactive variables.
+
+5. **Local requirements do not start another sharing phase.** After sharing,
+   each retained definition has the form `sum =B [payload]`. Substitution and
+   flattening make each summand a variable or a singleton. ATOM creates EVERY
+   occurrence choice; its children require each variable to equal that singleton
+   or empty, and compare any explicit singletons through their free payloads.
+   ZERO similarly requires every summand to be empty. These equations are solved
+   by BIND, free payload processing, or NONEMPTY/CLASH; they do not require new
+   PURIFY or FINITE-SHARING. Repeated occurrences keep the same variable: assigning
+   it both singleton and empty closes that branch rather than dropping the case.
+   Requirements are prepended; `scanBag` processes the first unresolved one.
+   Solved requirements stay normalized-equal under all later substitutions.
+
+6. **Every unresolved frontier has an applicable step.** At a bag sort the only
+   heads are a variable, empty, singleton, and union. Variable binding or identity
+   is handled by `choose`; a self-containing union is a balance, not free OCCURS.
+   Singleton/singleton equations expose free payload equations. Singleton/empty
+   closes by NONEMPTY. Union/singleton uses ATOM, union/empty uses ZERO, and the
+   remaining union balances use preparation/sharing. A union already equal to
+   its other side is skipped. This exhausts the contract's constructor shapes.
+
+These observations give a finite hierarchical schedule. Partition a branch at
+non-bag BIND steps; there are finitely many such partitions. Within a partition,
+there are finitely many original frontiers. Each selected frontier has finite
+preparation, at most one sharing step, and finite local requirement processing.
+Bag BIND decreases the current finite scope between expansions; ATOM/ZERO adds
+no variables. Every branching factor is finite. Hence the complete tree is
+finite, even though the retained list and fresh bag scopes can grow.
+
+Each completed frontier is preserved permanently under substitution. At a live
+terminal state all equations normalize to identities, and the composed original
+image vector is a symbolic unifier of the original problem. Completeness of the
+SUPPLIED answer family gives a factor for that vector; the exhaustive matcher
+of Appendix A.4.1 finds it. Checked early COVER may stop sooner. If the family is
+empty, no such live terminal state can exist; all branches must close by proved
+contradictions. Thus retained storage changes the evidence representation, not
+the complete fallback of Theorem A.4.3.
+
+The argument assumes unbounded execution of the finite enumerations, a correct
+typed signature, and the stated stratification. Resource exhaustion is failure
+to obtain a certificate, never a contradiction certificate. It does not assert
+that arbitrary finite inputs fit the prototype's safety caps. The finite
+conditional EARLY-COVER attempts described in Section 6 are now implemented;
+stronger shortcut strategies remain optional. Neither is a prerequisite for
+this fallback argument.
+
+### A.4 Factor search and the answer-guided guarantee
+
+#### Lemma A.4.1 — Complete finite whole-vector matching
+
+For fixed finite substitutions `θ : X ⇒ Γ` and `σ : X ⇒ Λ`, one can decide
+whether a factor `β : Λ ⇒ Γ` satisfies:
+
+```text
+θ(x) =B σ(x)β  for every x in X.
+```
+
+Rename contexts apart. Treat variables of `Γ` as fresh rigid symbols of their
+sorts, including bag-sort symbols; only parameters of `Λ` are assignable.
+Match the entire vector with one substitution environment.
+
+At free constructors, match heads and recurse. At bag occurrences, flatten the
+finite rigid subject. Every occurring bag-pattern variable must receive a subbag
+of such a subject, including possibly empty. There are finitely many subbags,
+including their possible multiplicities. Enumerate assignments, reconcile all
+repeated occurrences and all vector fields, and check the resulting equalities.
+Use canonical subbag representatives, not infinitely many raw parenthesizations.
+Non-bag pattern variables match corresponding finite normalized subject subterms,
+including configuration subterms; payload terms themselves use only free heads.
+Every pattern parameter occurs somewhere in the vector after unused parameters
+are removed.
+
+This enumeration is finite and includes every possible factor: the nonnegative
+bag multiplicities do not allow an assigned contribution outside the subject
+to disappear. Free constructors similarly cannot hide extra terms. Equational
+normalization checks each candidate, including unit collapse and repetitions.
+
+Native Maude matching can propose the factor first. A bounded matcher that finds
+none does not justify failure. The abstract guarantee uses the complete finite
+matcher above as fallback; it is not conditional on an external process behaving
+correctly or returning within a particular timeout.
+
+##### Executable matching invariant
+
+The producer implements this fallback with `allSorted`, `allArgs`, and `bagMatch`.
+These match a **proposed-answer pattern** against the **rigid current image**;
+they do not unify the two sides or instantiate current branch variables.
+One partial parameter environment is threaded through the whole vector.
+Its invariant is that an assigned parameter always denotes the same normalized
+term in the current scope, including at repeated occurrences and other fields.
+
+The complete cases are:
+
+- A non-bag pattern variable receives the normalized subject term. A repeated
+  occurrence must agree with its previous assignment.
+- A free constructor pattern matches only the same subject head. `allArgs`
+  recursively matches every corresponding field with the SAME environment;
+  this includes bag fields inside free configuration constructors.
+- An unassigned bag parameter receives each submultiset of the remaining finite
+  subject, INCLUDING the empty one. A repeated assigned parameter removes exactly
+  that multiset, with multiplicities, before matching the remaining pattern.
+- A singleton pattern tries every subject singleton with the same head, recursively
+  matches its free payload, and continues with that occurrence removed. A rigid
+  subject bag variable is not a singleton and cannot be assigned by the matcher.
+- Exhausting the pattern succeeds only when the subject is also exhausted.
+  All vector components must succeed under one environment. A candidate factor
+  is finally rechecked by normalization of every original input image.
+
+For completeness, fix any factor extending the current partial environment.
+At a free head its corresponding fields must match. At an unassigned bag
+parameter its contribution is a submultiset of the remaining subject: with no
+idempotence or absorption, no extra contribution can disappear. The partition
+enumeration contains that submultiset. At a singleton some matching subject
+occurrence must exist; the occurrence enumeration includes it. These choices
+retain the fixed factor and reduce to smaller matching problems. Thus induction
+over the remaining pattern occurrences and fields yields a successful branch.
+Assignments can be replaced by their canonical normal forms without changing
+the factor modulo B.
+
+For finiteness, each bag has finitely many occurrence subsets. Recursive matching
+consumes a pattern occurrence or descends to strict constructor fields; stored
+assignments are only inspected/removed, not expanded into new pattern problems.
+The finite lists of alternatives are combined across fields, not truncated.
+There is no fixed arity, coefficient, or matcher-depth cutoff in this procedure.
+This is an implementation-level informal argument, not a Lean search theorem.
+
+Every answer parameter must occur in its image vector. The wrapper rejects
+unused parameters instead of silently removing them from an already-fixed Σ:
+doing the latter can change existential semantics when a parameter sort is empty.
+Upstream normalization must remove them BEFORE fixing the certification goal.
+Likewise, a process timeout is a failure to obtain evidence, never a proof that
+there is no factor or unifier. Runtime safety caps do not provide a universal
+bounded-time success guarantee.
+
+#### Lemma A.4.2 — Finite equality evidence
+
+If two open terms are equal modulo `B`, their finite normalized constructor
+forms agree. Flattening, reordering, and removing units can be accompanied by
+finite congruence/ACU equality traces. Thus factor matches and proposed-answer
+soundness can be witnessed by finite checked equality data, not just Booleans.
+
+#### Theorem A.4.3 — Search success for a correct proposed set
+
+Assume the contract, finite `E₀`, and finite `Σ` with `Sound(Σ)` and
+`Complete(Σ)`. The following reconstruction procedure terminates successfully:
+
+`Σ` is supplied BEFORE this procedure starts. None of the steps below calls
+native `unify` to obtain it. The internal reference family `Θ` is coverage
+evidence for the supplied `Σ`, not a replacement answer set returned to Lean.
+
+1. Construct checked equality traces establishing each proposed answer's soundness.
+2. Obtain the finite reference derivation/list `Θ` by Appendix A.3.
+3. For each `θ in Θ`, find a factor through some `σ in Σ` by Lemma A.4.1, and
+   construct its equality evidence by Lemma A.4.2.
+4. Combine reference completeness, the checked factors, and proposed soundness.
+
+Proof: soundness traces exist by the premise and Lemma A.4.2. By Theorem A.3.3 each
+`θ` is a symbolic unifier. The definition of `Complete(Σ)` therefore supplies a
+factor through some answer. Complete matching finds one, and equality evidence
+exists. There are finitely many reference members and proposed answers, and all
+the searches just specified terminate. Aggregation yields the exact certificate.
+
+If `Σ=[]`, its completeness implies that no reference leaf can be a symbolic
+unifier; hence the exhaustive reference derivation has only dead branches.
+Aggregation proves that the original problem has no solution.
+
+The proof does not say “the reference and Maude answer lists look the same.”
+Their lengths, orderings, parameter counts, and redundant families may differ.
+Checked factorization of whole vectors is what relates them.
+
+This baseline reconstructs a complete reference family before comparing answers.
+Native proposals guide the factor search, but do not by themselves reduce the
+reference unification work. The search-level acceleration is the optional
+early-closure extension in Section 6, not this baseline alone.
+
+#### Theorem A.4.4 — Accepted-certificate correctness (formerly Theorem 8.4)
+
+Any well-checked reference derivation, factor list, and soundness traces establish
+the native exactness proposition in Section 2, irrespective of the generator
+that supplied them.
+
+Proof: exact rule replacements establish reference completeness for native
+valuations; factor equalities transport each reference witness into a proposed
+answer witness; soundness traces give the reverse implication. Constructor
+congruence preserves equations under componentwise modulo equality.
+
+This theorem does NOT assume native Maude's completeness or soundness. Incorrect
+proposals can cause reconstruction to fail but cannot make a valid checker prove
+a false proposition. The search-success theorem is an external guarantee about
+correct inputs, not an axiom used when checking an individual certificate.
+
+### A.5 Is formalizing the search guarantee easy?
 
 **No—not end to end. It is plausible and modular, but substantial proof work.**
 
@@ -1553,318 +2663,3 @@ An informal proof of the search guarantee is acceptable as an initial technical
 report result, with Lean-checkable certificates providing a separate guarantee
 for successful runs. Claiming the search guarantee itself is proved in Lean must
 wait until the algorithm and all component proofs are actually completed.
-
-### 12.3 Design verdict and next gate
-
-Under the stated one-bag stratified contract, the argument above gives a credible
-finite complete calculus and a conditional reconstruction-success argument. Its
-reasoning does not depend on variable-linearity restrictions or finitely many
-hand-picked examples. It is not a proof of general mixed-theory combination, an
-efficiency result, or a formal verification of the implementation. The prototype
-implements the finite fallback, with the retained-storage audit in §7.4 and
-independently kernel-checked evidence for successful runs.
-
-The remaining gates are formalizing the search/control guarantee if desired,
-strengthening the finite conditional EARLY-COVER attempts, and extending the
-modeling contract with a separate combination argument. The prototype's safety
-timeouts do not replace the finite complete schedule or justify contradiction.
-Completing every Lean search meta-theorem before using the scientific prototype
-is optional; silently replacing the strategy by bounded case-by-case search is
-not. Narrowing integration is outside this document's present implementation.
-
-## 13. References and attribution boundaries
-
-- Alexandre Boudet and Evelyne Contejean, **“Syntactic” AC-Unification** (1994),
-  particularly Theorem 2 and the occurrence-sharing treatment of nonlinear
-  equations. This is the finite-support foundation; the stratified ACU strategy,
-  singleton processing, and answer-guided reconstruction theorem in this note
-  are an adaptation, not claims directly quoted from that paper.
-  [Author-hosted paper](https://www.lri.fr/~contejea/publis/1994ccl/main.pdf).
-- Alberto Martelli and Ugo Montanari, **An Efficient Unification Algorithm**
-  (1982), Section 2, for free first-order equation transformations. Applying free
-  rules while postponing the ACU carrier requires the stratification argument
-  explicitly supplied in this note.
-  [Paper](https://courses.grainger.illinois.edu/cs576/sp2017/readings/01-jan-19/martelli-montanari-unif.pdf).
-- **Maude Manual**, Chapter 13 and matching commands, for the native unification
-  and matching interfaces. Native completeness requires a supported theory and
-  no answer truncation. A returned answer list is still checked rather than
-  trusted, and the theorem here is stated by the list's mathematical properties.
-  [Unification](https://maude.cs.illinois.edu/manual/maude-manualch13.html),
-  [Matching commands](https://maude.cs.illinois.edu/manual/maude-manualap1.html).
-
-The document does not establish novelty of the underlying unification algorithm.
-Potential research contributions are the semantic registration/replay framework,
-checked answer-guided certification, and its integration with the existing Lean
-semantics; those require implementation and evaluation beyond this design note.
-
-## 14. Related work, rule provenance, and differences
-
-### 14.1 How to read the attribution
-
-The calculus is a combination and adaptation of established ideas, not a claim
-to have invented ACU unification. The following categories distinguish its
-provenance:
-
-- **Reused:** a standard mathematical rule or definition, restated with sorted
-  contexts and our structural relation.
-- **Inspired/adapted:** a mechanism based on a cited result, but changed for this
-  contract, semantics, or certification purpose.
-- **Derived:** a consequence of the free-bag semantics proved in this document;
-  no particular paper is claimed as its exclusive source. This does not imply
-  that the mathematical fact is new.
-- **Project-specific proposal:** a proposed organization or certificate interface,
-  whose novelty has not been established by a comprehensive literature review.
-
-“Reused” concerns mathematical rule patterns, not a claim that source code or
-verbatim text was copied. This is a provenance account of the proposed calculus,
-not a licensing audit of every existing prototype implementation.
-
-### 14.2 Rule-by-rule provenance
-
-| Rule or mechanism in this document | Provenance | Adaptation and limits of the claim |
-| --- | --- | --- |
-| `DELETE`, `ORIENT`, `DECOMPOSE`, `CLASH`, `BIND` (§4.1) | Reused free first-order unification transformations; Martelli–Montanari, §2. | Sorted contexts, modulo equality, and postponed bag equations are our setting. Raw free-head clash is not used on ACU roots. These are not new rules. |
-| `FREE-OCCURS` (§4.1) | Reused free occurs checking, with an equational guard. | Its use is restricted to free-constructor cycles. Stratification justifies the mandatory non-bag phase. Ordinary syntactic occurs checking is deliberately not used for bag cycles. |
-| Equality evidence and `NORMALIZE` (§4.2, §8.2) | Reused equational logic and standard ACU normalization. | Reconstructed evidence targets the registered relation. Neither normalization nor proof-producing equality checking is claimed novel; certified AC reasoning already exists (§14.4). |
-| `CANCEL` (§4.2) | Standard flattened AC cancellation; it already appears in Stickel's AC algorithm. | Our justification uses the constructor-generated free bag algebra, including empty remainders. It is not valid merely from assuming an arbitrary ACU interpretation. |
-| `MULTIPLICITY-CANCEL` (§9) | Derived from equality of generator multiplicities in a free commutative monoid. | Used as a general checked shortcut; no claim that the algebraic fact is new or that it is the cited papers' specific trace rule. |
-| `PURIFY` (§4.2) | Inspired by standard variable abstraction/purification in equational unification and theory combination. | We name singleton terms and retain their equations. We do not import the entire Baader–Schulz combination algorithm or its general combination theorem (§14.5). |
-| `FINITE-SHARING` (§4.3) | Adapted from Boudet–Contejean's finite-support theorem and occurrence-sharing treatment of nonlinear AC equations. | We collect all balanced supports into one parameterized pure-balance family, allow empty parameters, and later enforce singleton requirements. This is not a literal copy of their mutation/merge/pruning algorithm. |
-| Minimal decomposition and opposite-pair bound (§5.2–§5.3) | Standard nonnegative-balance arguments; the pair bound is part of the reasoning behind Boudet–Contejean's Theorem 2. | Internal completeness arguments, not a separate runtime Diophantine solver or per-problem arithmetic certificate. No novelty claim. |
-| Rectangle rounding (§5.4) | Our explicit proof organization for the required finite-support property. | It makes repeated occurrence degrees explicit. We claim neither a new finite-support theorem nor priority for this matrix argument. |
-| `ATOM-MANY`, `ATOM-ONE`, `ATOM-CHOOSE`, `ZERO` (§4.4) | Derived from free-bag multiplicities and singleton injectivity. | The exact branching formulation is tailored to the three-constructor fragment. These are elementary ACU consequences, not rules taken from an order-sorted membership calculus. |
-| Shared substitution propagation and composition (§4.1, §7) | Reused substitution composition and complete-unifier-set reasoning. | The finite free/bag/payload schedule is justified by our stratification, not a claim about arbitrary interacting theories. |
-| `COVER` and whole-vector factorization (§4.5, §8.1) | Reused instantiation preorder and the standard definition of a complete set of unifiers. | We make the factor a checked certificate object on every original input. Comparing complete vectors preserves correlations; the mathematical factorization principle is not new. |
-| `EARLY-COVER` (§9) | Project-specific proposed control, built from standard factorization and checked consequence derivations. | It can avoid expanding a branch when coverage is already proved. This is not a claimed new general subsumption theorem, nor a guarantee that native answers always accelerate reconstruction. |
-| Proposed-answer soundness plus coverage aggregation (§8.4) | Reused logical inclusion in both directions; architecturally inspired by skeptical external-solver certification, notably SMTCoq. | The target is exactness of a symbolic unifier set over registered constructor semantics, rather than a SAT/SMT result. The native solver remains outside the trust boundary. |
-| Exhaustive sharing/atom dumps (§11) | Standard explicit case-tree certification, organized for the proposed calculus. | Both branches or checked alternatives must be accounted for. A positive native computation trace alone is not completeness evidence. The wire format is still future work. |
-
-### 14.3 Classical AC unification and the nonlinear sharing foundation
-
-Stickel's **A Complete Unification Algorithm for Associative-Commutative
-Functions** (1975) already flattens AC terms and removes common arguments before
-solving. It also gives the substitution/generalization viewpoint. These are
-classical foundations, not contributions of our framework.
-[Original proceedings paper](https://www.ijcai.org/Proceedings/75/Papers/011.pdf).
-
-Boudet and Contejean's **“Syntactic” AC-Unification** (1994) is the closest source
-for our nonlinear sharing mechanism. Their Theorem 2 represents minimal balance
-solutions by subsets of occurrence-pair generators. Their subsequent algorithm
-uses linearization, reconciliation of repeated occurrences, and a restriction on
-substitutions of introduced variables to preserve completeness while controlling
-search. [Author-hosted paper](https://www.lri.fr/~contejea/publis/1994ccl/main.pdf).
-
-Our changes are explicit:
-
-1. The initial model contract is narrower: one stratified bag component, not a
-   general mixed AC signature.
-2. It is ACU: parameters may be empty. Thus the pure balance can use all balanced
-   supports simultaneously; there is no obligation to choose only nonempty
-   contributions to every input variable.
-3. Explicit singleton requirements are discharged separately by exhaustive
-   cardinality cases and free payload unification.
-4. A complete finite reference family is used to certify an independently
-   proposed answer set, which may have a different representation.
-
-The occurrence grid is still an arithmetic balance construction in mathematical
-substance. Saying “no explicit Diophantine solver” is a statement about the search
-and certificate interface, not a claim to have removed the arithmetic foundation
-or its worst-case combinatorial cost. We do not claim that enumerating all
-supports improves on optimized classical AC/ACU unification.
-
-### 14.4 Existing certified AC algorithms and proof-assistant tactics
-
-Ayala-Rincón, Fernández, Ferreira Silva, and Nantes Sobrinho's **A Certified
-Algorithm for AC-Unification** (FSCD 2022) formalizes an adjusted Stickel algorithm
-in PVS and proves termination, soundness, and completeness. Its extended account,
-**Certified First-Order AC-Unification and Applications**, supplies further details
-and revises a completeness-proof hypothesis. These are important precedents: we
-must not claim that formal certification of AC unification is new.
-[FSCD paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.FSCD.2022.8),
-[extended account](https://www3.risc.jku.at/publications/download/risc_7111/main.pdf).
-
-The difference is the intended artifact. Those works certify an AC-unification
-algorithm itself. Our target is a reusable Lean replay interface for certifying
-the exact answer set proposed by a separate native engine, against registered
-user constructor semantics. Our initial contract is deliberately restricted and
-includes a unit law; their AC correctness results do not automatically establish
-this ACU replay theorem. Conversely, our informal argument is not a stronger
-result than their completed formal verification. Their proof rules and PVS
-development have not been ported into our prototype.
-
-Contejean's **A Certified AC Matching Algorithm** (RTA 2004) proves inference
-rules for free/C/AC matching sound, complete, and decreasing in Coq, with a
-corresponding CiME algorithm. This directly supports the feasibility of a checked
-matching component. It does not, by itself, prove completeness of an ACU unifier
-set or the composition argument of §7. Its rules are related work, not the rules
-already implemented by our generic matching fallback.
-[Author's abstract](https://www.lri.fr/~contejea/publis/2004rta/abstract.html).
-
-Braibant and Pous's **Tactics for Reasoning modulo AC in Coq** (CPP 2011) combines
-a certified equality decision procedure with untrusted matching. It supports
-units, multiple operations, and user-defined equivalence relations. This is a
-particularly close precedent for the acceptance principle used in `COVER`:
-a matcher proposes a substitution, and checked equality validates it.
-[Paper](https://arxiv.org/abs/1106.4448).
-
-The additional obligation in our work is exhaustive coverage of ALL unifiers.
-Validating one rewriting match requires soundness of that match, not a proof that
-the matcher returned every possibility. Hence our reference derivation and
-coverage factors cannot be replaced by equality checks on proposed unifiers.
-The earlier work also shows that registration and reasoning under an equivalence
-relation are not new in themselves. Our free-constructor contract is needed for
-exhaustiveness, cancellation, and contradiction rules; successful equality proofs
-can work under much more general registered associative/commutative operations.
-
-### 14.5 Purification and combination of equational theories
-
-Baader and Schulz's **Unification in the Union of Disjoint Equational Theories:
-Combining Decision Procedures** (1991 technical report; 1996 journal version)
-studies general combination under component-theory requirements, including
-unification with constant restrictions. This is a standard background for
-purification and for the eventual multiple-theory extension.
-[Author-affiliated report entry](https://iccl.inf.tu-dresden.de/web/LATPub24/en),
-[journal DOI](https://doi.org/10.1006/jsco.1996.0009).
-
-Our phase ordering is a special-purpose simplification justified by the sort
-dependency contract. It is not a newly invented general combination method:
-no payload equation can lead back to a bag equation, so we avoid the general
-cross-component interaction problem. We do not claim to implement that paper's
-variable-identification, constant-restriction, or full combination machinery.
-Allowing bags inside payloads, or multiple interacting structural components,
-requires revisiting this boundary rather than citing general combination as if
-its hypotheses and proof had already been instantiated.
-
-### 14.6 The supplied order-sorted paper is a different wrapper
-
-The local `ACU-certification.pdf` is Hendrix and Meseguer's **Order-sorted
-Equational Unification Revisited** (journal version, 2012). It wraps an unsorted
-equational unification engine with rule-based sort-constraint processing. The
-author-hosted version presents Intersection, Propagation, and Subsumption rules
-for membership constraints and describes Maude/CiME integration.
-[Author-hosted version](https://maude.cs.illinois.edu/papers/pdf/hendrix-meseguer-os-unify.pdf),
-[journal DOI](https://doi.org/10.1016/j.entcs.2012.11.010).
-
-It inspired the general external-engine-plus-rule-based-wrapper direction, but
-**none of those three membership rules is the FINITE-SHARING or atom calculus
-in this document**. Our contexts are many-sorted with fixed tags; there are no
-subsort choices or membership refinements. More importantly, repairing the sort
-information of an external unifier is different from proving that its proposed
-unifier set exhausts all solutions. The paper is not an existing Lean-style
-soundness/completeness checker for arbitrary external ACU answer sets.
-
-### 14.7 SMTCoq: the trust architecture, not the ACU proof rules
-
-Armand et al.'s **A Modular Integration of SAT/SMT Solvers to Coq through Proof
-Witnesses** (CPP 2011) describes a modular certified checker for external solver
-witnesses. It is the main architectural inspiration for separating expensive
-search from trusted acceptance.
-[Author-hosted paper](https://www-sop.inria.fr/marelle/Laurent.Thery/pub1.pdf).
-
-Our proposed pipeline follows that skeptical principle:
-
-```text
-native engine proposes answers
-→ untrusted certification search produces evidence
-→ Lean validates evidence against the original semantic proposition.
-```
-
-The differences matter. Native Maude unifier output does not already include the
-required completeness evidence. We must add a coverage derivation and factors,
-not just parse the answers. The target is a finite symbolic representation of an
-entire solution set, not solely a satisfiable/unsatisfiable formula. Also, our
-prototype uses finite typed proof data and semantic replay; choosing a fully
-reflective Boolean checker versus proof-term reconstruction remains a design
-decision. SMTCoq's Coq checker is not code or an ACU calculus we have copied.
-
-### 14.8 Proof-relevant unification: evidence without importing its metatheory
-
-Cockx's **Dependent Pattern Matching and Proof-Relevant Unification** (2017),
-Chapter 3, is related through evidence-producing rule transformations and their
-composition. Its applications and correctness requirements concern dependent
-pattern matching. E-unification appears as a possible extension, not a supplied
-ACU completeness algorithm.
-[Thesis](https://jesper.sikanda.be/files/thesis-final-digital.pdf).
-
-We adopt neither its dependent-telescope infrastructure nor its stronger
-requirements on proof-relevant equivalences. Our goal is propositional equality
-of solution sets, with existential factor witnesses and possibly overlapping
-answer families. We do not need invertible witnesses between all proof objects.
-The connection is methodological; it is not the source of FINITE-SHARING and
-does not discharge our search guarantee.
-
-### 14.9 Disunification and complement methods: considered, not adopted
-
-An alternative completeness formulation asks whether a solution outside every
-proposed answer exists:
-
-```text
-exists ρ,
-  E₀ρ holds
-  and, for every i, there is NO β with ρ =B σᵢβ.
-```
-
-Refuting this formula would establish completeness. However, negating family
-membership introduces quantification over substitution parameters. It is not
-equivalent to adding a finite list of ordinary term disequalities with the
-parameters left free.
-
-Fernández's **AC Complement Problems: Satisfiability and Negation Elimination**
-(1996) studies ground-instance complements modulo AC, with a rule-based
-negation-elimination result for linear complement problems and additional
-restricted nonlinear cases. This is directly related to that alternative
-formulation, but its hypotheses do not yield our arbitrary-repetition ACU
-coverage theorem automatically.
-[Author's publication entry](https://nms.kcl.ac.uk/maribel.fernandez/allpapers.html).
-
-Comon's **Unification et disunification : théorie et applications** (1988) is
-broader background on equational-formula and disunification methods; it is not
-claimed as the source of any named rule adopted here.
-[Thesis record](https://theses.hal.science/tel-00331263v1).
-
-No disequality, complement, or quantifier-elimination rule from those works is
-currently part of this calculus. Positive complete reference families and
-checked factorization establish coverage instead. We therefore do not claim
-that a candidate answer set makes general disunification easy, nor that this
-document implements a targeted complement/refutation algorithm.
-
-### 14.10 Generalized rewrite theories: application motivation only
-
-Meseguer's **Generalized Rewrite Theories and Coherence Completion** provides
-the symbolic-execution background for the broader narrowing project. It studies
-rewrite theories with background constraints and coherence/executability
-conditions, rather than this unconstrained unifier-set replay problem.
-[Paper](https://www.ideals.illinois.edu/items/105518/bitstreams/334027/data.pdf).
-
-Its role here is motivation for a reliable structural unification component
-inside later symbolic reasoning. No coherence-completion, constrained-narrowing,
-or feasibility rule from that work is adopted in the present certificate
-calculus. Neither its application results nor its executability assumptions
-replace our coverage argument.
-
-### 14.11 What can responsibly be claimed as different
-
-The intended project-specific contribution is the combination of:
-
-1. Registration of ordinary many-sorted user constructor datatypes, with checked
-   structural semantics and no nontrivial per-model certification proof.
-2. Untrusted native proposals plus rule-based, whole-family coverage certificates
-   for a supported ACU modeling contract.
-3. A rule-dump/replay interface whose accepted proposition states soundness and
-   completeness of the proposed set against the existing native semantics.
-4. Optional answer-guided early closure, backed by a finite complete fallback
-   whose success argument does not depend on bounded experiments.
-
-These are intended integration/certification contributions, not established
-priority claims. General substitution composition, CSU factorization, skeptical
-checking, proof-producing AC equality, and the finite-support foundation all have
-precedents. A publication must compare the completed pipeline with the certified
-AC algorithms and matching tactics above, not only with raw hand proofs.
-
-In particular, we must not claim “the first certified AC/ACU unification system,”
-“a new complete ACU algorithm,” or “native answers always make completeness
-checking cheaper” on the basis of this note. The current defensible claim is an
-explicit restricted calculus and an informal conditional reconstruction-success
-argument; practical automatic replay, registration coverage, and performance
-advantages remain implementation/evaluation obligations. Deferring the formal
-Lean search-success proof does not change that distinction.
