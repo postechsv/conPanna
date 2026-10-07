@@ -101,6 +101,75 @@ class InputTests(unittest.TestCase):
         self.assertRaisesRegex(ValueError, "natural", compiler.validate_request, self.valid)
 
 class ProducerTests(unittest.TestCase):
+    def test_fast_normal_forms_agree_with_proof_normalization(self):
+        import random
+        rng = random.Random(47)
+        leaves = [var(0), var(1), app(13), app(14, app(12, app(10))),
+            app(14, app(12, app(11, app(10))))]
+        def bag(depth):
+            return rng.choice(leaves) if depth == 0 or rng.randrange(3) == 0 else plus(bag(depth - 1), bag(depth - 1))
+        hs = compiler.maude_heads(SIGNATURE)
+        commands = ["mod NORMALIZATION-CHECK is protecting CERTIFICATION-PRODUCER .",
+            "op erased : Nat Term Heads -> Term . vars S : Nat . vars A B : Term .",
+            "vars HS : Heads . vars P : String .",
+            "ceq erased(S, A, HS) = B if normal(B, P) := norm(S, A, HS) . endm"]
+        for _ in range(32):
+            a = bag(2)
+            for sort, term in [(2, a), (3, app(16, a, bag(2)))]:
+                encoded = compiler.maude_term(term)
+                commands.append(f"red in NORMALIZATION-CHECK : normalized({sort},{encoded},{hs}) == erased({sort},{encoded},{hs}) .")
+        output = compiler.maude_run(ROOT, "\n".join(commands))
+        self.assertEqual(output.count("result Bool: true"), 64)
+        self.assertNotIn("result Bool: false", output)
+
+    def test_answer_guided_witnesses_close_by_existing_mutate(self):
+        p, q, r, s = (var(i) for i in range(4))
+        rq = request([2] * 4, [equation(plus(p, q), plus(r, s))],
+            [answer([2] * 4, plus(p, q), plus(r, s), plus(p, r), plus(q, s))])
+        trace = compiler.certify(ROOT, rq)
+        self.assertEqual(trace["proof"]["rule"], "mutate")
+        child = trace["proof"]["child"]
+        self.assertEqual(child["rule"], "cover")
+        self.assertEqual(child["scope"], [2] * 8)
+        self.assertEqual(child["beta"], [p, q, r, s])
+        bundle = compiler.compile_bundle(trace)
+        self.assertTrue(any(step.get("rule") == "mutate_successor" for step in bundle["steps"]))
+        # Same equation and a correlated but incomplete answer must NOT close
+        # the FINITE witness attempt. Do not run an expensive doomed fallback.
+        rq["proposed"] = [answer([2], p, p, p, p)]
+        command = "red in CERTIFICATION-PRODUCER : tryWitness(" + compiler.maude_context(rq["scope"]) + "," + \
+            compiler.maude_terms([p, q, r, s]) + "," + compiler.maude_equations(rq["eqs"]) + "," + \
+            compiler.maude_answers(rq["proposed"]) + "," + compiler.maude_context(rq["scope"]) + "," + \
+            compiler.maude_heads(rq["signature"]) + "," + compiler.maude_term(plus(p, q)) + "," + \
+            compiler.maude_term(plus(r, s)) + ",hypText(0)) ."
+        self.assertIn("result CoverChoice: noCover", compiler.maude_run(ROOT, command))
+
+    def test_untargeted_receives_no_answers_and_generates_its_own_family(self):
+        rq = request([2, 2], [equation(plus(var(0), var(0)), plus(var(1), var(1)))], [])
+        trace = compiler.untargeted_unify(ROOT, rq)
+        self.assertEqual(trace["proof"]["rule"], "sharing")
+        self.assertEqual(len(trace["generated"]), 1)
+        self.assertTrue(compiler.compile_bundle(trace)["steps"])
+        rq["proposed"] = [answer([2], var(0), var(0))]
+        self.assertRaisesRegex(ValueError, "NO supplied", compiler.untargeted_unify, ROOT, rq)
+
+    def test_untargeted_numbers_distinct_singleton_leaves(self):
+        a = app(14, app(12, var(0)))
+        trace = compiler.untargeted_unify(ROOT,
+            request([0, 2, 2], [equation(plus(var(1), var(2)), a)], []))
+        self.assertEqual(len(trace["generated"]), 2)
+        leaves = []
+        def visit(node):
+            if node["rule"] == "cover":
+                leaves.append(node["index"])
+            if "child" in node:
+                visit(node["child"])
+            for child in node.get("children", []):
+                visit(child)
+        visit(trace["proof"])
+        self.assertEqual(leaves, [0, 1])
+        self.assertTrue(compiler.compile_bundle(trace)["steps"])
+
     def test_bag_cycle_is_covered_by_cancellation_not_free_occurs(self):
         trace = compiler.certify(ROOT, request([2, 2],
             [equation(var(0), plus(var(0), var(1)))],

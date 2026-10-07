@@ -1028,6 +1028,45 @@ There is no general claim that proposed answers avoid reconstructing a complete
 reference derivation in the worst case. They provide genuine checked early
 closure opportunities; a uniform speedup is a separate question.
 
+#### Answer-guided witness introduction
+
+After ordinary and conditional COVER fail, the producer may try ONE existing
+MUTATE step on the selected union balance `A₁+A₂ =B B₁+B₂`:
+
+```text
+introduce p,q,r,t with
+  A₁ =B p+q, A₂ =B r+t, B₁ =B p+r, B₂ =B q+t;
+retain the lifted original equations and EVERY original input image;
+try conditional COVER of this entire extended state by the SUPPLIED answers.
+```
+
+MUTATE already has a proved semantic completeness rule; its four-piece common
+refinement introduces genuine witnesses rather than guessing a constructor term
+for a witness that may not exist in the current scope. The attempt is emitted as
+MUTATE followed by COVER ONLY if the latter succeeds. Otherwise the temporary
+state is discarded and the original exhaustive strategy resumes. Coverage in
+the extended state still uses ONE shared substitution for the whole image
+vector, so correlations are not lost. Candidate soundness remains independent.
+
+A cheap scheduling hint limits this particular attempt to supplied families
+containing an answer with at least four bag parameters. This is an OPTIONAL
+shortcut policy, not a modeling restriction or a premise of the fallback's
+completeness argument. Local coverage in the extended state does not recursively
+attempt further mutation, so the additional attempt is finite.
+
+For `P+Q=R+S`, the supplied answer
+`P=p+q, Q=r+t, R=p+r, S=q+t` now permits MUTATE -> COVER using four pieces,
+instead of the fallback's exhaustive 2-by-2 support table and fifteen generators.
+This does not remove the need for sharing in `2P=3Q`: that example still uses
+the complete fallback. No claim is made that all witness-producing shortcuts
+are implemented, or that this policy always speeds up search.
+
+The producer separates data-only normal-form computation from equality-proof
+construction. Equality tests and matcher checks do not generate discarded proof
+strings; accepted equality evidence still uses the same explicit ACU rules.
+This shared implementation improvement applies to BOTH targeted and untargeted
+control, not just the targeted benchmark.
+
 ### 9.2 Concrete efficiency benefit and its limits
 
 The target is a coverage proof, not rediscovery of the proposed answers. Once
@@ -1036,6 +1075,27 @@ answer, that branch needs no further unification splits. This can save both
 search and the corresponding exhaustive certificate subtree. Merely prioritizing
 the choices suggested by an answer would not suffice: unexplored alternatives
 would still need coverage evidence.
+
+The empirical comparison command is `python3 -B certification_compiler.py --compare`.
+Its targeted run receives `(E₀,B,Σ)`. Its untargeted diagnostic entry point receives
+ONLY `(E₀,B)`: it disables answer matching and all answer-guided shortcuts, uses
+the SAME free/ATOM/ZERO/PURIFY/FINITE-SHARING rules, and collects solved leaves as
+its own reference answer family. Thus this is not merely an ablation of conditional
+coverage with answers still available. It is NOT native Maude unification; native
+answer acquisition is upstream and excluded from the comparison.
+
+The untargeted family is deliberately not minimized: redundant support parameters
+and unused passthrough slots are retained. Each mode's independently fixed Lean
+goal checks exactness of its OWN family for the same equations. Neither family
+is required to have identical syntax. Untargeted soundness-evidence rendering is
+a separate measured phase after the unifier computation; this distinguishes
+search failure from evidence/checker failure. Producer rewrite counts, proof-DAG
+nodes, and Lean checking costs are separate quantities. Three producer runs give
+median process timings; rewrite counts are deterministic. Resource failures are
+reported with their phase and are never treated as contradictions or as evidence
+of theoretical incompleteness. No uniform speedup or polynomial complexity claim
+follows from these small fixtures. Measurements belong in the handoff/report,
+not in the mathematical argument.
 
 For example, consider `kX =B kY`, where `k > 0` counts repeated bag-variable
 occurrences. Native unification proposes `X:=Z, Y:=Z`. Choose `β(Z):=X`;

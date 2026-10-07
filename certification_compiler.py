@@ -187,6 +187,16 @@ def nested_complete(p):
         return "(.bind (sig := Sig) " + common + "(Δ := " + scope(p["after"]) + ") " + removal + " " + replacement + " " + derives(p["premise"], p["scope"]) + " " + child + ")"
     if p["rule"] == "cover":
         return "(.cover (sig := Sig) " + common + fin(p["index"]) + " " + terms(p["beta"]) + " " + derives_args(p["derived"], p["scope"]) + ")"
+    if p["rule"] == "mutate":
+        if len(p["terms"]) != 4:
+            raise ValueError("mutation requires exactly four terms")
+        parts = " ".join(term(x, p["scope"]) for x in p["terms"])
+        child = complete(p["child"])
+        if ACTIVE_COMPILER is not None:
+            lifted = "(lift4 (sig := Sig) (Γ := " + scope(p["scope"]) + ") (s := Tag.s" + number(p["sort"]) + "))"
+            expected = "(⟨Terms.subst " + images + " " + lifted + ", mutated (sig := Sig) Operator.acu " + parts + " " + eqs + "⟩ : ReplayState Sig " + scope(ACTIVE_COMPILER.inputs) + " " + scope([p["sort"]] * 4 + p["scope"]) + ")"
+            child = ACTIVE_COMPILER.successor(p["child"], expected, child, "mutate")
+        return "(.mutate (sig := Sig) " + common + "Operator.acu " + parts + " " + derives(p["premise"], p["scope"]) + " " + child + ")"
     if p["rule"] == "sharing":
         state = "(images := " + images + ") (eqs := " + eqs + ") " if "images" in p else ""
         child = complete(p["child"])
@@ -454,7 +464,8 @@ def compile_bundle(p):
     steps, body = compile_components(p)
     return {"format": "rule-bundle-v1", "steps": steps, "proof": body}
 
-def run_checked(command, *, cwd, input_text=None, lean=False, allow_stale=False, env=None):
+def run_checked(command, *, cwd, input_text=None, lean=False, allow_stale=False, env=None,
+                bounded_memory=False):
     """One child at a time. Never raise Lean limits to obtain a successful demo."""
     import subprocess
     import resource
@@ -463,7 +474,7 @@ def run_checked(command, *, cwd, input_text=None, lean=False, allow_stale=False,
     import time
     def limits():
         resource.setrlimit(resource.RLIMIT_CPU, (25, 25))
-        if lean:
+        if lean or bounded_memory:
             resource.setrlimit(resource.RLIMIT_DATA, (768 * 1024**2, 768 * 1024**2))
     started = time.monotonic()
     child = subprocess.Popen(command, cwd=cwd, text=True, stdin=subprocess.PIPE,
@@ -515,7 +526,7 @@ def maude_run(root, commands, *, source="certification.maude"):
         raise RuntimeError("Set CONPANNA_MAUDE or put maude on PATH")
     return run_checked([executable, "-no-banner", "-no-advise", "-no-wrap",
         str(root / source)], cwd=root,
-        input_text=commands + "\nquit\n")
+        input_text=commands + "\nquit\n", bounded_memory=True)
 
 def native_demo_answer(output):
     """Fixed DEMO grammar; unknown/multiple answers fail, never silently certify."""
@@ -651,7 +662,33 @@ def validate_request(request):
         if used != set(range(len(parameters))):
             raise ValueError("normalize unused answer parameters before fixing the semantic certificate goal")
 
-def certify(root, request):
+def producer_result(root, request, *, untargeted=False, metrics=None):
+    """Shared driver; the diagnostic untargeted entry point receives NO Sigma."""
+    import time
+    problem, answers = declaration(request["problem"]), declaration(request["answers"])
+    scope = request["scope"]
+    arguments = maude_heads(request.get("signature") or []) + "," + maude_context(scope) + "," + \
+        maude_terms([{"var": i} for i in range(len(scope))]) + "," + maude_equations(request["eqs"])
+    if untargeted:
+        command = "rew in CERTIFICATION-PRODUCER : unifyWithoutAnswers(" + arguments + ") ."
+    else:
+        command = "rew in CERTIFICATION-PRODUCER : certify(" + arguments + "," + maude_answers(request["proposed"]) + ") ."
+    start = time.monotonic()
+    emitted = maude_run(root, command)
+    elapsed = time.monotonic() - start
+    match = re.search(r'result State: result\(("(?:[^"\\]|\\.)*")\)', emitted)
+    if not match:
+        raise ValueError("certifier could not close the supplied answer family (unsupported or incorrect); no proof returned")
+    trace = json.loads(json.loads(match.group(1)))
+    trace.update(aggregate="system", problem=problem, answers=answers, signature=request.get("signature"))
+    if metrics is not None:
+        stats = re.search(r'rewrites: (\d+) in (\d+)ms cpu', emitted)
+        metrics.update(wall_ms=round(elapsed * 1000, 3),
+            rewrites=int(stats.group(1)) if stats else None,
+            maude_cpu_ms=int(stats.group(2)) if stats else None)
+    return trace
+
+def certify(root, request, *, metrics=None):
     """Fixed E/B/Sigma in; rule evidence out. No new answer or verifier process.
 
     The producer executes free, singleton/zero, purification, sharing, and
@@ -663,19 +700,167 @@ def certify(root, request):
     if request["aggregate"] != "system":
         raise ValueError("producer currently accepts equation systems")
     validate_request(request)
-    problem, answers = declaration(request["problem"]), declaration(request["answers"])
-    proposed = request["proposed"]
-    scope = request["scope"]
-    command = "rew in CERTIFICATION-PRODUCER : certify(" + maude_heads(request.get("signature") or []) + "," + maude_context(scope) + "," + \
-        maude_terms([{"var": i} for i in range(len(scope))]) + "," + \
-        maude_equations(request["eqs"]) + "," + maude_answers(proposed) + ") ."
+    return producer_result(root, request, metrics=metrics)
+
+def annotate_generated_sound(root, request, trace, *, metrics=None):
+    """No search: ask Maude to format equality evidence for the GENERATED CSU."""
+    import time
+    command = "rew in CERTIFICATION-PRODUCER : soundEvidence(" + maude_heads(request["signature"]) + "," + \
+        maude_equations(request["eqs"]) + "," + maude_answers(trace["generated"]) + ") ."
+    start = time.monotonic()
     emitted = maude_run(root, command)
     match = re.search(r'result State: result\(("(?:[^"\\]|\\.)*")\)', emitted)
     if not match:
-        raise ValueError("certifier could not close the supplied answer family (unsupported or incorrect); no proof returned")
-    trace = json.loads(json.loads(match.group(1)))
-    trace.update(aggregate="system", problem=problem, answers=answers, signature=request.get("signature"))
+        raise ValueError("generated unifier soundness evidence could not be emitted")
+    trace.update(json.loads(json.loads(match.group(1))))
+    if metrics is not None:
+        stats = re.search(r'rewrites: (\d+) in (\d+)ms cpu', emitted)
+        metrics.update(sound_wall_ms=round((time.monotonic() - start) * 1000, 3),
+            sound_rewrites=int(stats.group(1)) if stats else None,
+            sound_cpu_ms=int(stats.group(2)) if stats else None)
     return trace
+
+def untargeted_unify(root, request, *, metrics=None, with_sound=True):
+    """Diagnostic calculus baseline, NOT production certification or native unify.
+
+    Reject supplied answers instead of ignoring them silently. Maude runs the
+    SAME exhaustive rules, then collects its solved leaves as a redundant CSU.
+    Leaf numbering/output assembly is done in Maude, not Python proof search.
+    No answer is known until that search has finished. Generated scopes retain
+    unused passthrough variables: this comparison does not minimize its CSU.
+    with_sound=False returns reference data/completeness evidence ONLY; it is
+    not a checked exactness certificate until soundness is attached and checked.
+    """
+    if request["aggregate"] != "system" or request.get("proposed"):
+        raise ValueError("untargeted baseline requires a system with NO supplied answers")
+    validate_request(request)
+    trace = producer_result(root, request, untargeted=True, metrics=metrics)
+    return annotate_generated_sound(root, request, trace, metrics=metrics) if with_sound else trace
+
+def comparison_cases():
+    """Small empirical fixtures, NOT constructor-specific search heuristics.
+
+    Codes match the existing Bakery registered signature and are kernel-checked
+    against it below. Targeted Sigma is fixed here; baseline gets only E and B.
+    """
+    signature = [
+        {"id": i, "inputs": args, "output": sort, "role": role}
+        for i, args, sort, role in [
+            (0, [], 0, "free"), (1, [0], 0, "free"),
+            (2, [], 1, "free"), (3, [0], 1, "free"), (4, [0], 1, "free"),
+            (5, [], 2, "zero"), (6, [1], 2, "free"),
+            (7, [2, 2], 2, "add"), (8, [0, 0, 2], 3, "free")]]
+    v = lambda i: {"var": i}
+    app = lambda i, *args: {"app": i, "args": list(args)}
+    plus = lambda a, b: app(7, a, b)
+    def copies(k, a):
+        result = app(5)
+        for _ in range(k):
+            result = plus(a, result)
+        return result
+    def case(name, context, left, right, answers):
+        return name, {"aggregate": "system", "problem": "inputSystem", "answers": "inputAnswers",
+            "signature": signature, "scope": context,
+            "eqs": [{"sort": 2, "left": left, "right": right}], "proposed": answers}
+    def answer(context, *images):
+        return {"parameters": context, "images": list(images)}
+    yield case("2P = 2Q", [2, 2], copies(2, v(0)), copies(2, v(1)),
+        [answer([2], v(0), v(0))])
+    yield case("3P = 3Q", [2, 2], copies(3, v(0)), copies(3, v(1)),
+        [answer([2], v(0), v(0))])
+    atom = app(6, app(3, v(0)))
+    yield case("P + Q = [wait n]", [0, 2, 2], plus(v(1), v(2)), atom,
+        [answer([0], v(0), atom, app(5)), answer([0], v(0), app(5), atom)])
+    yield case("P + [wait n] = Q + [wait n]", [0, 2, 2], plus(v(1), atom), plus(v(2), atom),
+        [answer([0, 2], v(0), v(1), v(1))])
+    yield case("P + Q = R + S", [2] * 4, plus(v(0), v(1)), plus(v(2), v(3)),
+        [answer([2] * 4, plus(v(0), v(1)), plus(v(2), v(3)), plus(v(0), v(2)), plus(v(1), v(3)))])
+    yield case("2P = 3Q (fallback control)", [2, 2], copies(2, v(0)), copies(3, v(1)),
+        [answer([2], copies(3, v(0)), copies(2, v(0)))])
+
+def check_comparison_certificate(root, cache, request, trace, bundle):
+    """Standalone TEST harness. Production never invokes an external Lean checker.
+
+    For baseline, the goal is exactness of its newly computed family; for
+    targeted, exactness of the pre-supplied family. They need not be identical.
+    Generated baseline contexts deliberately retain redundant passthrough slots.
+    """
+    proof_path = cache / "comparison.proof.json"
+    proof_path.write_text(json.dumps(bundle) + "\n")
+    proposed = trace["generated"] if "generated" in trace else request["proposed"]
+    answer_data = ["{ parameters := " + scope(a["parameters"]) +
+        ", images := " + terms(a["images"]) + " }" for a in proposed]
+    source = """import conPanna.Certification.Replay
+import examples.bakery_acu
+namespace CertificationComparison
+open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
+open DirectCertification DirectCertification.Substitution DirectCertification.Substitution.Worklist
+derive_direct_profile profile for BakeryTheory.certified
+""" + "def inputSystem : List (Problem Sig " + scope(request["scope"]) + ") := " + equations(request["eqs"]) + "\n" + \
+        "def inputAnswers : List (Answer Sig " + scope(request["scope"]) + ") := [" + ",".join(answer_data) + "]\n" + \
+        "run_elab do\n  let dump ← IO.FS.readFile " + json.dumps(str(proof_path)) + "\n" + \
+        "  let expected ← `(∀ values, Worklist.Holds registration inputSystem values ↔ Solutions registration inputAnswers values)\n" + \
+        "  let (type, proof) ← LeanReady.prepareProof expected dump\n" + \
+        "  Lean.addDecl (.thmDecl { name := `CertificationComparison.checked, levelParams := [], type := type, value := proof })\n" + \
+        "#print axioms checked\nend CertificationComparison\n"
+    source_path = cache / "comparison.lean"
+    source_path.write_text(source)
+    return run_checked(["lake", "env", "lean", "-j1", "-M512", str(source_path)], cwd=root, lean=True)
+
+def compare_search(root):
+    """Brief empirical comparison. No upstream native-unification time included."""
+    import copy
+    import statistics
+    import time
+    cache = precompile(root)
+    rows = []
+    for name, original in comparison_cases():
+        for mode in ("targeted", "untargeted"):
+            request = copy.deepcopy(original)
+            if mode == "untargeted":
+                request["proposed"] = []
+            print(f"Comparing {name}: {mode}", flush=True)
+            row = {"problem": name, "mode": mode, "failure_phase": "search_or_reference_dump"}
+            try:
+                measurements = []
+                for _ in range(3):
+                    metrics = {}
+                    trace = (untargeted_unify(root, request, metrics=metrics, with_sound=False)
+                        if mode == "untargeted" else certify(root, request, metrics=metrics))
+                    measurements.append(metrics)
+                row.update({key: statistics.median(m[key] for m in measurements)
+                    for key in ("wall_ms", "rewrites", "maude_cpu_ms")})
+                def count_rules(node):
+                    return 1 + (count_rules(node["child"]) if "child" in node else 0) + \
+                        sum(count_rules(child) for child in node.get("children", []) if child is not None)
+                row.update(search_rule_nodes=count_rules(trace["proof"]),
+                    answer_count=len(trace.get("generated", request["proposed"])), search_completed=True)
+                if mode == "untargeted":
+                    row["failure_phase"] = "soundness_evidence"
+                    annotate_generated_sound(root, request, trace, metrics=row)
+                row["total_rewrites"] = row["rewrites"] + row.get("sound_rewrites", 0)
+                bundle = compile_bundle(trace)
+                row.update(proof_nodes=len(bundle["steps"]), failure_phase="lean_check")
+                start = time.monotonic()
+                check_comparison_certificate(root, cache, request, trace, bundle)
+                row.update(lean_ms=round((time.monotonic() - start) * 1000, 3), status="kernel_checked")
+                del row["failure_phase"]
+                print(f"  {row['total_rewrites']:,} total rewrites; {row['proof_nodes']} proof nodes; "
+                    f"Maude wall {row['wall_ms']:.1f} ms; Lean wall {row['lean_ms']:.1f} ms; checked", flush=True)
+            except (RuntimeError, ValueError, RecursionError) as error:
+                # Preserve failure honestly; never call a capped run impossible.
+                row.update(status="not_checked", error=str(error))
+                if "stack overflow" in str(error):
+                    detail = "Maude stack limit"
+                elif "bad_alloc" in str(error):
+                    detail = "memory-allocation failure under the safety caps"
+                else:
+                    detail = str(error).splitlines()[0]
+                print("  Not checked (" + row["failure_phase"] + "): " + detail, flush=True)
+            rows.append(row)
+            (cache / "comparison.json").write_text(json.dumps(rows, indent=2) + "\n")
+    print("Results: " + str(cache / "comparison.json"), flush=True)
+    return rows
 
 def demo(root):
     import os
@@ -728,10 +913,13 @@ def main():
     parser.add_argument("--build", action="store_true", help="precompile the general certificate library")
     parser.add_argument("--demo", action="store_true", help="run Maude -> Python -> Lean end to end")
     parser.add_argument("--certify", action="store_true", help="certify supplied answers; output proof only; never run unify or Lean")
+    parser.add_argument("--compare", action="store_true", help="compare supplied-answer certification against no-answer calculus search (test harness)")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     if args.certify:
         print(json.dumps(compile_bundle(certify(root, json.load(sys.stdin)))))
+    elif args.compare:
+        compare_search(root)
     elif args.demo:
         demo(root)
     elif args.build:

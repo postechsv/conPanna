@@ -20,7 +20,86 @@ CERTIFICATION.md §§0, 8.3, 9, and 12.1 explicitly specify these boundaries.
 
 ## Current runnable demo: Maude -> Python -> precompiled Lean (2026-10-06)
 
-### Conditional EARLY-COVER — 2026-10-07 (latest)
+### Answer-guided witnesses and genuine no-answer comparison — 2026-10-07 (latest)
+
+User requested the remaining optional optimization and a quantitative comparison
+against calculus-based unification with NO proposed answers. Implemented using
+existing files and rules only; no new permanent Lean file, tactic, core-library
+rule, registration work, narrowing change, git commit, or sub-agent.
+
+- Added one finite answer-guided witness attempt in certification.maude:
+  existing MUTATE introduces four common-refinement pieces for A1+A2=B1+B2,
+  then existing conditional COVER must cover the WHOLE extended image vector.
+  Failed attempts discard their temporary state and resume the original fallback.
+  A cheap hint tries this only when a supplied answer has >=4 bag parameters.
+  It does not recurse into more witness attempts and is not a contract restriction.
+- Native matrix_certificate and matrix_manual_certificate in the EXISTING
+  examples/certification-demo.lean present exactly the same proposition:
+  P+Q=B R+S iff there exist A,B,C,D with P=A+B,Q=C+D,R=A+C,S=B+D.
+  Automatic tree MUTATE -> COVER uses four pieces instead of fifteen fallback
+  support generators. Manual proof is the ONE general mutate_native rule;
+  no generated indices, parser commands or problem-specific supporting lemma.
+  Both kernel-check; manual axioms exclude Classical.choice; neither has sorryAx.
+- Python adds serialization of the ALREADY PROVED Complete.mutate and the same
+  checked ReplayState successor boundary. No semantic rule is added in Lean.
+- Added unifyWithoutAnswers diagnostic entry point: receives E/B/initial images
+  ONLY. It disables answer matching/early closure, performs the SAME documented
+  free/ATOM/ZERO/PURIFY/FINITE-SHARING fallback, and collects solved substitutions
+  as a reference CSU. No native Maude unify invocation, no hidden supplied Sigma,
+  no Python unification. Leaf numbering/output assembly happen in Maude. The
+  production certify entry point still receives fixed Sigma unchanged.
+- ATOM trace now keeps typed child states until serialization instead of erasing
+  them into JSON strings early; this permits reference-leaf collection/numbering.
+  Generated reference scopes retain unused passthroughs and redundant generators;
+  the comparison is against the DOCUMENTED exhaustive fallback, not the best
+  possible untargeted solver. No claim that the short targeted proof is impossible
+  without answers or that targeting always improves performance.
+- Real issue found: search was constructing/discarding equality-proof strings
+  for every normal-form test. A data-only normalizer now supplies decisions in
+  BOTH controls; accepted equality evidence still uses explicit checked rules.
+  Sixty-four normalization comparisons and all semantic certificate tests pass.
+- --compare separates no-answer unifier computation from soundness-evidence
+  formatting and Lean checking. Three producer runs give median timings; each
+  successful mode's OWN answer family is checked for exactness of the same E.
+  Standalone Lean invocations are TEST HARNESS ONLY, not production verification.
+  Detailed generated results: .lake/build/certification/comparison.json.
+
+Final comparison (total Maude producer/evidence rewrites; NOT wall-clock speedup):
+
+| Problem | Untargeted (NO answers) | Targeted (fixed answers) |
+| --- | --- | --- |
+| 2P=2Q | 28,229 rewrites; 77 checked proof-DAG nodes | 6,558 rewrites; 19 checked nodes |
+| 3P=3Q | 459,360 rewrites; 127-node proposed replay; Lean allocation failure | 8,611 rewrites; 22 checked nodes |
+| P+Q=[wait n] | 23,975 rewrites; 102 checked nodes | 175,455 rewrites; 83 checked nodes |
+| P+[wait n]=Q+[wait n] | 23,721 rewrites; 153 checked nodes | 49,332 rewrites; 106 checked nodes |
+| P+Q=R+S | CSU computed (74,850 producer rewrites); Maude stack failure rendering soundness | 116,614 rewrites; 205 checked nodes |
+| 2P=3Q control | 51,857 rewrites; 155 checked nodes | 68,587 rewrites; 176 checked nodes |
+
+- 2P=2Q: ~4.3x fewer producer/evidence rewrites and ~4x smaller checked proof.
+  3P=3Q: ~53x fewer total producer/evidence rewrites; both Maude searches FINISH,
+  but untargeted checking throws std::bad_alloc under unchanged Lean safety caps
+  while targeted checking succeeds. This is a CHECKING resource advantage, not
+  failure of untargeted unifier computation. Matrix baseline also computes its
+  CSU, then hits Maude's stack limit in soundness rendering, not unification.
+- Negative controls matter: singleton/cancellation/fallback cases may do MORE
+  Maude rewrites when targeted; compact certificates do not guarantee less search.
+  Process startup dominates the small Maude wall times (~50–70 ms). Do not
+  describe a rewrite-count reduction as an equal wall-clock speedup. Native
+  upstream unification time is EXCLUDED. Resource failure is not contradiction.
+- Safety limits unchanged (-j1/-M512, OS data768MiB, CPU25s, wall30s); the data
+  cap now applies to Maude children as well. Never increase caps to obtain success.
+- Verified: 28 Python tests; the expanded 19-case smaller suite plus seven fresh
+  corruption rejections (~25.8s capped consumer); separate 640-node balance
+  certificate (~23.9s); all successful certificates use standard axioms only.
+  New MUTATE has checked successor transport; incomplete diagonal answers cannot
+  close its finite attempt. Two nonlinear-equation regression still has TWO
+  sharing steps. git diff --check passes; disunification.lean untouched.
+- Remaining boundary: these are optional optimizations, not a missing completeness
+  mechanism. Complete fallback is still implemented under the restricted contract,
+  with INFORMAL search-success argument and kernel-checked replay. Formal search
+  guarantee and mixed-theory extension remain separate work; narrowing deferred.
+
+### Conditional EARLY-COVER — 2026-10-07 (previous)
 
 User authorized making certification genuinely targeted. Implemented a finite
 proof-producing shortcut in certification.maude; the core Lean calculus,

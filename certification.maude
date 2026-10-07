@@ -73,9 +73,12 @@ mod CERTIFICATION-PRODUCER is
   op head : Nat Nat Context String Heads -> Heads [ctor] .
   op nilA : -> Answers [ctor] .
   op answer : Context Terms Answers -> Answers [ctor] .
+  --- Diagnostic baseline ONLY: no proposed answers; solved leaves become a CSU.
+  op generateA : -> Answers [ctor] .
   op noCover : -> CoverChoice [ctor] .
   op covered : Nat Terms Terms -> CoverChoice [ctor] .
   op evidenceCover : Nat Terms String -> CoverChoice [ctor] .
+  op witnessCover : Trace -> CoverChoice [ctor] .
   op lookup : Nat Heads -> Context .
   op isFree : Nat Heads -> Bool .
   op selectCover : Context Terms Answers Nat Context Heads -> CoverChoice .
@@ -87,16 +90,19 @@ mod CERTIFICATION-PRODUCER is
   op occursNode : Context Terms Equations Nat Nat Term String String -> Trace [ctor] .
   op finish : Trace Frames -> Trace .
   op certify : Heads Context Terms Equations Answers -> State [ctor] .
+  op unifyWithoutAnswers : Heads Context Terms Equations -> State [ctor] .
   op solve : Heads Context Terms Equations Frames Equations Answers Context -> State [ctor] .
   op result : String -> State [ctor] .
   op emit : Heads Equations Answers State -> State [ctor] .
+  op emitReference : Heads Equations State -> State [ctor] .
+  op soundEvidence : Heads Equations Answers -> State [ctor] .
   op done : Trace -> State [ctor] .
   sorts States BagChoice .
   op nilStates : -> States [ctor] .
   op stateCons : State States -> States [ctor] .
   op atomPending : Context Terms Equations Nat Terms Nat Terms String Frames States -> State [ctor] .
   op zeroPending : Context Terms Equations Nat Terms String Frames State -> State [ctor] .
-  op atomNode : Context Terms Equations Nat Terms Nat Terms String String -> Trace [ctor] .
+  op atomNode : Context Terms Equations Nat Terms Nat Terms String States -> Trace [ctor] .
   op zeroNode : Context Terms Equations Nat Terms String Trace -> Trace [ctor] .
   op nonemptyNode : Context Terms Equations Nat Terms String -> Trace [ctor] .
   op readyStates : States -> Bool .
@@ -180,6 +186,10 @@ mod CERTIFICATION-PRODUCER is
   op insertBag : Term Term Heads -> Normal .
   op insertTail : Term Term Term Normal Heads -> Normal .
   op normalized : Nat Term Heads -> Term .
+  op normalizedArgs : Context Terms Heads -> Terms .
+  op normalizedApp : Nat Nat Terms Heads -> Term .
+  op mergeBagTerms : Term Term Heads -> Term .
+  op insertBagTerm : Term Term Heads -> Term .
   op proofNorm : Nat Term Heads -> String .
   op eqProof : Nat Term Term Heads -> String .
   op refl : Term -> String .
@@ -253,6 +263,27 @@ mod CERTIFICATION-PRODUCER is
   op noDefinition : -> Definition [ctor] .
   op definition : Term String -> Definition [ctor] .
   op selectCoverage : Context Terms Equations Answers Context Heads -> CoverChoice .
+  op localCoverage : Context Terms Equations Answers Context Heads -> CoverChoice .
+  op maybeWitness : Context Terms Equations Answers Context Heads CoverChoice -> CoverChoice .
+  op witnessHint : Answers Heads -> Bool .
+  op bagParameterCount : Context Heads -> Nat .
+  op witnessChoice : Context Terms Equations Answers Context Heads Choice BagChoice -> CoverChoice .
+  op tryWitness : Context Terms Equations Answers Context Heads Term Term String -> CoverChoice .
+  op finishWitness : Context Terms Equations Nat Term Term Term Term String Context Terms Equations CoverChoice -> CoverChoice .
+  op liftTerm : Nat Term -> Term .
+  op liftTerms : Nat Terms -> Terms .
+  op liftEqs : Nat Equations -> Equations .
+  op witnessEqs : Nat Term Term Term Term Equations Heads -> Equations .
+  op mutateNode : Context Terms Equations Nat Term Term Term Term String Trace -> Trace [ctor] .
+  op equationsSolved : Equations Heads -> Bool .
+  op collectAnswers : Trace -> Answers .
+  op collectStateAnswers : States -> Answers .
+  op appendAnswers : Answers Answers -> Answers .
+  op answersText : Answers -> String .
+  op numberTrace : Trace Nat -> Trace .
+  op numberStates : States Nat -> States .
+  op leafCount : Trace -> Nat .
+  op stateLeafCount : States -> Nat .
   op checkedCoverage : Context Terms Equations Answers Context Heads CoverChoice -> CoverChoice .
   op conditionalCoverage : Context Terms Equations Answers Context Heads NormalArgs -> CoverChoice .
   op finishConditional : Context Terms Equations Context Heads CoverChoice -> CoverChoice .
@@ -363,6 +394,7 @@ mod CERTIFICATION-PRODUCER is
   op beginPurify : Heads Context Terms Equations Frames Equations Answers Context Term Equation Equations Equations -> State .
   vars I J K S H : Nat .
   vars A B R : Term .
+  vars A1 A2 B1 B2 : Term .
   vars TS US IM TARGET : Terms .
   vars E ES ORIG : Equations .
   vars C D PARAMS : Context .
@@ -433,7 +465,27 @@ mod CERTIFICATION-PRODUCER is
   eq insertTail(A, B, R, normal(TermA:Term, PA), HS) =
     normal(a(bagAdd(HS), t(B, t(TermA:Term, nilT))),
       transitivity(swapProof(A, B, R), binaryCong(bagAdd(HS), refl(B), PA))) .
-  ceq normalized(S, A, HS) = B if normal(B, P) := norm(S, A, HS) .
+  --- Decisions need only normal FORMS. Do not build/discard large proof strings
+  --- on every equality/matching test. Accepted evidence still uses norm below.
+  eq normalized(S, v(I), HS) = if S == bagSort(HS)
+    then a(bagAdd(HS), t(v(I), t(a(bagZero(HS), nilT), nilT))) else v(I) fi .
+  eq normalized(S, a(H, TS), HS) = normalizedApp(S, H, normalizedArgs(lookup(H, HS), TS, HS), HS) .
+  eq normalizedArgs(nilC, nilT, HS) = nilT .
+  eq normalizedArgs(c(S, C), t(A, TS), HS) =
+    t(normalized(S, A, HS), normalizedArgs(C, TS, HS)) .
+  eq normalizedApp(S, H, TS, HS) = if role(H, HS) == "add" then
+    mergeBagTerms(get(0, TS), get(1, TS), HS)
+    else if S == bagSort(HS) and role(H, HS) == "free" then
+      a(bagAdd(HS), t(a(H, TS), t(a(bagZero(HS), nilT), nilT)))
+    else a(H, TS) fi fi .
+  ceq mergeBagTerms(a(H, nilT), B, HS) = B if H == bagZero(HS) .
+  ceq mergeBagTerms(a(H, t(A, t(R, nilT))), B, HS) =
+    insertBagTerm(A, mergeBagTerms(R, B, HS), HS) if H == bagAdd(HS) .
+  ceq insertBagTerm(A, a(H, nilT), HS) = a(bagAdd(HS), t(A, t(a(H, nilT), nilT)))
+    if H == bagZero(HS) .
+  ceq insertBagTerm(A, a(H, t(B, t(R, nilT))), HS) =
+    if termText(A) <= termText(B) then a(H, t(A, t(a(H, t(B, t(R, nilT))), nilT)))
+    else a(H, t(B, t(insertBagTerm(A, R, HS), nilT))) fi if H == bagAdd(HS) .
   ceq proofNorm(S, A, HS) = P if normal(B, P) := norm(S, A, HS) .
   eq eqProof(S, A, B, HS) = if A == B then refl(A)
     else transitivity(proofNorm(S, A, HS), symmetry(proofNorm(S, B, HS))) fi .
@@ -590,8 +642,58 @@ mod CERTIFICATION-PRODUCER is
   eq conditionalVectorProof(c(S, nilC), t(A, nilT), t(B, nilT), ES, HS) = conditionalComponent(S, A, ES, HS, B) .
   eq conditionalVectorProof(c(S, C), t(A, TS), t(B, US), ES, HS) =
     conditionalComponent(S, A, ES, HS, B) + "," + conditionalVectorProof(C, TS, US, ES, HS) [owise] .
+  --- With no answers, the baseline performs no factor matching or early closure.
+  eq selectCoverage(C, IM, ES, generateA, INPUTS, HS) =
+    if equationsSolved(ES, HS) then evidenceCover(0, identities(C, 0), derivedText(IM)) else noCover fi .
   eq selectCoverage(C, IM, ES, AS, INPUTS, HS) =
+    maybeWitness(C, IM, ES, AS, INPUTS, HS, localCoverage(C, IM, ES, AS, INPUTS, HS)) [owise] .
+  eq localCoverage(C, IM, ES, AS, INPUTS, HS) =
     checkedCoverage(C, IM, ES, AS, INPUTS, HS, selectCover(C, IM, AS, 0, INPUTS, HS)) .
+  eq maybeWitness(C, IM, ES, AS, INPUTS, nilH, noCover) = noCover .
+  eq maybeWitness(C, IM, ES, AS, INPUTS, HS, noCover) =
+    if witnessHint(AS, HS) then
+      witnessChoice(C, IM, ES, AS, INPUTS, HS, choose(ES, 0, HS), selectBag(ES, 0, HS))
+    else noCover fi [owise] .
+  eq maybeWitness(C, IM, ES, AS, INPUTS, HS, CV:CoverChoice) = CV:CoverChoice [owise] .
+  --- Cheap scheduling hint: independent four-piece answers have four bag slots.
+  --- Not a modeling restriction: families without that hint use the fallback.
+  eq witnessHint(nilA, HS) = false .
+  eq witnessHint(answer(D, TARGET, AS), HS) =
+    (bagParameterCount(D, HS) >= 4) or witnessHint(AS, HS) .
+  eq bagParameterCount(nilC, HS) = 0 .
+  eq bagParameterCount(c(S, D), HS) =
+    (if S == bagSort(HS) then 1 else 0 fi) + bagParameterCount(D, HS) .
+  eq witnessChoice(C, IM, ES, AS, INPUTS, HS, none, balanceChoice(A, B, P)) =
+    tryWitness(C, IM, ES, AS, INPUTS, HS, A, B, P) .
+  eq witnessChoice(C, IM, ES, AS, INPUTS, HS, CH, BC) = noCover [owise] .
+  --- ONE finite MUTATE attempt, accepted only if the supplied answers cover it.
+  --- General existing rule: A1+A2=B1+B2 admits a four-piece common refinement.
+  ceq tryWitness(C, IM, ES, AS, INPUTS, HS,
+      a(H, t(A1, t(A2, nilT))), a(H, t(B1, t(B2, nilT))), P) =
+    finishWitness(C, IM, ES, bagSort(HS), A1, A2, B1, B2, P,
+      appendC(repeatC(bagSort(HS), 4), C), liftTerms(4, IM),
+      witnessEqs(bagSort(HS), A1, A2, B1, B2, ES, HS),
+      localCoverage(appendC(repeatC(bagSort(HS), 4), C), liftTerms(4, IM),
+        witnessEqs(bagSort(HS), A1, A2, B1, B2, ES, HS), AS, INPUTS, HS))
+    if H == bagAdd(HS) .
+  eq tryWitness(C, IM, ES, AS, INPUTS, HS, A, B, P) = noCover [owise] .
+  eq finishWitness(C, IM, ES, S, A1, A2, B1, B2, P, D, TS, E, noCover) = noCover .
+  eq finishWitness(C, IM, ES, S, A1, A2, B1, B2, P, D, TS, E, evidenceCover(J, US, PA)) =
+    witnessCover(mutateNode(C, IM, ES, S, A1, A2, B1, B2, P, coverNode(D, TS, E, J, US, PA))) .
+  eq liftTerm(I, v(J)) = v(I + J) .
+  eq liftTerm(I, a(H, TS)) = a(H, liftTerms(I, TS)) .
+  eq liftTerms(I, nilT) = nilT .
+  eq liftTerms(I, t(A, TS)) = t(liftTerm(I, A), liftTerms(I, TS)) .
+  eq liftEqs(I, nilE) = nilE .
+  eq liftEqs(I, e(eqn(S, A, B), ES)) = e(eqn(S, liftTerm(I, A), liftTerm(I, B)), liftEqs(I, ES)) .
+  eq witnessEqs(S, A1, A2, B1, B2, ES, HS) =
+    e(eqn(S, liftTerm(4, A1), a(bagAdd(HS), t(v(0), t(v(1), nilT)))),
+    e(eqn(S, liftTerm(4, A2), a(bagAdd(HS), t(v(2), t(v(3), nilT)))),
+    e(eqn(S, liftTerm(4, B1), a(bagAdd(HS), t(v(0), t(v(2), nilT)))),
+    e(eqn(S, liftTerm(4, B2), a(bagAdd(HS), t(v(1), t(v(3), nilT)))), liftEqs(4, ES))))) .
+  eq equationsSolved(nilE, HS) = true .
+  eq equationsSolved(e(eqn(S, A, B), ES), HS) =
+    (normalized(S, A, HS) == normalized(S, B, HS)) and equationsSolved(ES, HS) .
   eq checkedCoverage(C, IM, ES, AS, INPUTS, HS, covered(J, TS, TARGET)) =
     evidenceCover(J, TS, if HS == nilH then derivedText(IM) else vectorProof(INPUTS, IM, TARGET, HS) fi) .
   eq checkedCoverage(C, IM, ES, AS, INPUTS, nilH, noCover) = noCover .
@@ -913,12 +1015,24 @@ mod CERTIFICATION-PRODUCER is
     finish(bindNode(C, D, S, I, R, IM, ES, P, TR), F) .
 
   rl [start] : certify(HS, C, IM, ES, AS) => emit(HS, ES, AS, solve(HS, C, IM, ES, endF, ES, AS, C)) .
+  rl [start-untargeted] : unifyWithoutAnswers(HS, C, IM, ES) =>
+    emitReference(HS, ES, solve(HS, C, IM, ES, endF, ES, generateA, C)) .
+  rl [emit-untargeted] : emitReference(HS, ORIG, done(TR)) =>
+    result("{\"proof\":" + traceText(numberTrace(TR, 0)) +
+      ",\"generated\":[" + answersText(collectAnswers(TR)) +
+      "]}") .
+  --- Separate formatting/checking cost from the no-answer unification itself.
+  crl [emit-sound-evidence] : soundEvidence(HS, ORIG, AS) =>
+    result("{\"sound\":[" + answersProof(ORIG, AS, HS) + "]}")
+    if answersSound(ORIG, AS, HS) .
   crl [emit] : emit(HS, ORIG, AS, done(TR)) =>
     result("{\"proof\":" + traceText(TR) + ",\"sound\":[" + answersProof(ORIG, AS, HS) + "]}")
     if answersSound(ORIG, AS, HS) .
   crl [cover-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     done(finish(coverNode(C, IM, ES, J, TS, P), F))
     if evidenceCover(J, TS, P) := selectCoverage(C, IM, ES, AS, INPUTS, HS) .
+  crl [witness-cover-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+    done(finish(TR, F)) if witnessCover(TR) := selectCoverage(C, IM, ES, AS, INPUTS, HS) .
   crl [bind] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     solve(HS, drop(I, C), substArgs(I, lower(I, A), IM), substEqs(I, lower(I, A), ES),
       frame(C, drop(I, C), S, I, lower(I, A), IM, ES, P, F), ORIG, AS, INPUTS)
@@ -997,7 +1111,7 @@ mod CERTIFICATION-PRODUCER is
     if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
       atomChoice(TS, H, US, P) := selectBag(ES, 0, HS) .
   crl [atom-collect] : atomPending(C, IM, ES, S, TS, H, US, P, F, STS) =>
-    done(finish(atomNode(C, IM, ES, S, TS, H, US, P, statesText(STS)), F)) if readyStates(STS) .
+    done(finish(atomNode(C, IM, ES, S, TS, H, US, P, STS), F)) if readyStates(STS) .
   crl [zero-split] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     zeroPending(C, IM, ES, bagSort(HS), TS, P, F,
       solve(HS, C, IM, appendEqs(zeroReqs(bagSort(HS), TS, HS), ES), endF, ORIG, AS, INPUTS))
@@ -1056,10 +1170,15 @@ mod CERTIFICATION-PRODUCER is
   eq traceText(occursNode(C, IM, ES, S, I, A, PATH, P)) = "{\"rule\":\"occurs\",\"scope\":" + ctxText(C) +
     ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"variable\":" + natText(I) +
     ",\"rhs\":" + termText(A) + ",\"path\":" + PATH + ",\"premise\":" + P + "}" .
-  eq traceText(atomNode(C, IM, ES, S, TS, H, US, P, PATH)) = "{\"rule\":\"atom\",\"scope\":" + ctxText(C) +
+  eq traceText(atomNode(C, IM, ES, S, TS, H, US, P, STS)) = "{\"rule\":\"atom\",\"scope\":" + ctxText(C) +
     ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"sort\":" + natText(S) +
     ",\"terms\":" + argsText(TS) + ",\"coefficients\":[" + onesText(TS) + "],\"head\":" + natText(H) +
-    ",\"args\":" + argsText(US) + ",\"premise\":" + P + ",\"children\":[" + PATH + "]}" .
+    ",\"args\":" + argsText(US) + ",\"premise\":" + P + ",\"children\":[" + statesText(STS) + "]}" .
+  eq traceText(mutateNode(C, IM, ES, S, A1, A2, B1, B2, P, TR)) =
+    "{\"rule\":\"mutate\",\"scope\":" + ctxText(C) + ",\"images\":" + argsText(IM) +
+    ",\"eqs\":" + eqsText(ES) + ",\"sort\":" + natText(S) +
+    ",\"terms\":[" + termText(A1) + "," + termText(A2) + "," + termText(B1) + "," + termText(B2) +
+    "],\"premise\":" + P + ",\"child\":" + traceText(TR) + "}" .
   eq traceText(zeroNode(C, IM, ES, S, TS, P, TR)) = "{\"rule\":\"zero\",\"scope\":" + ctxText(C) +
     ",\"images\":" + argsText(IM) + ",\"eqs\":" + eqsText(ES) + ",\"sort\":" + natText(S) +
     ",\"terms\":" + argsText(TS) + ",\"coefficients\":[" + onesText(TS) + "],\"premise\":" + P + ",\"child\":" + traceText(TR) + "}" .
@@ -1106,6 +1225,41 @@ mod CERTIFICATION-PRODUCER is
   eq normalizedAnswers(eqn(S, A, B), answer(C, TS, nilA), HS) = scoped(C, eqProof(S, inst(A, TS), inst(B, TS), HS)) .
   eq normalizedAnswers(eqn(S, A, B), answer(C, TS, AS), HS) = scoped(C, eqProof(S, inst(A, TS), inst(B, TS), HS)) + "," +
     normalizedAnswers(eqn(S, A, B), AS, HS) [owise] .
+
+  --- Untargeted output assembly ONLY, after solving with NO answers.
+  --- Solved branches supply their own whole substitution; no extra proof search.
+  eq appendAnswers(nilA, AS) = AS .
+  eq appendAnswers(answer(C, IM, AS), More:Answers) = answer(C, IM, appendAnswers(AS, More:Answers)) .
+  eq collectAnswers(coverNode(C, IM, ES, J, TS, P)) = answer(C, IM, nilA) .
+  eq collectAnswers(bindNode(C, D, S, I, R, IM, ES, P, TR)) = collectAnswers(TR) .
+  eq collectAnswers(atomNode(C, IM, ES, S, TS, H, US, P, STS)) = collectStateAnswers(STS) .
+  eq collectAnswers(zeroNode(C, IM, ES, S, TS, P, TR)) = collectAnswers(TR) .
+  eq collectAnswers(sharingNode(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, TR)) = collectAnswers(TR) .
+  eq collectAnswers(purifyNode(C, IM, S, R, Q, E, ES, TR)) = collectAnswers(TR) .
+  eq collectAnswers(TR) = nilA [owise] .
+  eq collectStateAnswers(nilStates) = nilA .
+  eq collectStateAnswers(stateCons(done(TR), STS)) = appendAnswers(collectAnswers(TR), collectStateAnswers(STS)) .
+  eq answersText(nilA) = "" .
+  eq answersText(answer(C, IM, nilA)) = "{\"parameters\":" + ctxText(C) + ",\"images\":" + argsText(IM) + "}" .
+  eq answersText(answer(C, IM, AS)) = answersText(answer(C, IM, nilA)) + "," + answersText(AS) [owise] .
+  eq leafCount(coverNode(C, IM, ES, J, TS, P)) = 1 .
+  eq leafCount(bindNode(C, D, S, I, R, IM, ES, P, TR)) = leafCount(TR) .
+  eq leafCount(atomNode(C, IM, ES, S, TS, H, US, P, STS)) = stateLeafCount(STS) .
+  eq leafCount(zeroNode(C, IM, ES, S, TS, P, TR)) = leafCount(TR) .
+  eq leafCount(sharingNode(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, TR)) = leafCount(TR) .
+  eq leafCount(purifyNode(C, IM, S, R, Q, E, ES, TR)) = leafCount(TR) .
+  eq leafCount(TR) = 0 [owise] .
+  eq stateLeafCount(nilStates) = 0 .
+  eq stateLeafCount(stateCons(done(TR), STS)) = leafCount(TR) + stateLeafCount(STS) .
+  eq numberTrace(coverNode(C, IM, ES, K, TS, P), J) = coverNode(C, IM, ES, J, TS, P) .
+  eq numberTrace(bindNode(C, D, S, I, R, IM, ES, P, TR), J) = bindNode(C, D, S, I, R, IM, ES, P, numberTrace(TR, J)) .
+  eq numberTrace(atomNode(C, IM, ES, S, TS, H, US, P, STS), J) = atomNode(C, IM, ES, S, TS, H, US, P, numberStates(STS, J)) .
+  eq numberTrace(zeroNode(C, IM, ES, S, TS, P, TR), J) = zeroNode(C, IM, ES, S, TS, P, numberTrace(TR, J)) .
+  eq numberTrace(sharingNode(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, TR), J) = sharingNode(C, IM, ES, S, VARS, LEFT, RIGHT, ROWS, COLS, VS, P, numberTrace(TR, J)) .
+  eq numberTrace(purifyNode(C, IM, S, R, Q, E, ES, TR), J) = purifyNode(C, IM, S, R, Q, E, ES, numberTrace(TR, J)) .
+  eq numberTrace(TR, J) = TR [owise] .
+  eq numberStates(nilStates, J) = nilStates .
+  eq numberStates(stateCons(done(TR), STS), J) = stateCons(done(numberTrace(TR, J)), numberStates(STS, J + leafCount(TR))) .
 endm
 
 --- Run manually (no automatic Lean/editor calls):

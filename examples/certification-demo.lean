@@ -256,6 +256,47 @@ theorem power_certificate (P Q : ProcSet) :
     Substitution.add] using power_checked (P, Q, PUnit.unit)
 #print axioms power_certificate
 
+-- Optional answer-guided WITNESS introduction, using the EXISTING MUTATE rule.
+-- Supplied family: P=A+B, Q=C+D, R=A+C, S=B+D.
+-- Actual Maude tree: MUTATE(four fresh pieces) -> conditional COVER.
+-- The attempt is accepted only if ONE shared substitution covers every original
+-- input; otherwise its temporary state is discarded and exhaustive sharing runs.
+def matrixSystem : List (Problem Sig [Tag.s2, Tag.s2, Tag.s2, Tag.s2]) :=
+  [equation (add Operator.acu (.var .here) (.var (.there .here)))
+    (add Operator.acu (.var (.there (.there .here))) (.var (.there (.there (.there .here)))))]
+def matrixAnswers : List (Answer Sig [Tag.s2, Tag.s2, Tag.s2, Tag.s2]) :=
+  [{ parameters := [Tag.s2, Tag.s2, Tag.s2, Tag.s2]
+     images := .cons (add Operator.acu (.var .here) (.var (.there .here)))
+       (.cons (add Operator.acu (.var (.there (.there .here))) (.var (.there (.there (.there .here)))))
+       (.cons (add Operator.acu (.var .here) (.var (.there (.there .here))))
+       (.cons (add Operator.acu (.var (.there .here)) (.var (.there (.there (.there .here))))) .nil))) }]
+run_elab do
+  let dump ← LeanReady.produce (LeanReady.requestJson profile profile_sortCode
+    matrixSystem matrixAnswers "matrixSystem" "matrixAnswers" profile_signature)
+  let expected ← `(∀ values, Worklist.Holds registration matrixSystem values ↔
+    Solutions registration matrixAnswers values)
+  let (type, proof) ← LeanReady.prepareProof expected dump
+  Lean.addDecl (.thmDecl { name := `CertificationDemo.matrix_checked, levelParams := [], type := type, value := proof })
+theorem matrix_certificate (P Q R S : ProcSet) :
+    P.union Q =[BakeryTheory.certified] R.union S ↔
+      ∃ A B C D : ProcSet,
+        P =[BakeryTheory.certified] A.union B ∧ Q =[BakeryTheory.certified] C.union D ∧
+        R =[BakeryTheory.certified] A.union C ∧ S =[BakeryTheory.certified] B.union D := by
+  simpa [Worklist.Holds, matrixSystem, matrixAnswers, Solutions, Answer.Holds,
+    Problem.Holds, equation, Terms.eval, Term.eval, Variable.eval, Args, ArgsRel,
+    Substitution.add] using matrix_checked (P, Q, R, S, PUnit.unit)
+
+-- The same certificate by hand: ONE general rule, no parser or search tactic.
+-- MUTATE establishes existence of the four pieces, matching the supplied answer.
+theorem matrix_manual_certificate (P Q R S : ProcSet) :
+    P.union Q =[BakeryTheory.certified] R.union S ↔
+      ∃ A B C D : ProcSet,
+        P =[BakeryTheory.certified] A.union B ∧ Q =[BakeryTheory.certified] C.union D ∧
+        R =[BakeryTheory.certified] A.union C ∧ S =[BakeryTheory.certified] B.union D :=
+  mutate_native profile registration processUnion P Q R S
+#print axioms matrix_certificate
+#print axioms matrix_manual_certificate
+
 -- Repeated variables are kept shared: 2P cannot equal one singleton.
 def repeatedSystem : List (Problem Sig [Tag.s0, Tag.s2]) :=
   [equation (add Operator.acu (.var (.there .here)) (.var (.there .here)))

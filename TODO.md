@@ -39,16 +39,18 @@ correctness argument are credible at technical-report level.
 - Explain the mechanism with concrete small equations and plain language.
   Separate proved checker soundness from missing search completeness/termination.
   Keep research/design ahead of implementation and discuss unresolved gaps.
-- Current implementation proves replay rules and numeric finite sharing, NOT a
-  general ACU certification algorithm. The old bounded shape-specific search was
-  removed; no general replacement search is implemented yet. No production
-  narrowing changes during this milestone.
+- Current implementation includes the restricted-contract finite fallback,
+  targeted coverage/witness shortcuts, and checked replay. Its general SEARCH
+  SUCCESS has an informal argument, not a formal Lean implementation theorem.
+  No arbitrary mixed-ACU guarantee or success-within-resource-caps claim. No
+  production narrowing changes during this milestone.
 
 ### Design checkpoint: finite sharing, not unrestricted mutation
 
-Status: a candidate mathematical design, NOT an implemented general algorithm.
-Keep the implementation gate closed until the whole-model argument below is
-written and reviewed. A few finite examples do not discharge that argument.
+Historical design checkpoint: the whole-model argument was subsequently written
+in CERTIFICATION.md and the restricted fallback implemented. The notes below
+record the design rationale; the checked implementation checklist later in this
+file gives current progress. Examples alone do not prove search success.
 
 Initial contract to make explicit:
 
@@ -392,8 +394,20 @@ Executable producer checklist (supersedes the historical implementation notes):
   CONGR/MULTIPLICITY rules; no new calculus, tactics, or registration obligations.
   ATOM now has two direct COVER leaves; equal powers/common-singleton balances
   can bypass sharing entirely. The larger balance still exercises the fallback.
+- [x] Optional answer-guided witness introduction: one existing MUTATE followed
+  by conditional COVER, using four fresh shared pieces. Accept only a checked
+  whole-vector factor; otherwise resume the original exhaustive fallback. No
+  new Lean rule/tactic/registration work. Native automatic/manual matrix
+  certificates display the same ordinary proposition and general proof rule.
+- [x] Genuine no-answer comparison entry point: the untargeted run receives
+  ONLY equations/signature, computes its own CSU with the SAME fallback calculus,
+  then formats soundness evidence. Targeted runs receive fixed supplied Σ.
+  --compare records producer rewrites/timings, proof-DAG nodes, checking results,
+  and the phase of any resource failure; no native unify time is included.
+- [x] Separate normal-form decisions from proof generation in Maude so search
+  and matching do not construct unused proof strings. Applies to BOTH controls.
 - [ ] NEXT: formalize the implementation-level search argument if required for
-  the technical report, or strengthen witness-producing targeted shortcuts.
+  the technical report, or extend the contract with a proper combination argument.
   Neither is an additional user certification/registration obligation.
 - [ ] Only afterward connect exact unifier certification to constrained narrowing.
 
