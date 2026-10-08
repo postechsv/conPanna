@@ -18,7 +18,7 @@ Kept from the previous prototype: quotient-based internal proofs, arbitrary-arit
 free-head rules, native lifting, typed image vectors, and checked worklist trees.
 Removed: shape-specific family recognizers, one-tail guard wrappers, duplicated
 replay engines, bounded Maude search, and elaboration-time external calls.
-The maintained Maude producer is CERTIFICATION-PRODUCER in certification.maude;
+The maintained Maude producer is CERTIFICATION-PRODUCER in certifier/certification.maude;
 the separate older CERT2 experiment is not this calculus.
 
 The equality is Structural.Indexed.NativeEq, written `=[BakeryTheory.certified]`.
@@ -27,7 +27,7 @@ Only the last section uses Bakery; the rules work over a generic signature.
 The profile command generates/checks syntactic metadata, not semantic user proofs.
 Scoped binding preparation and free-step classification compute checked data;
 proper free-occurrence/clash closure is automatic. The external worklist driver,
-bag-phase schedule, and complete factor matcher now live in certification.maude;
+bag-phase schedule, and complete factor matcher now live in certifier/certification.maude;
 their informal search argument is in CERTIFICATION.md Appendix A.3.4–A.4.1. A formal Lean
 search-success theorem remains unfinished; individual certificates are checked.
 

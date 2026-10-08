@@ -8,10 +8,10 @@ The maintained artifact has one Maude engine, with matching checker and examples
 
 | File | Role |
 | --- | --- |
-| [certification.maude](certification.maude) | `CERTIFICATION-PRODUCER`: ALL rewrite rules, importing functional support; no helper implementation or historical experimental module. |
-| [certification-support.maude](certification-support.maude) | Nine functional modules, grouped by responsibility; no rewrite rules. |
+| [certification.maude](certifier/certification.maude) | Nine functional support modules followed by `CERTIFICATION-PRODUCER`, which groups ALL rewrite rules. |
+| [wrapper.maude](certifier/wrapper.maude) | Fixed wrapper template loading cached `ctor.maude` and the calculus; native module/sort import information is substituted. |
 | [Replay.lean](conPanna/Certification/Replay.lean) | Typed evidence constructors and their semantic validity proofs. |
-| [certifier.py](certifier.py) | Untrusted assembly of Maude evidence into applications of those Lean rules. |
+| [certifier.py](certifier/certifier.py) | Untrusted assembly of Maude evidence into applications of those Lean rules. |
 | [certification-demo.lean](examples/certification-demo.lean) | Automated certificates and readable manual counterparts over the same Bakery constructors. |
 | [certification.lean](certification.lean) | Additional explicit, handwritten calculus certificates. |
 
@@ -19,24 +19,25 @@ The differently named `conPanna/maude-cert2.maude` is an older overlap experimen
 retained only for its existing CERT2 protocol callers. It and `certification2.*`
 are NOT the implementation of this document. Start with the files in the table.
 
-**Reading the Maude source:** the short `certification.maude` contains ONE
-system module and ALL rewrite rules. Its groups distinguish request/output
+**Reading the Maude source:** `certifier/certification.maude` preserves separate
+functional modules and ends with ONE short system module containing ALL rewrite
+rules. Its groups distinguish request/output
 protocol (A.1) from semantic closure and state steps (A.2–A.4); rules marked
 “trace assembly” only collect finished children. Follow its imports to the
 functional modules below. Each `fmod` groups its own declarations and equations.
 Rule comments identify the relevant helper module and Lean constructor.
 
-| Functional module in `certification-support.maude` | Responsibility |
+| Functional module in `certifier/certification.maude` | Responsibility |
 | --- | --- |
-| [CERTIFICATION-TERMS](certification-support.maude#L12) | Constructor terms, sorted contexts, metadata and substitutions. |
-| [CERTIFICATION-EVIDENCE](certification-support.maude#L142) | States, proof-tree records and primitive equality-premise formatting. |
-| [CERTIFICATION-EQUALITY](certification-support.maude#L273) | ACU normal forms, equality proofs and proposed-answer soundness. |
-| [CERTIFICATION-FREE](certification-support.maude#L422) | Free-constructor equation selection and proper-occurs paths. |
-| [CERTIFICATION-ACU-MATCHING](certification-support.maude#L486) | Whole-vector answer factoring, including finite ACU matching. |
-| [CERTIFICATION-SHARING](certification-support.maude#L646) | Occurrence grids, balanced supports and the sharing substitution. |
-| [CERTIFICATION-BAG-STEPS](certification-support.maude#L836) | Bag selection, ATOM/ZERO children, purification and preparation. |
-| [CERTIFICATION-COVERAGE](certification-support.maude#L971) | Conditional coverage and optional answer-guided witnesses. |
-| [CERTIFICATION-OUTPUT](certification-support.maude#L1216) | Completed-tree serialization and diagnostic leaf collection. |
+| [CERTIFICATION-TERMS](certifier/certification.maude#L17) | Constructor terms, sorted contexts, metadata and substitutions. |
+| [CERTIFICATION-EVIDENCE](certifier/certification.maude#L147) | States, proof-tree records and primitive equality-premise formatting. |
+| [CERTIFICATION-EQUALITY](certifier/certification.maude#L278) | ACU normal forms, equality proofs and proposed-answer soundness. |
+| [CERTIFICATION-FREE](certifier/certification.maude#L427) | Free-constructor equation selection and proper-occurs paths. |
+| [CERTIFICATION-ACU-MATCHING](certifier/certification.maude#L491) | Whole-vector answer factoring, including finite ACU matching. |
+| [CERTIFICATION-SHARING](certifier/certification.maude#L651) | Occurrence grids, balanced supports and the sharing substitution. |
+| [CERTIFICATION-BAG-STEPS](certifier/certification.maude#L841) | Bag selection, ATOM/ZERO children, purification and preparation. |
+| [CERTIFICATION-COVERAGE](certifier/certification.maude#L976) | Conditional coverage and optional answer-guided witnesses. |
+| [CERTIFICATION-OUTPUT](certifier/certification.maude#L1221) | Completed-tree serialization and diagnostic leaf collection. |
 
 All imports are acyclic: TERMS → EVIDENCE → EQUALITY → matching/sharing;
 FREE and BAG-STEPS also feed COVERAGE; OUTPUT formats completed traces.
@@ -285,7 +286,7 @@ solve(HS, C, IM, ES, F, ORIG, AS, INPUTS)
 | `INPUTS` | Fixed original input context X. |
 | `F` | Proof continuation: how to wrap the finished child trace into earlier steps. |
 
-See the [constructor declaration](certification-support.maude#L163). `⟨α ; E⟩` is
+See the [constructor declaration](certifier/certification.maude#L168). `⟨α ; E⟩` is
 a mathematical projection of this active state, NOT a literal pair constructor
 in Maude: it displays IM/ES with C implicit in their types. We use this same
 two-field notation for EVERY rule. When scope changes need emphasis, we write
@@ -459,13 +460,13 @@ FREE-OCCURS
 
 | Rule | Maude label or helper (no standalone label where noted) | Lean definition or evidence constructor |
 | --- | --- | --- |
-| DELETE | [`chooseTerm(S,A,A,HS,P)`](certification-support.maude#L465) skips a reflexive equation; no standalone rewrite rule | [Equality.refl](conPanna/Certification/Replay.lean#L824); bookkeeping, not a separate `Complete` constructor |
-| ORIENT | [`chooseTerm`](certification-support.maude#L469) orients the selected premise via `symmText`; no standalone rewrite rule | [Derives.symm](conPanna/Certification/Replay.lean#L1683) |
-| DECOMPOSE | [`chooseArgs`](certification-support.maude#L477) with [`decompText`](certification-support.maude#L265) derives a field equation; no standalone rewrite rule | [Derives.decompose](conPanna/Certification/Replay.lean#L1698), justified by [decompose_native](conPanna/Certification/Replay.lean#L353) |
-| CLASH | [`[clash-and-emit]`](certification.maude#L107) | [Complete.clash](conPanna/Certification/Replay.lean#L1985) |
-| BIND | [`[bind]`](certification.maude#L100) | [Complete.bind](conPanna/Certification/Replay.lean#L1930), [Binding.Removal](conPanna/Certification/Replay.lean#L1082), [Binding.complete](conPanna/Certification/Replay.lean#L1312) |
-| FREE-OCCURS | [`[occurs-and-emit]`](certification.maude#L114) | [Complete.occurs](conPanna/Certification/Replay.lean#L1936), [FreeOccurs.Proper.sound](conPanna/Certification/Replay.lean#L1395) |
-| Free-step selection | [`chooseTerm`](certification-support.maude#L465) in `CERTIFICATION-FREE` | [FreePhase.classify](conPanna/Certification/Replay.lean#L1480) |
+| DELETE | [`chooseTerm(S,A,A,HS,P)`](certifier/certification.maude#L470) skips a reflexive equation; no standalone rewrite rule | [Equality.refl](conPanna/Certification/Replay.lean#L824); bookkeeping, not a separate `Complete` constructor |
+| ORIENT | [`chooseTerm`](certifier/certification.maude#L474) orients the selected premise via `symmText`; no standalone rewrite rule | [Derives.symm](conPanna/Certification/Replay.lean#L1683) |
+| DECOMPOSE | [`chooseArgs`](certifier/certification.maude#L482) with [`decompText`](certifier/certification.maude#L270) derives a field equation; no standalone rewrite rule | [Derives.decompose](conPanna/Certification/Replay.lean#L1698), justified by [decompose_native](conPanna/Certification/Replay.lean#L353) |
+| CLASH | [`[clash-and-emit]`](certifier/certification.maude#L1437) | [Complete.clash](conPanna/Certification/Replay.lean#L1985) |
+| BIND | [`[bind]`](certifier/certification.maude#L1430) | [Complete.bind](conPanna/Certification/Replay.lean#L1930), [Binding.Removal](conPanna/Certification/Replay.lean#L1082), [Binding.complete](conPanna/Certification/Replay.lean#L1312) |
+| FREE-OCCURS | [`[occurs-and-emit]`](certifier/certification.maude#L1444) | [Complete.occurs](conPanna/Certification/Replay.lean#L1936), [FreeOccurs.Proper.sound](conPanna/Certification/Replay.lean#L1395) |
+| Free-step selection | [`chooseTerm`](certifier/certification.maude#L470) in `CERTIFICATION-FREE` | [FreePhase.classify](conPanna/Certification/Replay.lean#L1480) |
 
 BIND is valid at any sort when the scoped-replacement condition holds. The
 mandatory free phase uses it at non-bag sorts; optional bag bindings are shortcuts.
@@ -512,7 +513,7 @@ NORMALIZE                                  nf flattens + and removes 0
 
 Its proofs use `Equality.assoc`, `comm`, `unit`, `congr`, `trans`,
 and `symm`; see [Equality](conPanna/Certification/Replay.lean#L824).
-Maude: [`norm`](certification-support.maude#L323) in `CERTIFICATION-EQUALITY`
+Maude: [`norm`](certifier/certification.maude#L328) in `CERTIFICATION-EQUALITY`
 constructs NORMALIZE evidence; `normalized` computes data-only normal forms
 for decisions. There is no standalone `[normalize]` rewrite rule.
 
@@ -535,10 +536,10 @@ Lean: [Derives.cancel](conPanna/Certification/Replay.lean#L1691),
 [Derives.multiplicity](conPanna/Certification/Replay.lean#L1694),
 [cancel_native](conPanna/Certification/Replay.lean#L488),
 [multiplicity_native](conPanna/Certification/Replay.lean#L324).
-Maude: [`cancelText`](certification-support.maude#L1096) and
-[`multiplicityText`](certification-support.maude#L1086) in
+Maude: [`cancelText`](certifier/certification.maude#L1101) and
+[`multiplicityText`](certifier/certification.maude#L1091) in
 `CERTIFICATION-COVERAGE` construct CANCEL and MULTIPLICITY-CANCEL evidence.
-[`sharingPremise`](certification-support.maude#L804) also emits cancellation
+[`sharingPremise`](certifier/certification.maude#L809) also emits cancellation
 evidence during sharing preparation.
 Neither is a standalone solver rewrite rule.
 
@@ -565,8 +566,8 @@ Lean: [Complete.purify](conPanna/Certification/Replay.lean#L1939),
 [Purification.exact](conPanna/Certification/Replay.lean#L1859).
 The typed fresh-slot template must reconstruct the exact old equation when its
 slot is filled; an external dump cannot simply assert that the replacement is valid.
-Maude: [`[purify]`](certification.maude#L164) invokes
-[`beginPurify`](certification-support.maude#L913) in
+Maude: [`[purify]`](certifier/certification.maude#L1494) invokes
+[`beginPurify`](certifier/certification.maude#L918) in
 `CERTIFICATION-BAG-STEPS`; `[prepare-next]` continues preparation and
 `[purify-collect]` wraps the finished child. Only `[purify]` is the semantic step.
 
@@ -772,8 +773,8 @@ wraps that child's finished trace into the SHARING evidence node.
 
 Thus the mathematical arrow summarizes deterministic helper computation and
 child creation, not a different pair-based implementation. See
-[`[finite-sharing]`](certification.maude#L156) and
-[`launchSharing`](certification-support.maude#L823) in `CERTIFICATION-SHARING`.
+[`[finite-sharing]`](certifier/certification.maude#L1486) and
+[`launchSharing`](certifier/certification.maude#L828) in `CERTIFICATION-SHARING`.
 
 For `2P =B 3Q`, the only nonempty balanced support is the full rectangle shown
 in the intuitive example above. Hence `θ(P)=3Z, θ(Q)=2Z`. Section 5.3 shows
@@ -893,9 +894,9 @@ Under the contract, these payload equations cannot create more bag equations.
 Lean: [Complete.atom](conPanna/Certification/Replay.lean#L1944),
 [Complete.zero](conPanna/Certification/Replay.lean#L1951),
 [Complete.nonempty](conPanna/Certification/Replay.lean#L1956).
-Maude labels: [`[atom-split]`](certification.maude#L123),
-[`[zero-split]`](certification.maude#L135), and
-[`[nonempty-close]`](certification.maude#L147).
+Maude labels: [`[atom-split]`](certifier/certification.maude#L1453),
+[`[zero-split]`](certifier/certification.maude#L1465), and
+[`[nonempty-close]`](certifier/certification.maude#L1477).
 `[atom-collect]` / `[zero-collect]` assemble finished children; their requirements
 come from `CERTIFICATION-BAG-STEPS`. ATOM-MANY/ONE/CHOOSE are derived cases of
 these rules, not additional Maude labels.
@@ -937,8 +938,8 @@ There is no child state. A valuation δ satisfying E supplies the answer witness
 At a solved leaf `E=[]`, the equalities are unconditional: this is ordinary
 COVER. At an unsolved state, they may use E: this is EARLY-COVER. Both are the
 SAME [Complete.cover](conPanna/Certification/Replay.lean#L1926) constructor.
-Maude: [`[cover-and-emit]`](certification.maude#L84) implements both COVER and
-EARLY-COVER, using [`selectCoverage`](certification-support.maude#L1155) in
+Maude: [`[cover-and-emit]`](certifier/certification.maude#L1414) implements both COVER and
+EARLY-COVER, using [`selectCoverage`](certifier/certification.maude#L1160) in
 `CERTIFICATION-COVERAGE` and whole-vector
 factoring in `CERTIFICATION-ACU-MATCHING`. There is no separate early-cover label.
 Early closure does NOT assert that E is trivial or that the current state is
@@ -985,9 +986,9 @@ not a guess that one particular solution has those pieces.
 Lean: [Complete.mutate](conPanna/Certification/Replay.lean#L1973),
 [mutated](conPanna/Certification/Replay.lean#L1760),
 [mutate_native](conPanna/Certification/Replay.lean#L449).
-Maude: [`[witness-cover-and-emit]`](certification.maude#L92) closes with a
+Maude: [`[witness-cover-and-emit]`](certifier/certification.maude#L1422) closes with a
 composite MUTATE → COVER trace constructed by
-[`tryWitness`](certification-support.maude#L1180) / `finishWitness` in
+[`tryWitness`](certifier/certification.maude#L1185) / `finishWitness` in
 `CERTIFICATION-COVERAGE`. There is no standalone `[mutate]` rule in this producer.
 It may enable immediate COVER by a supplied four-parameter answer (§5.4).
 The complete fallback remains FINITE-SHARING; unrestricted MUTATE search is not
@@ -1026,10 +1027,10 @@ one equation and all answers;
 [exact_system](conPanna/Certification/Replay.lean#L2232) combines this with root
 coverage. For a single equation,
 [exact](conPanna/Certification/Replay.lean#L2243) is the convenience theorem.
-Maude: [`[emit-sound-evidence]`](certification.maude#L71) emits ANSWER-SOUND
-evidence using [`answersProof`](certification-support.maude#L389) in
+Maude: [`[emit-sound-evidence]`](certifier/certification.maude#L1401) emits ANSWER-SOUND
+evidence using [`answersProof`](certifier/certification.maude#L394) in
 `CERTIFICATION-EQUALITY`;
-[`[emit]`](certification.maude#L76) packages it with completed root coverage.
+[`[emit]`](certifier/certification.maude#L1406) packages it with completed root coverage.
 EXACT is the Lean aggregation above, NOT an additional Maude search rule or a
 claim that formatting JSON proves exactness.
 
@@ -1046,7 +1047,7 @@ Dump displays below are READABLE PROJECTIONS of rule records: names replace
 sorted slot indices, and routine scope/image/equation fields are abbreviated.
 They are not literal JSON inputs or copy-paste Lean syntax. Rule names and the
 `child`, `children`, `premise`, `index`, `beta`, and `derived` fields
-correspond to the actual [Maude serializer](certification-support.maude#L1252).
+correspond to the actual [Maude serializer](certifier/certification.maude#L1257).
 The full wire format also carries sorted constructor terms and checked snapshots.
 
 ### 5.1 Two unifiers: P+Q =B [wait(n)]
@@ -1513,7 +1514,7 @@ search and the corresponding exhaustive certificate subtree. Merely prioritizing
 the choices suggested by an answer would not suffice: unexplored alternatives
 would still need coverage evidence.
 
-The empirical comparison command is `python3 -B certifier.py --compare`.
+The empirical comparison command is `python3 -B tests/test_certification_compiler.py --compare`.
 Its targeted run receives `(E₀,B,Σ)`. Its untargeted diagnostic entry point receives
 ONLY `(E₀,B)`: it disables answer matching and all answer-guided shortcuts, uses
 the SAME free/ATOM/ZERO/PURIFY/FINITE-SHARING rules, and collects solved leaves as
@@ -1573,8 +1574,8 @@ Unary state rules have a `child`; ATOM has `children`; COVER and contradiction
 nodes have no completeness children. A node's `premise` selects/derives an
 equation from its current worklist. COVER's `derived` field contains equality
 proofs for every original image, not further search branches.
-[traceText](certification-support.maude#L1252) serializes these records;
-[compile_components](certifier.py#L430) assembles the two proof
+[traceText](certifier/certification.maude#L1257) serializes these records;
+[compile_components](certifier/certifier.py#L435) assembles the two proof
 parts; [LeanReady.prepareProof](conPanna/Certification/Frontend.lean#L104)
 loads checked nodes against Lean's independently fixed goal.
 
@@ -1627,7 +1628,7 @@ It calls the existing coordinator stages and shows the constructor module,
 actual Maude queries, native unifiers and certification statistics in stdout.
 Intermediate JSON is saved, NOT printed; the JSON-bearing Maude result line
 is replaced with a pointer to its saved transcript. All artifacts remain in
-`.lake/build/certifier/inspection`. This is a HARDCODED walkthrough of the atomic
+`certifier/.cache`. This is a HARDCODED walkthrough of the atomic
 example: fixed paths, no arguments or helper functions (only a stage timer variable). Each command
 can be copied and run manually. Run from the repository root with `maude` on PATH.
 It does not run Lean. To capture the whole transcript, append
@@ -1635,11 +1636,16 @@ It does not run Lean. To capture the whole transcript, append
 Each stage prints its elapsed wall-clock time, including preparation, process
 startup and displayed output, not just Maude's internal rewrite time.
 
-`certifier.py` also provides `--coordinate`. It coordinates TWO
-sequential Maude operations behind ONE Lean/Python exchange:
+The standalone frontend lives in `certifier/`: `certifier.py`, the fixed
+`wrapper.maude` template, and `certification.maude` containing the unchanged
+calculus modules. Its demo constructor module is `examples/bakery.maude` inside
+that directory. Copying these files outside the Lean repository suffices to run
+the engine with Python's standard library and Maude; Lean is not required for
+evidence construction. It coordinates TWO sequential Maude operations:
 
 ```text
-typed Lean problem + native constructor module/name map
+constructor-only .maude file + native unify command
+  → infer signature/sort map and original variable slots
   → native unify → parse and freeze Σ
   → certify(E₀,B,Σ) in CERTIFICATION-PRODUCER
   → compile the evidence → return Σ and a Lean-ready proof bundle
@@ -1653,15 +1659,25 @@ the result verified. The current Lean session checks the returned proof against
 its original problem and the returned answer DATA. It must not accept an
 externally supplied replacement for the original problem.
 
-**Input and boundary.** [certification-request.json](examples/certification-request.json)
-is a small exported-input fixture for `P+Q =B [wait(N)]`; it contains no proposed
-answers. Its signature/equations use the existing numeric constructor encoding.
-Its `native` field maps those codes to native sort/constructor names and original
-variable names, and identifies the native model source. A real exporter should
-generate this metadata, not ask the end user to register a second model.
-The optional Lean demo exports its ACTUAL typed equations/signature; only the
-native name/module map comes from the fixture. Automatic native-model export
-and integration into narrowing are not part of this coordinator prototype.
+**Input and boundary.** No hand-written JSON request/name map is needed by the
+standalone frontend. It accepts ONE closed functional module with explicit
+`sort`/`sorts` declarations and unambiguous prefix `op` declarations marked
+`[ctor]`. Exactly one binary homogeneous operator is marked
+`[ctor assoc comm id: unit]`. The unit is a declared nullary constructor; the bag
+carrier also has exactly one unary singleton constructor, with stratified free
+payloads as required by the existing calculus contract. Imports, subsorts,
+equations, rules, overloaded/mixfix names and additional attributes are rejected.
+Sort and constructor codes follow declaration order. Original variable slots
+follow alphabetically sorted variable names, preserving sharing across every
+equation; their sorts are inferred from typed occurrences in the command.
+
+The existing Lean API still accepts already-exported typed data and fixed
+answers through `--certify`. The optional coordinator regression now calls the
+SAME constructor-file/command frontend and independently fixes `atomSystem` in
+Lean. The [legacy exported fixture](examples/certification-request.json) is kept
+only for the regression checking agreement of inferred metadata with prior
+typed export. It is NOT input to either demo. Automatic native-model export from
+Lean and integration into narrowing remain outside this packaging change.
 
 Currently the adapter accepts simple, unambiguous constructor-prefix syntax and
 a nonempty finite equation system under the existing single stratified ACU
@@ -1677,34 +1693,47 @@ semantic proof rules. Names and answer origin remain untrusted by Lean.
 **All-in-one test, from the repository root:**
 
 ```sh
-python3 -B certifier.py --coordinate \
-  --request examples/certification-request.json \
-  --out .lake/build/certifier/atom
+python3 -B certifier/certifier.py \
+  --ctor certifier/examples/bakery.maude \
+  --unify 'unify in BAKERY-DEMO-NATIVE : union(P:Bag,Q:Bag) =? singleton(wait(N:Ticket)) .'
 ```
 
 Progress goes to stderr; stdout is one JSON result containing the fixed target,
 the returned answer data as a Lean expression, and the existing `rule-bundle-v1`
-certificate. `--out` preserves the intermediate artifacts. Use a fresh directory
-for a different request; the coordinator refuses to reuse another request's
-directory. An existing exported module can be passed with `--ctor path/to/ctor.maude`.
-Alternatively `native.model` embeds the module text; the fixture uses `native.source`
-relative to the repository root.
+certificate. Every generated file is written to `certifier/.cache` by default,
+including the supplied model copied as `ctor.maude`, inferred request, scripts,
+transcripts, frozen answers and proof bundle. The wrapper template is instantiated
+there with the native module name; it loads the fixed filenames `ctor.maude` and
+`certification.maude`. The latter is a copy of the fixed engine, not a newly
+generated calculus. The cache is one sequential workspace; old proof artifacts
+are invalidated before another request starts. Use separate `--out` cache
+directories for independent workflows. Existing JSON coordinator input remains
+available through `--coordinate --request ...` for typed Lean callers.
+
+The wrapper's native import renames all client sorts to `NativeSort0`,
+`NativeSort1`, etc. This isolates client names such as `Terms` and their operation
+signatures from the calculus's own data types/helpers. Native unification still
+runs in the ORIGINAL module; sort codes and encoded answers are unchanged.
+This uses ordinary [Maude module renaming](https://maude.cs.illinois.edu/maude1/manual/maude-manual-html/maude-manual_57.html),
+not a new proof rule or modeling annotation.
 
 **Manual step 1: native unification.** Preparing the script runs no process:
 
 ```sh
-python3 -B certifier.py --prepare-native \
-  --request examples/certification-request.json \
-  --out .lake/build/certifier/manual
+python3 -B certifier/certifier.py --prepare-native \
+  --ctor certifier/examples/bakery.maude \
+  --unify 'unify in BAKERY-DEMO-NATIVE : union(P:Bag,Q:Bag) =? singleton(wait(N:Ticket)) .'
 
-cat .lake/build/certifier/manual/ctor.maude
-cat .lake/build/certifier/manual/01-native-query.maude
+cat certifier/.cache/01-native-query.maude
+cat certifier/.cache/ctor.maude
 
-maude -no-banner -no-advise -no-wrap \
-  .lake/build/certifier/manual/01-native.maude \
-  > .lake/build/certifier/manual/01-native.stdout 2>&1
+(
+  cd certifier/.cache
+  timeout 30s maude -no-banner -no-advise -no-wrap 01-native.maude \
+    > 01-native.stdout 2>&1
+)
 
-cat .lake/build/certifier/manual/01-native.stdout
+cat certifier/.cache/01-native.stdout
 ```
 
 The query is literally:
@@ -1721,19 +1750,17 @@ parameter names and answer ordering may differ; they are not proof assumptions.
 native transcript and generates the wrapper/target query; it runs NO Maude:
 
 ```sh
-python3 -B certifier.py \
-  --parse-native .lake/build/certifier/manual/01-native.stdout \
-  --out .lake/build/certifier/manual
+python3 -B certifier/certifier.py \
+  --parse-native certifier/.cache/01-native.stdout
 
-python3 -m json.tool .lake/build/certifier/manual/02-target.json
-cat .lake/build/certifier/manual/wrapper.maude
-cat .lake/build/certifier/manual/02-target-query.maude
+cat certifier/.cache/wrapper.maude
+cat certifier/.cache/02-target-query.maude
 ```
 
 `02-target.json` is the frozen `(E₀,B,Σ)` request. The wrapper LOADS `ctor.maude`
 and the maintained `certification.maude`; its `CERTIFICATION-QUERY` module imports
 both the native constructor module and `CERTIFICATION-PRODUCER`. Importing does
-not translate native terms: the Python adapter uses the exported map to encode
+not translate native terms: the Python adapter uses the inferred map to encode
 the answers as `v(i)`/`a(head,args)`. The second query is an ordinary
 `rew in CERTIFICATION-QUERY : certify(...) .`, with all supplied answers explicit.
 It contains NO native `unify` call.
@@ -1741,18 +1768,14 @@ It contains NO native `unify` call.
 **Manual step 2: targeted certification, then proof assembly.**
 
 ```sh
-maude -no-banner -no-advise -no-wrap \
-  .lake/build/certifier/manual/02-target.maude \
-  > .lake/build/certifier/manual/02-target.stdout 2>&1
+(
+  cd certifier/.cache
+  timeout 30s maude -no-banner -no-advise -no-wrap 02-target.maude \
+    > 02-target.stdout 2>&1
+)
 
-cat .lake/build/certifier/manual/02-target.stdout
-
-python3 -B certifier.py \
-  --compile-trace .lake/build/certifier/manual/02-target.stdout \
-  --out .lake/build/certifier/manual
-
-python3 -m json.tool .lake/build/certifier/manual/03-trace.json
-python3 -m json.tool .lake/build/certifier/manual/04-proof.json
+python3 -B certifier/certifier.py \
+  --compile-trace certifier/.cache/02-target.stdout
 ```
 
 The Maude result is a JSON-encoded `result State: result(...)`: a completeness
@@ -1761,12 +1784,13 @@ ordinary applications of the existing Lean rules. Inspect `03-trace.json` for
 the rule tree and `04-proof.json` for its typed, dependency-ordered proof nodes.
 No search runs during `--compile-trace`.
 
-| Artifact under `--out` | Meaning |
+| Artifact under `certifier/.cache` (or `--out`) | Meaning |
 | --- | --- |
 | `00-request.json`, `ctor.maude` | Initial exported input and native model. |
 | `01-native-query.maude`, `01-native.maude`, `01-native.stdout` | First query, directly executable script, native output. |
 | `02-target.json` | Parsed answers, now fixed as the certification target. |
 | `wrapper.maude`, `02-target-query.maude`, `02-target.maude`, `02-target.stdout` | Imports, second query/script and targeted output. |
+| `certification.maude` | Unchanged engine copied into the cache for the wrapper's fixed import. |
 | `03-trace.json` | Decoded Maude rule evidence. |
 | `04-proof.json`, `result.json` | Lean-ready proof bundle and full coordinator reply. |
 | `status.json` | Last completed stage; `kernel_checked` remains false because Python never checks proofs. |
@@ -1774,7 +1798,7 @@ No search runs during `--compile-trace`.
 **Optional kernel-checking test:**
 
 ```sh
-CONPANNA_COORDINATOR_DEMO=1 python3 -B certifier.py --demo
+CONPANNA_COORDINATOR_DEMO=1 python3 -B tests/test_certification_compiler.py --demo
 ```
 
 This also runs the existing regression examples. The additional optional block
@@ -1782,12 +1806,14 @@ in [certification-demo.lean](examples/certification-demo.lean) makes ONE Python
 coordinator call for the atomic problem, creates the actual returned answer DATA,
 and kernel-checks the certificate against its independently defined `atomSystem`.
 Look for `ONE coordinator call: native unifiers + targeted proof, kernel-checked
-against atomSystem`. Its inspectable directory is `.lake/build/certifier/lean-atom`.
+against atomSystem`. Its inspectable directory is `certifier/.cache/lean-atom`.
 The original examples still have their existing calls; “one call” means one
 coordinated request, not one process for the entire regression file.
 
-The separate Python `--demo` harness may invoke Lean for testing, as before.
-The production `--coordinate` and individual coordinator stages never do.
+The `--build`, `--demo` and `--compare` harnesses live in the existing
+`tests/test_certification_compiler.py`, outside the standalone engine. Only that
+test harness invokes Lean. The packaged coordinator has no model-specific demo
+fixtures and never invokes Lean, including in fixed-answer and staged modes.
 Safety limits remain unchanged; do not raise them to force a regression pass.
 
 ## 8. Implementation map and remaining boundary
@@ -2000,10 +2026,10 @@ No new general native-answer parser is needed there: the host already has Σ.
 Run from the repository root:
 
 ```sh
-python3 certifier.py --build
-python3 certifier.py --demo
-CONPANNA_CERT_STRESS=1 python3 certifier.py --demo
-CONPANNA_CERT_NEGATIVES=1 python3 certifier.py --demo
+python3 tests/test_certification_compiler.py --build
+python3 tests/test_certification_compiler.py --demo
+CONPANNA_CERT_STRESS=1 python3 tests/test_certification_compiler.py --demo
+CONPANNA_CERT_NEGATIVES=1 python3 tests/test_certification_compiler.py --demo
 python3 -B -m unittest discover -s tests -v
 ```
 

@@ -21,7 +21,7 @@
   }],
   "native": {
     "module": "BAKERY-DEMO-NATIVE",
-    "source": "examples/certification-demo.maude",
+    "source": "certifier/examples/bakery.maude",
     "sort_names": {"0": "Ticket", "1": "Mode", "2": "Bag", "3": "Conf"},
     "constructor_names": {
       "0": "zero", "1": "succ", "2": "idle", "3": "wait", "4": "crit",

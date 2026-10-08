@@ -2301,7 +2301,7 @@ def requestJson (profile : Profile sig) (sortCode : Sorts → Nat) {inputs}
 native unify nor starts Lean. The current elaborator checks the returned term.
 The producer enforces its own CPU/wall limits on Maude. No certificate cache or
 precompilation is performed while elaborating a user's proof. -/
-def produce (request : Json) (compiler : System.FilePath := "certifier.py") : IO String := do
+def produce (request : Json) (compiler : System.FilePath := "certifier/certifier.py") : IO String := do
   let out ← IO.Process.output { cmd := "python3", args := #[compiler.toString, "--certify"] }
     (some request.compress)
   unless out.exitCode == 0 do

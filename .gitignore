@@ -3,3 +3,6 @@
 
 # Python certificate-wrapper bytecode cache
 __pycache__/
+
+# Standalone certifier's generated inputs, transcripts and proof bundles
+certifier/.cache/

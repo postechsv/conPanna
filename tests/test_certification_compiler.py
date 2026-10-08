@@ -6,12 +6,14 @@ This different constructor-code fixture also checks that production does not
 depend on Bakery's constructor names/codes. Coordinator tests also call native unify.
 """
 import copy
+import json
+import re
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "certifier"))
 import certifier as compiler
 
 SIGNATURE = [
@@ -415,5 +417,333 @@ class CoordinatorTests(unittest.TestCase):
             other["eqs"][0]["left"] = var(1)
             self.assertRaisesRegex(ValueError, "another request", compiler.prepare_native, ROOT, other, out)
 
+class NativeInputTests(unittest.TestCase):
+    QUERY = "unify in BAKERY-DEMO-NATIVE : union(P:Bag,Q:Bag) =? singleton(wait(N:Ticket)) ."
+    MODEL = ROOT / "certifier/examples/bakery.maude"
+
+    def test_inferred_data_agrees_with_legacy_typed_fixture(self):
+        inferred = compiler.native_request(self.MODEL, self.QUERY)
+        legacy = compiler.load_json(ROOT / "examples/certification-request.json")
+        for key in ("signature", "scope", "eqs"):
+            self.assertEqual(inferred[key], legacy[key])
+        for key in ("sort_names", "constructor_names", "variables", "module"):
+            self.assertEqual(inferred["native"][key], legacy["native"][key])
+
+    def test_multiple_equations_share_original_variable_slots(self):
+        rq = compiler.native_request(self.MODEL,
+            "unify in BAKERY-DEMO-NATIVE : P:Bag =? Q:Bag /\\ Q:Bag =? singleton(wait(N:Ticket)) .")
+        self.assertEqual(rq["native"]["variables"], ["N", "P", "Q"])
+        self.assertEqual(rq["eqs"][0], equation(var(1), var(2)))
+        self.assertEqual(rq["eqs"][1], equation(var(2), app(6, app(3, var(0)))))
+
+    def test_reject_bad_queries_before_any_external_process(self):
+        for query in (
+            self.QUERY + " quit .",
+            self.QUERY.replace("BAKERY-DEMO-NATIVE", "WRONG"),
+            "unify in BAKERY-DEMO-NATIVE : union(P:Bag,P:Ticket) =? empty .",
+            "unify in BAKERY-DEMO-NATIVE : empty =? zero .",
+            "unify in BAKERY-DEMO-NATIVE : P:Bag =? #1:Bag .",
+            "unify in BAKERY-DEMO-NATIVE : P:Bag =? Q:Missing .",
+        ):
+            with self.subTest(query=query):
+                self.assertRaises(ValueError, compiler.native_request, self.MODEL, query)
+
+    def test_reject_extra_model_theories_or_declarations(self):
+        from unittest.mock import Mock
+        model = self.MODEL.read_text()
+        for extra in ("protecting NAT .", "eq empty = empty .", "subsort Ticket < Mode ."):
+            with self.subTest(extra=extra):
+                source = Mock(read_text=Mock(return_value=model.replace("endfm", extra + "\nendfm")))
+                self.assertRaises(ValueError, compiler.native_request, source, self.QUERY)
+        source = Mock(read_text=Mock(return_value=model.replace("assoc comm", "comm")))
+        self.assertRaises(ValueError, compiler.native_request, source, self.QUERY)
+
+    def test_renamed_model_is_not_bakery_specific(self):
+        from tempfile import TemporaryDirectory
+        replacements = {"BAKERY-DEMO-NATIVE": "CLIENT", "Ticket": "Token", "Mode": "Item",
+            "Bag": "Pool", "Conf": "Record", "singleton": "inject", "union": "sum",
+            "empty": "none", "wait": "active"}
+        text = self.MODEL.read_text()
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        with TemporaryDirectory(prefix="conpanna-native-") as temp:
+            model = Path(temp) / "client.maude"
+            model.write_text(text)
+            rq = compiler.native_request(model,
+                "unify in CLIENT : sum(L:Pool,R:Pool) =? inject(active(T:Token)) .")
+            result = compiler.coordinate(ROOT, rq, Path(temp) / "cache")
+            self.assertEqual(len(result["request"]["proposed"]), 2)
+            self.assertEqual(rq["native"]["variables"], ["L", "R", "T"])
+            self.assertEqual(result["certificate"]["format"], "rule-bundle-v1")
+
+    def test_standalone_package_needs_no_repository_or_lean(self):
+        from tempfile import TemporaryDirectory
+        import shutil
+        with TemporaryDirectory(prefix="standalone-certifier-") as temp:
+            bundle = Path(temp) / "engine"
+            bundle.mkdir()
+            for name in ("certifier.py", "wrapper.maude", "certification.maude"):
+                shutil.copy2(ROOT / "certifier" / name, bundle / name)
+            shutil.copy2(self.MODEL, Path(temp) / "input.maude")
+            compiler.run_checked([sys.executable, "-B", str(bundle / "certifier.py"),
+                "--ctor", str(Path(temp) / "input.maude"), "--unify", self.QUERY], cwd=Path(temp))
+            out = bundle / ".cache"
+            reply = compiler.load_json(out / "result.json")
+            self.assertEqual(len(reply["request"]["proposed"]), 2)
+            self.assertEqual(reply["certificate"]["format"], "rule-bundle-v1")
+            self.assertEqual((out / "ctor.maude").read_text(), self.MODEL.read_text())
+            self.assertIn("load ctor.maude", (out / "wrapper.maude").read_text())
+            self.assertFalse(compiler.load_json(out / "status.json")["kernel_checked"])
+            # Reuse the same cache with a different, ground, unsatisfiable query.
+            compiler.run_checked([sys.executable, "-B", str(bundle / "certifier.py"),
+                "--ctor", str(Path(temp) / "input.maude"), "--unify",
+                "unify in BAKERY-DEMO-NATIVE : empty =? singleton(wait(zero)) ."], cwd=Path(temp))
+            reply = compiler.load_json(out / "result.json")
+            self.assertEqual(reply["request"]["scope"], [])
+            self.assertEqual(reply["request"]["proposed"], [])
+
+    def test_client_names_do_not_collide_with_calculus_types_and_helpers(self):
+        from tempfile import TemporaryDirectory
+        text = self.MODEL.read_text().replace("Bag", "Terms").replace("union", "appendTerms")
+        with TemporaryDirectory(prefix="certifier-names-") as temp:
+            model = Path(temp) / "client.maude"
+            model.write_text(text)
+            rq = compiler.native_request(model,
+                "unify in BAKERY-DEMO-NATIVE : appendTerms(P:Terms,Q:Terms) =? singleton(wait(N:Ticket)) .")
+            result = compiler.coordinate(ROOT, rq, Path(temp) / "cache")
+            self.assertEqual(len(result["request"]["proposed"]), 2)
+            wrapper = (Path(temp) / "cache/wrapper.maude").read_text()
+            self.assertIn("sort Terms to NativeSort2", wrapper)
+
+    def test_interrupted_new_request_invalidates_old_proof_artifacts(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory(prefix="certifier-cache-") as temp:
+            out = Path(temp)
+            rq = compiler.native_request(self.MODEL, self.QUERY)
+            compiler.coordinate(ROOT, rq, out)
+            new = compiler.native_request(self.MODEL,
+                "unify in BAKERY-DEMO-NATIVE : P:Bag =? Q:Bag .")
+            compiler.prepare_native(ROOT, new, out, replace=True)
+            self.assertEqual(compiler.load_json(out / "result.json")["stage"], "pending")
+            self.assertEqual(compiler.load_json(out / "04-proof.json")["stage"], "pending")
+
+# Standalone test harnesses, NOT part of the coordinator package.
+def precompile(root):
+    """Cache the unchanged general proofs, not the problem certificate."""
+    import time
+    cache = root / ".lake/build/certification"
+    cache.mkdir(parents=True, exist_ok=True)
+    # Let Lake validate dependency traces; do not implement a second build cache.
+    ready = compiler.run_checked(["lake", "--no-build", "--no-cache", "build",
+        "+conPanna.Certification.Replay:olean"], cwd=root, lean=True, allow_stale=True)
+    if ready is not None:
+        print("Certification backend: cached (Lake validated dependencies)", flush=True)
+        return cache
+    # Existing project dependencies must already be built (as in normal Lake use).
+    # Explicit steps prevent independent backend modules compiling concurrently.
+    for name in ("Core", "Sharing", "Enumeration", "Frontend", "Replay"):
+        start = time.monotonic()
+        # Lake creates .ilean and dependency traces needed by the editor.
+        # --old avoids unrelated transitive rebuilds in this experiment.
+        # The Certification library itself fixes -j1 -M512 in lakefile.toml.
+        compiler.run_checked(["lake", "--old", "--no-cache", "build",
+            f"+conPanna.Certification.{name}:olean"], cwd=root, lean=True)
+        print(f"{name}: ready in {time.monotonic() - start:.2f}s", flush=True)
+    return cache
+
+def native_demo_answer(output):
+    """Fixed DEMO grammar; unknown/multiple answers fail, never silently certify."""
+    if len(re.findall(r"^Unifier \d+$", output, re.MULTILINE)) != 1:
+        raise ValueError("demo expects exactly one proposed native unifier")
+    pairs = re.findall(r"^(P:Bag|Q:Bag|N:Ticket) --> (.+)$", output, re.MULTILINE)
+    bindings = dict(pairs)
+    if len(pairs) != 3 or len(bindings) != 3:
+        raise ValueError("unexpected native answer variables")
+    parameter = bindings["N:Ticket"]
+    if not re.fullmatch(r"#\d+:Ticket", parameter):
+        raise ValueError("unexpected native ticket parameter")
+    expected = f"singleton(wait({parameter}))"
+    if bindings["P:Bag"] != expected or bindings["Q:Bag"] != expected:
+        raise ValueError("native answer is outside this demo's input contract")
+    # Transparent signature map: ticket=s0, bag=s2, wait=c3, singleton=c6.
+    atom = {"app": 6, "args": [{"app": 3, "args": [{"var": 0}]}]}
+    return [{"var": 0}, atom, atom]
+
+def comparison_cases():
+    """Small empirical fixtures, NOT constructor-specific search heuristics.
+
+    Codes match the existing Bakery registered signature and are kernel-checked
+    against it below. Targeted Sigma is fixed here; baseline gets only E and B.
+    """
+    signature = [
+        {"id": i, "inputs": args, "output": sort, "role": role}
+        for i, args, sort, role in [
+            (0, [], 0, "free"), (1, [0], 0, "free"),
+            (2, [], 1, "free"), (3, [0], 1, "free"), (4, [0], 1, "free"),
+            (5, [], 2, "zero"), (6, [1], 2, "free"),
+            (7, [2, 2], 2, "add"), (8, [0, 0, 2], 3, "free")]]
+    v = lambda i: {"var": i}
+    app = lambda i, *args: {"app": i, "args": list(args)}
+    plus = lambda a, b: app(7, a, b)
+    def copies(k, a):
+        result = app(5)
+        for _ in range(k):
+            result = plus(a, result)
+        return result
+    def case(name, context, left, right, answers):
+        return name, {"aggregate": "system", "problem": "inputSystem", "answers": "inputAnswers",
+            "signature": signature, "scope": context,
+            "eqs": [{"sort": 2, "left": left, "right": right}], "proposed": answers}
+    def answer(context, *images):
+        return {"parameters": context, "images": list(images)}
+    yield case("2P = 2Q", [2, 2], copies(2, v(0)), copies(2, v(1)),
+        [answer([2], v(0), v(0))])
+    yield case("3P = 3Q", [2, 2], copies(3, v(0)), copies(3, v(1)),
+        [answer([2], v(0), v(0))])
+    atom = app(6, app(3, v(0)))
+    yield case("P + Q = [wait n]", [0, 2, 2], plus(v(1), v(2)), atom,
+        [answer([0], v(0), atom, app(5)), answer([0], v(0), app(5), atom)])
+    yield case("P + [wait n] = Q + [wait n]", [0, 2, 2], plus(v(1), atom), plus(v(2), atom),
+        [answer([0, 2], v(0), v(1), v(1))])
+    yield case("P + Q = R + S", [2] * 4, plus(v(0), v(1)), plus(v(2), v(3)),
+        [answer([2] * 4, plus(v(0), v(1)), plus(v(2), v(3)), plus(v(0), v(2)), plus(v(1), v(3)))])
+    yield case("2P = 3Q (fallback control)", [2, 2], copies(2, v(0)), copies(3, v(1)),
+        [answer([2], copies(3, v(0)), copies(2, v(0)))])
+
+def check_comparison_certificate(root, cache, request, trace, bundle):
+    """Standalone TEST harness. Production never invokes an external Lean checker.
+
+    For baseline, the goal is exactness of its newly computed family; for
+    targeted, exactness of the pre-supplied family. They need not be identical.
+    Generated baseline contexts deliberately retain redundant passthrough slots.
+    """
+    proof_path = cache / "comparison.proof.json"
+    proof_path.write_text(json.dumps(bundle) + "\n")
+    proposed = trace["generated"] if "generated" in trace else request["proposed"]
+    answer_data = ["{ parameters := " + compiler.scope(a["parameters"]) +
+        ", images := " + compiler.terms(a["images"]) + " }" for a in proposed]
+    source = """import conPanna.Certification.Replay
+import examples.bakery_acu
+namespace CertificationComparison
+open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
+open DirectCertification DirectCertification.Substitution DirectCertification.Substitution.Worklist
+derive_direct_profile profile for BakeryTheory.certified
+""" + "def inputSystem : List (Problem Sig " + compiler.scope(request["scope"]) + ") := " + compiler.equations(request["eqs"]) + "\n" + \
+        "def inputAnswers : List (Answer Sig " + compiler.scope(request["scope"]) + ") := [" + ",".join(answer_data) + "]\n" + \
+        "run_elab do\n  let dump ← IO.FS.readFile " + json.dumps(str(proof_path)) + "\n" + \
+        "  let expected ← `(∀ values, Worklist.Holds registration inputSystem values ↔ Solutions registration inputAnswers values)\n" + \
+        "  let (type, proof) ← LeanReady.prepareProof expected dump\n" + \
+        "  Lean.addDecl (.thmDecl { name := `CertificationComparison.checked, levelParams := [], type := type, value := proof })\n" + \
+        "#print axioms checked\nend CertificationComparison\n"
+    source_path = cache / "comparison.lean"
+    source_path.write_text(source)
+    return compiler.run_checked(["lake", "env", "lean", "-j1", "-M512", str(source_path)], cwd=root, lean=True)
+
+def compare_search(root):
+    """Brief empirical comparison. No upstream native-unification time included."""
+    import copy
+    import statistics
+    import time
+    cache = precompile(root)
+    rows = []
+    for name, original in comparison_cases():
+        for mode in ("targeted", "untargeted"):
+            request = copy.deepcopy(original)
+            if mode == "untargeted":
+                request["proposed"] = []
+            print(f"Comparing {name}: {mode}", flush=True)
+            row = {"problem": name, "mode": mode, "failure_phase": "search_or_reference_dump"}
+            try:
+                measurements = []
+                for _ in range(3):
+                    metrics = {}
+                    trace = (compiler.untargeted_unify(root, request, metrics=metrics, with_sound=False)
+                        if mode == "untargeted" else compiler.certify(root, request, metrics=metrics))
+                    measurements.append(metrics)
+                row.update({key: statistics.median(m[key] for m in measurements)
+                    for key in ("wall_ms", "rewrites", "maude_cpu_ms")})
+                def count_rules(node):
+                    return 1 + (count_rules(node["child"]) if "child" in node else 0) + \
+                        sum(count_rules(child) for child in node.get("children", []) if child is not None)
+                row.update(search_rule_nodes=count_rules(trace["proof"]),
+                    answer_count=len(trace.get("generated", request["proposed"])), search_completed=True)
+                if mode == "untargeted":
+                    row["failure_phase"] = "soundness_evidence"
+                    compiler.annotate_generated_sound(root, request, trace, metrics=row)
+                row["total_rewrites"] = row["rewrites"] + row.get("sound_rewrites", 0)
+                bundle = compiler.compile_bundle(trace)
+                row.update(proof_nodes=len(bundle["steps"]), failure_phase="lean_check")
+                start = time.monotonic()
+                check_comparison_certificate(root, cache, request, trace, bundle)
+                row.update(lean_ms=round((time.monotonic() - start) * 1000, 3), status="kernel_checked")
+                del row["failure_phase"]
+                print(f"  {row['total_rewrites']:,} total rewrites; {row['proof_nodes']} proof nodes; "
+                    f"Maude wall {row['wall_ms']:.1f} ms; Lean wall {row['lean_ms']:.1f} ms; checked", flush=True)
+            except (RuntimeError, ValueError, RecursionError) as error:
+                # Preserve failure honestly; never call a capped run impossible.
+                row.update(status="not_checked", error=str(error))
+                if "stack overflow" in str(error):
+                    detail = "Maude stack limit"
+                elif "bad_alloc" in str(error):
+                    detail = "memory-allocation failure under the safety caps"
+                else:
+                    detail = str(error).splitlines()[0]
+                print("  Not checked (" + row["failure_phase"] + "): " + detail, flush=True)
+            rows.append(row)
+            (cache / "comparison.json").write_text(json.dumps(rows, indent=2) + "\n")
+    print("Results: " + str(cache / "comparison.json"), flush=True)
+    return rows
+
+def demo(root):
+    import os
+    import time
+    cache = precompile(root)
+    if os.environ.get("CONPANNA_CERT_STRESS") == "1":
+        # A separate consumer reuses the SAME producer/compiler/checker. Do not
+        # cumulatively spend its CPU budget checking every other certificate first.
+        print("Checking fixed balance problem/answer only; no native unify", flush=True)
+        start = time.monotonic()
+        checked = compiler.run_checked(["lake", "env", "lean", "-j1", "-M512",
+            "examples/certification-balance.lean"], cwd=root, lean=True)
+        print(checked.rstrip())
+        print(f"Balance consumer: {time.monotonic() - start:.2f}s")
+        print("CERTIFIED: soundness and completeness; no sorry")
+        return
+    start = time.monotonic()
+    native = compiler.maude_run(root, "unify in BAKERY-DEMO-NATIVE : "
+        "P:Bag =? Q:Bag /\\ Q:Bag =? singleton(wait(N:Ticket)) .",
+        source=compiler.ENGINE_DIR / "examples/bakery.maude")
+    answer = native_demo_answer(native)
+    print("Native answer: (n, P, Q) := (N, [wait(N)], [wait(N)])")
+    trace = compiler.certify(root, {"aggregate": "system", "problem": "bindSystem", "answers": "bindAnswers",
+        "scope": [0, 2, 2], "eqs": [
+            {"sort": 2, "left": {"var": 1}, "right": {"var": 2}},
+            {"sort": 2, "left": {"var": 2}, "right": answer[1]}],
+        "proposed": [{"parameters": [0], "images": answer}]})
+    print(f"Legacy binding control trace: {trace['proof']['rule']} -> "
+        f"{trace['proof']['child']['rule']} -> {trace['proof']['child']['child']['rule']}")
+    (cache / "demo.trace.json").write_text(json.dumps(trace, indent=2) + "\n")
+    proof_path = cache / "demo.proof.json"
+    proof_path.write_text(json.dumps(compiler.compile_bundle(trace)) + "\n")
+    print(f"Maude + Python: {time.monotonic() - start:.3f}s")
+    start = time.monotonic()
+    # Check THIS produced certificate, not a separately regenerated first proof.
+    # The remaining examples still exercise the independent regression suite.
+    env = dict(os.environ, CONPANNA_CERTIFICATE=str(proof_path))
+    print("Checking supplied binding certificate plus the regression certificates", flush=True)
+    checked = compiler.run_checked(["lake", "env", "lean", "-j1", "-M512",
+        "examples/certification-demo.lean"], cwd=root, lean=True, env=env)
+    print(checked.rstrip())
+    print(f"Lean consumer: {time.monotonic() - start:.2f}s (no backend recompilation)")
+    print("CERTIFIED: soundness and completeness; no sorry")
+    print("Inspect: examples/certification-demo.lean; .lake/build/certification/demo.trace.json")
+
 if __name__ == "__main__":
-    unittest.main()
+    if sys.argv[1:] == ["--build"]:
+        precompile(ROOT)
+    elif sys.argv[1:] == ["--demo"]:
+        demo(ROOT)
+    elif sys.argv[1:] == ["--compare"]:
+        compare_search(ROOT)
+    else:
+        unittest.main()

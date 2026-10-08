@@ -2,7 +2,7 @@ import conPanna.Certification.Replay
 import examples.bakery_acu
 
 /-!
-Precompile the general backend with `python3 certifier.py --build`.
+Precompile the general backend with `python3 tests/test_certification_compiler.py --build`.
 This Lean session supplies the problem AND its already-known answer. It asks
 Maude for certification evidence via Python, then checks the returned proof here.
 No native unify call, external Lean verifier, or proof-file prerequisite is used.
@@ -536,36 +536,26 @@ theorem overlap_certificate (n m : Nat) (P Q R : ProcSet) :
 /- Optional ONE Lean/Python exchange, with TWO Maude operations inside Python.
    Enabled only by CONPANNA_COORDINATOR_DEMO=1; ordinary editor elaboration does
    not run another demo. No new tactic, library API, or native-answer assumption.
-   The fixture supplies only the native name/module map. The ACTUAL equations
-   and signature below are exported from Lean's typed atomSystem/profile.
+   The standalone frontend receives only the native model and unify command;
+   it infers the entire request. No JSON name-map fixture is supplied.
    Returned answers are checked DATA; their exactness is proved by the returned
    rule bundle against the independently fixed atomSystem. Answer order need
    not agree with the handwritten atomAnswers. -/
+-- Bind the frontend's standard problem name to our independently fixed problem.
+abbrev inputProblem := atomSystem
+
 run_elab do
   if (← IO.getEnv "CONPANNA_COORDINATOR_DEMO") == some "1" then
-    let fixture ← match Lean.Json.parse (← IO.FS.readFile "examples/certification-request.json") with
-      | .ok value => pure value
-      | .error message => throwError "coordinator fixture: {message}"
-    let native ← match fixture.getObjVal? "native" with
-      | .ok value => pure value
-      | .error message => throwError "coordinator native metadata: {message}"
-    let data := LeanReady.requestJson profile profile_sortCode atomSystem []
-      "atomSystem" "coordinatedAnswers" profile_signature
-    let mut fields : List (String × Lean.Json) := []
-    for key in ["aggregate", "problem", "answers", "signature", "scope", "eqs"] do
-      match data.getObjVal? key with
-      | .ok value => fields := fields ++ [(key, value)]
-      | .error message => throwError "coordinator export: {message}"
-    let request := Lean.Json.mkObj (fields ++ [("native", native)])
     let response ← IO.Process.output {
       cmd := "python3"
-      args := #["certifier.py", "--coordinate", "--out",
-        ".lake/build/certifier/lean-atom"] } (some request.compress)
+      args := #["certifier/certifier.py", "--ctor", "certifier/examples/bakery.maude",
+        "--unify", "unify in BAKERY-DEMO-NATIVE : union(P:Bag,Q:Bag) =? singleton(wait(N:Ticket)) .",
+        "--out", "certifier/.cache/lean-atom"] }
     unless response.exitCode == 0 do throwError "coordinator failed: {response.stderr}"
     let result ← match Lean.Json.parse response.stdout with
       | .ok value => pure value
       | .error message => throwError "coordinator reply: {message}"
-    -- Define the ACTUAL returned family, not the fixture's expected answers.
+    -- Define the ACTUAL returned family, not our handwritten expected answers.
     let answerText ← match result.getObjValAs? String "answer_value" with
       | .ok value => pure value
       | .error message => throwError "coordinator answer data: {message}"
@@ -579,7 +569,7 @@ run_elab do
     let answerValue ← Lean.instantiateMVars answerValue
     if answerValue.hasMVar || answerValue.hasFVar || answerValue.hasSorry then
       throwError "coordinator returned nonclosed/admitted answer data"
-    let answerName := `CertificationDemo.coordinatedAnswers
+    let answerName := `CertificationDemo.certifiedAnswers
     Lean.addDecl (.defnDecl {
       name := answerName
       levelParams := []

@@ -1,16 +1,21 @@
-"""Untrusted rule-data compiler and Maude certificate producer wrapper.
+"""Standalone, untrusted constructor-unification certification coordinator.
+Supply --ctor FILE --unify 'unify in MODULE : ... =? ... .' to run the engine.
+Signature/variables are inferred; intermediate files go to this engine's .cache.
 The constructor translator does no unification, search, or Lean syntax evaluation.
---build caches general Lean proofs; --demo runs an explicit experimental pipeline.
+This engine assembles proof syntax but never launches Lean.
 Rule templates are restricted. Lean independently fixes and checks the goals.
 Not a general ACU search engine or a production certificate loader.
 --certify takes an EXISTING problem/answer family. It never invokes native unify
 or Lean. --coordinate obtains native answers first, then calls that same fixed-
 answer certifier. Its stages can be run separately and inspected with --out.
-Standalone --build/--demo/--compare modes may launch Lean; coordinator modes do not.
+Lean kernel checks and comparisons live in the separate test harness.
 """
 import json
 import re
 import sys
+from pathlib import Path
+
+ENGINE_DIR = Path(__file__).resolve().parent
 
 def number(x):
     if type(x) is not int or x < 0:
@@ -497,56 +502,18 @@ def run_checked(command, *, cwd, input_text=None, lean=False, allow_stale=False,
         raise RuntimeError(f"subprocess failed ({status}, {time.monotonic() - started:.2f}s)\n" + messages)
     return messages
 
-def precompile(root):
-    """Cache the unchanged general proofs, not the problem certificate."""
-    import time
-    cache = root / ".lake/build/certification"
-    cache.mkdir(parents=True, exist_ok=True)
-    # Let Lake validate dependency traces; do not implement a second build cache.
-    ready = run_checked(["lake", "--no-build", "--no-cache", "build",
-        "+conPanna.Certification.Replay:olean"], cwd=root, lean=True, allow_stale=True)
-    if ready is not None:
-        print("Certification backend: cached (Lake validated dependencies)", flush=True)
-        return cache
-    # Existing project dependencies must already be built (as in normal Lake use).
-    # Explicit steps prevent independent backend modules compiling concurrently.
-    for name in ("Core", "Sharing", "Enumeration", "Frontend", "Replay"):
-        start = time.monotonic()
-        # Lake creates .ilean and dependency traces needed by the editor.
-        # --old avoids unrelated transitive rebuilds in this experiment.
-        # The Certification library itself fixes -j1 -M512 in lakefile.toml.
-        run_checked(["lake", "--old", "--no-cache", "build",
-            f"+conPanna.Certification.{name}:olean"], cwd=root, lean=True)
-        print(f"{name}: ready in {time.monotonic() - start:.2f}s", flush=True)
-    return cache
 
-def maude_run(root, commands, *, source="certification.maude"):
+def maude_run(root, commands, *, source=None):
     import os
     import shutil
     executable = os.environ.get("CONPANNA_MAUDE") or shutil.which("maude")
     if not executable:
         raise RuntimeError("Set CONPANNA_MAUDE or put maude on PATH")
+    source = ENGINE_DIR / "certification.maude" if source is None else root / source
     return run_checked([executable, "-no-banner", "-no-advise", "-no-wrap",
-        str(root / source)], cwd=root,
+        str(source)], cwd=root,
         input_text=commands + "\nquit\n", bounded_memory=True)
 
-def native_demo_answer(output):
-    """Fixed DEMO grammar; unknown/multiple answers fail, never silently certify."""
-    if len(re.findall(r"^Unifier \d+$", output, re.MULTILINE)) != 1:
-        raise ValueError("demo expects exactly one proposed native unifier")
-    pairs = re.findall(r"^(P:Bag|Q:Bag|N:Ticket) --> (.+)$", output, re.MULTILINE)
-    bindings = dict(pairs)
-    if len(pairs) != 3 or len(bindings) != 3:
-        raise ValueError("unexpected native answer variables")
-    parameter = bindings["N:Ticket"]
-    if not re.fullmatch(r"#\d+:Ticket", parameter):
-        raise ValueError("unexpected native ticket parameter")
-    expected = f"singleton(wait({parameter}))"
-    if bindings["P:Bag"] != expected or bindings["Q:Bag"] != expected:
-        raise ValueError("native answer is outside this demo's input contract")
-    # Transparent signature map: ticket=s0, bag=s2, wait=c3, singleton=c6.
-    atom = {"app": 6, "args": [{"app": 3, "args": [{"var": 0}]}]}
-    return [{"var": 0}, atom, atom]
 
 def maude_term(t):
     if "var" in t:
@@ -752,174 +719,6 @@ def untargeted_unify(root, request, *, metrics=None, with_sound=True):
     trace = producer_result(root, request, untargeted=True, metrics=metrics)
     return annotate_generated_sound(root, request, trace, metrics=metrics) if with_sound else trace
 
-def comparison_cases():
-    """Small empirical fixtures, NOT constructor-specific search heuristics.
-
-    Codes match the existing Bakery registered signature and are kernel-checked
-    against it below. Targeted Sigma is fixed here; baseline gets only E and B.
-    """
-    signature = [
-        {"id": i, "inputs": args, "output": sort, "role": role}
-        for i, args, sort, role in [
-            (0, [], 0, "free"), (1, [0], 0, "free"),
-            (2, [], 1, "free"), (3, [0], 1, "free"), (4, [0], 1, "free"),
-            (5, [], 2, "zero"), (6, [1], 2, "free"),
-            (7, [2, 2], 2, "add"), (8, [0, 0, 2], 3, "free")]]
-    v = lambda i: {"var": i}
-    app = lambda i, *args: {"app": i, "args": list(args)}
-    plus = lambda a, b: app(7, a, b)
-    def copies(k, a):
-        result = app(5)
-        for _ in range(k):
-            result = plus(a, result)
-        return result
-    def case(name, context, left, right, answers):
-        return name, {"aggregate": "system", "problem": "inputSystem", "answers": "inputAnswers",
-            "signature": signature, "scope": context,
-            "eqs": [{"sort": 2, "left": left, "right": right}], "proposed": answers}
-    def answer(context, *images):
-        return {"parameters": context, "images": list(images)}
-    yield case("2P = 2Q", [2, 2], copies(2, v(0)), copies(2, v(1)),
-        [answer([2], v(0), v(0))])
-    yield case("3P = 3Q", [2, 2], copies(3, v(0)), copies(3, v(1)),
-        [answer([2], v(0), v(0))])
-    atom = app(6, app(3, v(0)))
-    yield case("P + Q = [wait n]", [0, 2, 2], plus(v(1), v(2)), atom,
-        [answer([0], v(0), atom, app(5)), answer([0], v(0), app(5), atom)])
-    yield case("P + [wait n] = Q + [wait n]", [0, 2, 2], plus(v(1), atom), plus(v(2), atom),
-        [answer([0, 2], v(0), v(1), v(1))])
-    yield case("P + Q = R + S", [2] * 4, plus(v(0), v(1)), plus(v(2), v(3)),
-        [answer([2] * 4, plus(v(0), v(1)), plus(v(2), v(3)), plus(v(0), v(2)), plus(v(1), v(3)))])
-    yield case("2P = 3Q (fallback control)", [2, 2], copies(2, v(0)), copies(3, v(1)),
-        [answer([2], copies(3, v(0)), copies(2, v(0)))])
-
-def check_comparison_certificate(root, cache, request, trace, bundle):
-    """Standalone TEST harness. Production never invokes an external Lean checker.
-
-    For baseline, the goal is exactness of its newly computed family; for
-    targeted, exactness of the pre-supplied family. They need not be identical.
-    Generated baseline contexts deliberately retain redundant passthrough slots.
-    """
-    proof_path = cache / "comparison.proof.json"
-    proof_path.write_text(json.dumps(bundle) + "\n")
-    proposed = trace["generated"] if "generated" in trace else request["proposed"]
-    answer_data = ["{ parameters := " + scope(a["parameters"]) +
-        ", images := " + terms(a["images"]) + " }" for a in proposed]
-    source = """import conPanna.Certification.Replay
-import examples.bakery_acu
-namespace CertificationComparison
-open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
-open DirectCertification DirectCertification.Substitution DirectCertification.Substitution.Worklist
-derive_direct_profile profile for BakeryTheory.certified
-""" + "def inputSystem : List (Problem Sig " + scope(request["scope"]) + ") := " + equations(request["eqs"]) + "\n" + \
-        "def inputAnswers : List (Answer Sig " + scope(request["scope"]) + ") := [" + ",".join(answer_data) + "]\n" + \
-        "run_elab do\n  let dump ← IO.FS.readFile " + json.dumps(str(proof_path)) + "\n" + \
-        "  let expected ← `(∀ values, Worklist.Holds registration inputSystem values ↔ Solutions registration inputAnswers values)\n" + \
-        "  let (type, proof) ← LeanReady.prepareProof expected dump\n" + \
-        "  Lean.addDecl (.thmDecl { name := `CertificationComparison.checked, levelParams := [], type := type, value := proof })\n" + \
-        "#print axioms checked\nend CertificationComparison\n"
-    source_path = cache / "comparison.lean"
-    source_path.write_text(source)
-    return run_checked(["lake", "env", "lean", "-j1", "-M512", str(source_path)], cwd=root, lean=True)
-
-def compare_search(root):
-    """Brief empirical comparison. No upstream native-unification time included."""
-    import copy
-    import statistics
-    import time
-    cache = precompile(root)
-    rows = []
-    for name, original in comparison_cases():
-        for mode in ("targeted", "untargeted"):
-            request = copy.deepcopy(original)
-            if mode == "untargeted":
-                request["proposed"] = []
-            print(f"Comparing {name}: {mode}", flush=True)
-            row = {"problem": name, "mode": mode, "failure_phase": "search_or_reference_dump"}
-            try:
-                measurements = []
-                for _ in range(3):
-                    metrics = {}
-                    trace = (untargeted_unify(root, request, metrics=metrics, with_sound=False)
-                        if mode == "untargeted" else certify(root, request, metrics=metrics))
-                    measurements.append(metrics)
-                row.update({key: statistics.median(m[key] for m in measurements)
-                    for key in ("wall_ms", "rewrites", "maude_cpu_ms")})
-                def count_rules(node):
-                    return 1 + (count_rules(node["child"]) if "child" in node else 0) + \
-                        sum(count_rules(child) for child in node.get("children", []) if child is not None)
-                row.update(search_rule_nodes=count_rules(trace["proof"]),
-                    answer_count=len(trace.get("generated", request["proposed"])), search_completed=True)
-                if mode == "untargeted":
-                    row["failure_phase"] = "soundness_evidence"
-                    annotate_generated_sound(root, request, trace, metrics=row)
-                row["total_rewrites"] = row["rewrites"] + row.get("sound_rewrites", 0)
-                bundle = compile_bundle(trace)
-                row.update(proof_nodes=len(bundle["steps"]), failure_phase="lean_check")
-                start = time.monotonic()
-                check_comparison_certificate(root, cache, request, trace, bundle)
-                row.update(lean_ms=round((time.monotonic() - start) * 1000, 3), status="kernel_checked")
-                del row["failure_phase"]
-                print(f"  {row['total_rewrites']:,} total rewrites; {row['proof_nodes']} proof nodes; "
-                    f"Maude wall {row['wall_ms']:.1f} ms; Lean wall {row['lean_ms']:.1f} ms; checked", flush=True)
-            except (RuntimeError, ValueError, RecursionError) as error:
-                # Preserve failure honestly; never call a capped run impossible.
-                row.update(status="not_checked", error=str(error))
-                if "stack overflow" in str(error):
-                    detail = "Maude stack limit"
-                elif "bad_alloc" in str(error):
-                    detail = "memory-allocation failure under the safety caps"
-                else:
-                    detail = str(error).splitlines()[0]
-                print("  Not checked (" + row["failure_phase"] + "): " + detail, flush=True)
-            rows.append(row)
-            (cache / "comparison.json").write_text(json.dumps(rows, indent=2) + "\n")
-    print("Results: " + str(cache / "comparison.json"), flush=True)
-    return rows
-
-def demo(root):
-    import os
-    import time
-    cache = precompile(root)
-    if os.environ.get("CONPANNA_CERT_STRESS") == "1":
-        # A separate consumer reuses the SAME producer/compiler/checker. Do not
-        # cumulatively spend its CPU budget checking every other certificate first.
-        print("Checking fixed balance problem/answer only; no native unify", flush=True)
-        start = time.monotonic()
-        checked = run_checked(["lake", "env", "lean", "-j1", "-M512",
-            "examples/certification-balance.lean"], cwd=root, lean=True)
-        print(checked.rstrip())
-        print(f"Balance consumer: {time.monotonic() - start:.2f}s")
-        print("CERTIFIED: soundness and completeness; no sorry")
-        return
-    start = time.monotonic()
-    native = maude_run(root, "unify in BAKERY-DEMO-NATIVE : "
-        "P:Bag =? Q:Bag /\\ Q:Bag =? singleton(wait(N:Ticket)) .",
-        source="examples/certification-demo.maude")
-    answer = native_demo_answer(native)
-    print("Native answer: (n, P, Q) := (N, [wait(N)], [wait(N)])")
-    trace = certify(root, {"aggregate": "system", "problem": "bindSystem", "answers": "bindAnswers",
-        "scope": [0, 2, 2], "eqs": [
-            {"sort": 2, "left": {"var": 1}, "right": {"var": 2}},
-            {"sort": 2, "left": {"var": 2}, "right": answer[1]}],
-        "proposed": [{"parameters": [0], "images": answer}]})
-    print(f"Legacy binding control trace: {trace['proof']['rule']} -> "
-        f"{trace['proof']['child']['rule']} -> {trace['proof']['child']['child']['rule']}")
-    (cache / "demo.trace.json").write_text(json.dumps(trace, indent=2) + "\n")
-    proof_path = cache / "demo.proof.json"
-    proof_path.write_text(json.dumps(compile_bundle(trace)) + "\n")
-    print(f"Maude + Python: {time.monotonic() - start:.3f}s")
-    start = time.monotonic()
-    # Check THIS produced certificate, not a separately regenerated first proof.
-    # The remaining examples still exercise the independent regression suite.
-    env = dict(os.environ, CONPANNA_CERTIFICATE=str(proof_path))
-    print("Checking supplied binding certificate plus the regression certificates", flush=True)
-    checked = run_checked(["lake", "env", "lean", "-j1", "-M512",
-        "examples/certification-demo.lean"], cwd=root, lean=True, env=env)
-    print(checked.rstrip())
-    print(f"Lean consumer: {time.monotonic() - start:.2f}s (no backend recompilation)")
-    print("CERTIFIED: soundness and completeness; no sorry")
-    print("Inspect: examples/certification-demo.lean; .lake/build/certification/demo.trace.json")
 
 # Coordinator: native answer acquisition is OUTSIDE the fixed-Sigma calculus.
 # All stages below are untrusted syntax/data handling; none invokes Lean.
@@ -930,8 +729,8 @@ def native_identifier(value):
 
 class NativeInterface:
     """Many-sorted constructor-prefix interface, not a unification algorithm."""
-    def __init__(self, request):
-        if request.get("aggregate") != "system" or not request.get("eqs"):
+    def __init__(self, request, *, terms_only=False):
+        if request.get("aggregate") != "system" or (not request.get("eqs") and not terms_only):
             raise ValueError("coordinator requires a nonempty equation system")
         if request.get("proposed"):
             raise ValueError("answers already supplied: use --certify instead")
@@ -1019,36 +818,44 @@ class NativeInterface:
             raise ValueError("trailing native term syntax")
         return result
 
+    def encode_term(self, raw, expected, variable):
+        """Shared typed constructor lowering for input terms and answer images."""
+        kind, name, data = raw
+        if kind == "var":
+            if data != expected:
+                raise ValueError("native variable has wrong sort")
+            return variable(name, data)
+        head = self.heads[name]
+        if head["output"] != expected:
+            raise ValueError("native constructor has wrong sort")
+        if head["role"] == "add" and len(data) > 2:
+            args = [self.encode_term(a, expected, variable) for a in data]
+            result = args[-1]
+            for a in reversed(args[:-1]):
+                result = {"app": name, "args": [a, result]}
+            return result
+        if len(data) != len(head["inputs"]):
+            raise ValueError("native constructor arity mismatch")
+        return {"app": name, "args": [self.encode_term(a, s, variable)
+            for a, s in zip(data, head["inputs"])]}
+
     def answer(self, bindings):
         parameters, slots = [], {}
         def translate(raw, expected, visiting=frozenset()):
-            kind, name, data = raw
-            if kind == "var":
-                if data != expected or (name in self.input_sorts and self.input_sorts[name] != expected):
+            def variable(name, sort):
+                if name in self.input_sorts and self.input_sorts[name] != sort:
                     raise ValueError("native variable has wrong sort")
                 bound = bindings.get(name)
-                if bound is not None and bound != raw:
+                if bound is not None and bound != ("var", name, sort):
                     if name in visiting:
                         raise ValueError("cyclic native substitution")
-                    return translate(bound, expected, visiting | {name})
-                key = (name, expected)
+                    return translate(bound, sort, visiting | {name})
+                key = (name, sort)
                 if key not in slots:
                     slots[key] = len(parameters)
-                    parameters.append(expected)
+                    parameters.append(sort)
                 return {"var": slots[key]}
-            head = self.heads[name]
-            if head["output"] != expected:
-                raise ValueError("native constructor has wrong sort")
-            # Maude may print associative binary operators with flattened arity.
-            if head["role"] == "add" and len(data) > 2:
-                args = [translate(a, expected, visiting) for a in data]
-                result = args[-1]
-                for a in reversed(args[:-1]):
-                    result = {"app": name, "args": [a, result]}
-                return result
-            if len(data) != len(head["inputs"]):
-                raise ValueError("native constructor arity mismatch")
-            return {"app": name, "args": [translate(a, s, visiting) for a, s in zip(data, head["inputs"])]}
+            return self.encode_term(raw, expected, variable)
         # Unmentioned original variables pass through; fresh slots are scoped
         # PER ANSWER and shared across ALL images. Only occurring slots survive.
         images = [translate(("var", v, self.input_sorts[v]), self.input_sorts[v]) for v in self.variables]
@@ -1084,6 +891,99 @@ class NativeInterface:
             raise ValueError("native output contained no unifier result")
         return [self.answer(bindings) for bindings in blocks]
 
+def native_request(ctor, command):
+    """Infer sorted syntax from a closed constructor module and ONE unify query.
+
+    No model-specific names, unification or semantic proof search here. Sort and
+    head codes follow declaration order; input slots follow sorted variable names.
+    Extra equations/imports/subsorts/attributes are rejected, not silently ignored.
+    """
+    model = ctor.read_text()
+    source = re.sub(r"(?m)(?:---|\*\*\*).*?$", "", model).strip()
+    module = re.fullmatch(r"fmod\s+(\S+)\s+is\s+(.*?)\s+endfm", source, re.S)
+    if not module:
+        raise ValueError("constructor file must contain one closed fmod")
+    module_name = native_identifier(module[1])
+    sorts, constructors = [], []
+    for statement in module[2].split("."):
+        statement = statement.strip()
+        if not statement:
+            continue
+        declaration_match = re.fullmatch(r"sorts?\s+(.+)", statement, re.S)
+        if declaration_match:
+            for name in declaration_match[1].split():
+                name = native_identifier(name)
+                if name in sorts:
+                    raise ValueError("duplicate sort declaration")
+                sorts.append(name)
+            continue
+        operator = re.fullmatch(r"op\s+(\S+)\s*:\s*(.*?)\s*->\s*(\S+)\s*\[([^\]]*)\]", statement, re.S)
+        if not operator:
+            raise ValueError("unsupported constructor declaration: " + statement)
+        name = native_identifier(operator[1])
+        inputs = [native_identifier(s) for s in operator[2].split()]
+        output = native_identifier(operator[3])
+        attrs = operator[4]
+        units = re.findall(r"\bid:\s*([^\s]+)", attrs)
+        attributes = re.sub(r"\bid:\s*[^\s]+", "", attrs).split()
+        if len(attributes) != len(set(attributes)):
+            raise ValueError("duplicate constructor attribute")
+        if set(attributes) == {"ctor"} and not units:
+            role, unit = "free", None
+        elif set(attributes) == {"ctor", "assoc", "comm"} and len(units) == 1:
+            role, unit = "add", native_identifier(units[0])
+        else:
+            raise ValueError("only free constructors and one assoc/comm/id operator are supported")
+        if any(h["name"] == name for h in constructors):
+            raise ValueError("overloaded/duplicate constructor names are unsupported")
+        constructors.append(dict(name=name, inputs=inputs, output=output, role=role, unit=unit))
+    if not sorts or not constructors:
+        raise ValueError("constructor module needs sort and constructor declarations")
+    sort_codes = {name: i for i, name in enumerate(sorts)}
+    heads = []
+    for i, h in enumerate(constructors):
+        if any(s not in sort_codes for s in h["inputs"] + [h["output"]]):
+            raise ValueError("constructor refers to an undeclared sort")
+        heads.append(dict(id=i, inputs=[sort_codes[s] for s in h["inputs"]],
+            output=sort_codes[h["output"]], role=h["role"]))
+    for h in constructors:
+        if h["unit"] is not None:
+            candidates = [i for i, k in enumerate(constructors) if k["name"] == h["unit"]]
+            if len(candidates) != 1 or heads[candidates[0]]["role"] != "free":
+                raise ValueError("ACU unit must be a declared free nullary constructor")
+            heads[candidates[0]]["role"] = "zero"
+    query = re.fullmatch(r"\s*unify\s+in\s+(\S+)\s*:\s*(.*?)\s*\.\s*", command, re.S)
+    if not query or query[1] != module_name:
+        raise ValueError("supply ONE unify in the declared constructor module")
+    variables = {}
+    for name, sort in re.findall(r"([A-Za-z_][A-Za-z_0-9'-]*)\s*:\s*([A-Za-z_][A-Za-z_0-9'-]*)", query[2]):
+        if sort not in sort_codes:
+            raise ValueError("query variable has undeclared sort")
+        if name in variables and variables[name] != sort_codes[sort]:
+            raise ValueError("same variable name used at different sorts")
+        variables[name] = sort_codes[sort]
+    ordered = sorted(variables)
+    request = dict(aggregate="system", problem="inputProblem", answers="certifiedAnswers",
+        signature=heads, scope=[variables[v] for v in ordered], eqs=[], native=dict(
+            module=module_name, model=model, sort_names={str(i): s for i, s in enumerate(sorts)},
+            constructor_names={str(i): h["name"] for i, h in enumerate(constructors)}, variables=ordered))
+    interface = NativeInterface(request, terms_only=True)
+    slots = {name: i for i, name in enumerate(ordered)}
+    def variable(name, sort):
+        if name not in variables or variables[name] != sort:
+            raise ValueError("query contains a fresh or incorrectly typed variable")
+        return {"var": slots[name]}
+    for pair in query[2].split("/\\"):
+        sides = pair.split("=?")
+        if len(sides) != 2:
+            raise ValueError("expected equations separated by /\\ with one =? per equation")
+        left, right = (interface.read_term(side) for side in sides)
+        sort = left[2] if left[0] == "var" else interface.heads[left[1]]["output"]
+        request["eqs"].append(dict(sort=sort, left=interface.encode_term(left, sort, variable),
+            right=interface.encode_term(right, sort, variable)))
+    validate_request(dict(request, proposed=[]))
+    return request
+
 def save_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
@@ -1097,7 +997,7 @@ def maude_load(path):
         raise ValueError("prototype Maude scripts require paths without whitespace/quotes")
     return "load " + path
 
-def prepare_native(root, request, out, ctor=None):
+def prepare_native(root, request, out, ctor=None, *, replace=False):
     """Stage 1a: export a self-contained native script, with NO Maude call."""
     interface = NativeInterface(request)
     native = request["native"]
@@ -1110,8 +1010,12 @@ def prepare_native(root, request, out, ctor=None):
     out.mkdir(parents=True, exist_ok=True)
     saved = out / "00-request.json"
     exported = dict(request, native=dict(native, model=model))
-    if saved.exists() and load_json(saved) != exported:
+    if saved.exists() and load_json(saved) != exported and not replace:
         raise ValueError("output directory belongs to another request; choose a fresh --out")
+    # A sequential cache can be reused for another problem. Invalidate old proof
+    # artifacts BEFORE starting so an interrupted run cannot expose an old result.
+    for name in ("02-target.json", "03-trace.json", "04-proof.json", "result.json"):
+        save_json(out / name, {"stage": "pending", "kernel_checked": False})
     save_json(saved, exported)
     (out / "ctor.maude").write_text(model)
     query = interface.query(request)
@@ -1132,9 +1036,12 @@ def prepare_target(root, out, native_output):
     validate_request(target)
     save_json(out / "02-target.json", target)
     wrapper = out / "wrapper.maude"
-    wrapper.write_text(maude_load(out / "ctor.maude") + "\n" + maude_load(root / "certification.maude") +
-        "\nmod CERTIFICATION-QUERY is\n  protecting " + interface.module +
-        " .\n  protecting CERTIFICATION-PRODUCER .\nendm\n")
+    (out / "certification.maude").write_text((ENGINE_DIR / "certification.maude").read_text())
+    template = (ENGINE_DIR / "wrapper.maude").read_text()
+    renaming = ", ".join("sort " + name + " to NativeSort" + str(code)
+        for code, name in interface.sorts.items())
+    wrapper.write_text(template.replace("@NATIVE_MODULE@", interface.module)
+        .replace("@SORT_RENAMING@", renaming))
     query = certification_query(target, "CERTIFICATION-QUERY")
     (out / "02-target-query.maude").write_text(query + "\n")
     script = out / "02-target.maude"
@@ -1162,15 +1069,15 @@ def compile_target(out, target_output):
         "answers": len(target["proposed"])})
     return result
 
-def coordinate(root, request, out, ctor=None):
+def coordinate(root, request, out, ctor=None, *, replace=False):
     """ONE Lean/Python exchange, TWO sequential Maude calls; never launch Lean."""
-    native_script = prepare_native(root, request, out, ctor)
+    native_script = prepare_native(root, request, out, ctor, replace=replace)
     print("Native unification: " + str(native_script), file=sys.stderr, flush=True)
-    native_output = maude_run(root, "", source=native_script.resolve())
+    native_output = maude_run(out.resolve(), "", source=native_script.resolve())
     target, target_script = prepare_target(root, out, native_output)
     print("Fixed " + str(len(target["proposed"])) + " native answers; targeted certification: " +
         str(target_script), file=sys.stderr, flush=True)
-    target_output = maude_run(root, "", source=target_script.resolve())
+    target_output = maude_run(out.resolve(), "", source=target_script.resolve())
     result = compile_target(out, target_output)
     print("Proof assembled for current Lean session; NOT kernel-checked by Python", file=sys.stderr, flush=True)
     return result
@@ -1179,28 +1086,33 @@ def main():
     import argparse
     from pathlib import Path
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build", action="store_true", help="precompile the general certificate library")
-    parser.add_argument("--demo", action="store_true", help="run Maude -> Python -> Lean end to end")
     parser.add_argument("--certify", action="store_true", help="certify supplied answers; output proof only; never run unify or Lean")
-    parser.add_argument("--compare", action="store_true", help="compare supplied-answer certification against no-answer calculus search (test harness)")
     stages = parser.add_mutually_exclusive_group()
     stages.add_argument("--coordinate", action="store_true", help="native unify then fixed-answer certification; never run Lean")
     stages.add_argument("--prepare-native", action="store_true", help="write native input script only; no processes")
     stages.add_argument("--parse-native", type=Path, help="parse saved native stdout and prepare the targeted script; no processes")
     stages.add_argument("--compile-trace", type=Path, help="compile saved targeted stdout to Lean-ready proof; no processes")
     parser.add_argument("--request", type=Path, help="coordinator request JSON (otherwise stdin)")
-    parser.add_argument("--ctor", type=Path, help="use this exported constructor module instead of native.model/source")
-    parser.add_argument("--out", type=Path, help="inspectable coordinator directory; required for coordinator stages")
+    parser.add_argument("--ctor", type=Path, help="closed constructor-only fmod; used with --unify for the standalone frontend")
+    parser.add_argument("--unify", help="one native unify command; infers the request from --ctor without JSON input")
+    parser.add_argument("--out", type=Path, help="working cache directory (default: certifier/.cache)")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
+    root = ENGINE_DIR.parent  # Base for legacy typed requests with relative model paths.
+    if args.unify is not None:
+        if args.ctor is None or args.request is not None or args.certify or args.parse_native or args.compile_trace:
+            parser.error("--unify requires --ctor and cannot be mixed with JSON input or other modes")
+        if not args.prepare_native:
+            args.coordinate = True
     coordinating = args.coordinate or args.prepare_native or args.parse_native or args.compile_trace
     if coordinating:
-        if args.certify or args.build or args.demo or args.compare or args.out is None:
-            parser.error("coordinator stages require --out and cannot be mixed with existing modes")
+        if args.certify:
+            parser.error("coordinator stages cannot be mixed with existing modes")
+        args.out = args.out or ENGINE_DIR / ".cache"
         if args.coordinate or args.prepare_native:
-            request = load_json(args.request) if args.request else json.load(sys.stdin)
-            result = coordinate(root, request, args.out, args.ctor) if args.coordinate else \
-                {"native_script": str(prepare_native(root, request, args.out, args.ctor))}
+            request = native_request(args.ctor, args.unify) if args.unify is not None else \
+                load_json(args.request) if args.request else json.load(sys.stdin)
+            result = coordinate(root, request, args.out, args.ctor, replace=args.unify is not None) if args.coordinate else \
+                {"native_script": str(prepare_native(root, request, args.out, args.ctor, replace=args.unify is not None))}
         elif args.parse_native:
             target, script = prepare_target(root, args.out, args.parse_native.read_text())
             result = {"answers": len(target["proposed"]), "target_script": str(script)}
@@ -1212,12 +1124,6 @@ def main():
         print(json.dumps(result))
     elif args.certify:
         print(json.dumps(compile_bundle(certify(root, json.load(sys.stdin)))))
-    elif args.compare:
-        compare_search(root)
-    elif args.demo:
-        demo(root)
-    elif args.build:
-        precompile(root)
     else:
         print(compile_proof(json.load(sys.stdin)))
 

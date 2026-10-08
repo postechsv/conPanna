@@ -18,6 +18,61 @@ standalone demo invokes native unify for input preparation and launches Lean
 as a TEST HARNESS ONLY; do not mistake that harness for the intended integration.
 CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundaries.
 
+## Standalone certifier package — 2026-10-08 (current)
+
+- Canonical engine is now certifier/: certifier.py, fixed wrapper.maude template,
+  certification.maude, examples/bakery.maude and ignored generated .cache/.
+  The OLD root Python/Maude files and examples/certification-demo.maude were
+  moved, not duplicated. Historical filenames in later handoff sections describe
+  earlier states; use these current paths. The legacy CERT2 engine is unaffected.
+- The single certification.maude packages the SAME nine acyclic fmods and short
+  CERTIFICATION-PRODUCER rule mod, with unchanged rule/equation bodies and order.
+  This is not one monolithic module or a new calculus. All source links in the
+  technical document were updated to the relocated modules/rules.
+- Standalone input: python3 -B certifier/certifier.py --ctor FILE --unify COMMAND.
+  No hand-written request JSON/name map. Infer sort/head codes in declaration
+  order and variable slots in alphabetic name order, respecting repeated names
+  and many-sorted typing. Input must be one closed prefix-constructor fmod with
+  exactly the supported stratified ACU component; extra theories/imports/subsorts
+  and unsupported declaration/attribute syntax are rejected BEFORE search.
+- Native/model/query data become an internal request; existing sorted lowering,
+  answer parser, fixed-Sigma search and proof assembly are SHARED, not duplicated.
+  Existing --certify still accepts fixed typed answers and never reruns unify.
+- Model-specific comparison/demo fixtures and routines that run Lean were moved
+  into the EXISTING tests/test_certification_compiler.py. The packaged Python
+  engine contains no Bakery model knowledge and never invokes Lean. Test harness
+  commands: python3 -B tests/test_certification_compiler.py --build/--demo/--compare
+  (choose one flag). No additional Python file was created for this separation.
+- Default workspace is certifier/.cache, including ctor.maude, copied fixed
+  engine, instantiated wrapper, both query scripts, transcripts, frozen Sigma,
+  trace and proof bundle. The wrapper loads fixed ctor.maude/certification.maude
+  filenames; run manual Maude scripts with .cache as cwd. Cache is sequential;
+  use --out for independent workflows. Reused standalone cache invalidates old
+  proof/result artifacts before starting, preventing stale success after a stop.
+- scripts/certify-demo.sh is still a hardcoded, individually copyable Bash
+  walkthrough. It now supplies the packaged Bakery constructor file and literal
+  unify command. Unify is printed first, JSON stays on disk, each stage is timed,
+  CPU/memory/wall limits are unchanged. No Python inspection mode or Bash caller
+  in Lean. Run: bash scripts/certify-demo.sh from repository root.
+- Validation: all 47 Python tests pass, including inferred metadata agreement,
+  multiple shared equations, rejection boundaries, RENAMED unrelated model,
+  copied standalone package with no Lean/repository, cache reuse with a ground
+  empty-answer problem and invalidation of old proofs before a new request.
+  The updated Bash walkthrough runs successfully without stdout JSON.
+  New ctor/query frontend's returned proof also kernel-checks against the
+  independently fixed atomSystem (not an externally supplied replacement).
+  Optional existing Lean example now uses that frontend directly, with no name
+  map fixture. Its inputProblem abbreviation is ONLY an alias of atomSystem.
+- Native wrapper import renames every client sort to NativeSortN to isolate
+  client types/helpers from calculus names. A Terms/appendTerms collision
+  regression passes. Raw native module/query names and encoded codes stay intact;
+  no modeling annotation or calculus rule was added. Final Bash proof bundle is
+  byte-identical to the standalone bundle checked by Lean before import isolation.
+- Remaining boundary: this registered-model demo works, but automatically dumping
+  arbitrary registered Lean models and deriving their matching export maps, then
+  production narrowing integration, is later work. This packaging does not
+  extend the semantic theory contract or claim a new formal search guarantee.
+
 ## Inspectable coordinator — 2026-10-08
 
 - User requested merging upstream answer acquisition and certification behind
@@ -322,8 +377,8 @@ Unrelated disunification.lean is untouched.
   control, then rejects wrong successor AT bind_successor, wrong scope, hole,
   duplicate/unsupported node, and wrong final proof. Saved elaboration state is
   restored between fixtures, including their messages/admission warnings.
-  Commands: CONPANNA_CERT_NEGATIVES=1 python3 -B certifier.py --demo;
-  CONPANNA_CERT_STRESS=1 python3 -B certifier.py --demo separately.
+  Commands: CONPANNA_CERT_NEGATIVES=1 python3 -B tests/test_certification_compiler.py --demo;
+  CONPANNA_CERT_STRESS=1 python3 -B tests/test_certification_compiler.py --demo separately.
 - tests/test_certification_compiler.py uses alternate constructor codes, tests
   typed-input rejection and whole-vector/shared/repeated factor search, omitted
   and unsound families. All 17 tests pass. A two-SHARING regression checks that
@@ -363,7 +418,7 @@ milestone now passes; no narrowing changes or commits were made.
   answer (N, [wait(N)]+R, [wait(N)]+2R), including n's component. No holes or
   problem-specific supporting certification lemmas. Comments describe the ACTUAL
   2-by-2 support table and PURIFY/SHARING/ATOM/BIND/NONEMPTY/COVER structure.
-- Run CONPANNA_CERT_STRESS=1 python3 -B certifier.py --demo. It
+- Run CONPANNA_CERT_STRESS=1 python3 -B tests/test_certification_compiler.py --demo. It
   checks that focused file separately, without another native unify. Latest
   successful consumer: 19.51 s, 685 checked nodes, root elaboration 90 ms,
   standard axioms [propext, Classical.choice, Quot.sound] only. Same resource caps.
@@ -466,7 +521,7 @@ previous successful twelve-certificate CLI check below. No test remains running.
 Older details below are historical and some implementation-status claims are
 superseded by this checkpoint. CERTIFICATION.md remains technical documentation.
 
-Run `python3 certifier.py --demo` from the repository root.
+Run `python3 tests/test_certification_compiler.py --demo` from the repository root.
 `--build` precompiles only the backend. Four sequential cached modules live in
 conPanna/Certification: Core, Sharing, Enumeration, Replay. Generic proof bodies
 were moved, not reimplemented; certification.lean retains its examples. Cross-

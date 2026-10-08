@@ -1,0 +1,11 @@
+--- Fixed wrapper template; native import information comes from its declarations.
+--- Run the generated copy from .cache, which contains ctor.maude and the engine.
+--- Rename client sorts to keep names such as Term/Terms from merging with the
+--- calculus's own data types. This does not change native unification or codes.
+load ctor.maude
+load certification.maude
+
+mod CERTIFICATION-QUERY is
+  protecting @NATIVE_MODULE@ * (@SORT_RENAMING@) .
+  protecting CERTIFICATION-PRODUCER .
+endm

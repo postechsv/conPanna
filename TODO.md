@@ -37,6 +37,27 @@
 - [ ] Integrate this entry point into unification/narrowing after exporter review;
   no narrowing changes are made by this coordinator prototype.
 
+### Standalone certifier engine
+
+- [x] Package one coordinator, fixed wrapper template and existing modular
+  Maude calculus under certifier/; remove the duplicate old paths.
+- [x] Accept a constructor file and unify command, inferring the signature and
+  variable map rather than requiring a hand-written JSON request.
+- [x] Keep every generated artifact in the default certifier/.cache workspace,
+  with fixed ctor.maude import and invalidation of stale proof artifacts.
+- [x] Use certifier/examples/bakery.maude in the hardcoded Bash walkthrough;
+  retain unify-first output, stage timings and no intermediate stdout JSON.
+- [x] Test renamed inputs and a copied standalone package without Lean/repository;
+  all 47 Python regressions pass, including cache reuse, empty answer sets and
+  isolation of client sorts/helpers from the calculus's namespace.
+- [x] Keep Bakery-specific demos and external Lean checking in the existing
+  test harness, not in the standalone coordinator.
+- [x] Kernel-check the NEW ctor/query frontend's returned proof against the
+  independently fixed registered atomSystem, without a JSON name-map fixture.
+- [ ] Next: automatically export arbitrary registered Lean models with matching
+  sort/head/variable codes, then integrate the frontend into unification/narrowing.
+  Existing --certify replay remains available; narrowing is not changed here.
+
 ## Urgent: a general, terminating ACU certification algorithm (2026-10-05)
 
 This DESIGN milestone takes priority over the implementation stages below.
