@@ -5,7 +5,7 @@
 --- Strategy syntax reference:
 --- https://maude.lcc.uma.es/maude-manual/maude-manualch10.html
 
-load conPanna/certification.maude
+load conPanna/maude-cert2.maude
 
 --- One equation. BOTH unifiers must appear inside one returned disjunction.
 --- The final match is a regression check against Lean's overlapOutput; it does

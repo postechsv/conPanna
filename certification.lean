@@ -4,7 +4,7 @@ import examples.bakery_acu
 /-!
 # ACU certification: semantic rules and checked coverage
 
-Specification and provenance: CERTIFICATION.md, especially §§4–9 and §14.
+Specification and provenance: CERTIFICATION.md, especially §§3–8, §10, and Appendix A.
 General proofs are precompiled in conPanna/Certification/{Core,Sharing,
 Enumeration,Replay}.lean. This file retains their explicit demonstration proofs.
 Together they form ONE prototype, with four parts:
@@ -18,7 +18,8 @@ Kept from the previous prototype: quotient-based internal proofs, arbitrary-arit
 free-head rules, native lifting, typed image vectors, and checked worklist trees.
 Removed: shape-specific family recognizers, one-tail guard wrappers, duplicated
 replay engines, bounded Maude search, and elaboration-time external calls.
-The separate Maude experiments are NOT evidence for a general search guarantee.
+The maintained Maude producer is CERTIFICATION-PRODUCER in certification.maude;
+the separate older CERT2 experiment is not this calculus.
 
 The equality is Structural.Indexed.NativeEq, written `=[BakeryTheory.certified]`.
 Quotients and multiplicity vectors are INTERNAL proof tools, not user encodings.
@@ -27,7 +28,7 @@ The profile command generates/checks syntactic metadata, not semantic user proof
 Scoped binding preparation and free-step classification compute checked data;
 proper free-occurrence/clash closure is automatic. The external worklist driver,
 bag-phase schedule, and complete factor matcher now live in certification.maude;
-their informal search argument is in CERTIFICATION.md §§7.4–8.1. A formal Lean
+their informal search argument is in CERTIFICATION.md Appendix A.3.4–A.4.1. A formal Lean
 search-success theorem remains unfinished; individual certificates are checked.
 
 Proved acceptance is not proved search success:
@@ -50,76 +51,8 @@ Rule provenance:
 * Whole-vector factorization: standard complete-unifier-set instantiation.
 * External search / checked acceptance: skeptical certification (e.g. SMTCoq).
 No complement/disunification calculus or order-sorted membership rules are used.
-Full references, differences, and limits on novelty are in CERTIFICATION.md §14.
+Full references, differences, and limits on novelty are in CERTIFICATION.md §10.
 -/
-
--- BEGIN LEAN-READY BOUNDARY EXPERIMENT
-/-!
-Small producer-to-kernel test (2026-10-06), independent of the large typed replay.
-GENERAL rules below use the existing indexed registration, not another equality.
-Maude's RIGHT-UNIT / BIND / EMIT steps generate the certificate body verbatim.
-
-Problem: P union empty =B Q. Answer: P := Z, Q := Z.
-LEFT-EQ transports the original problem; BIND proves the answer family exact.
-The emitter is a deliberately small boundary test, NOT a general ACU certifier.
-No external process runs when this Lean file elaborates.
-
-Measured isolated test: parse <1 ms, elaborate 7 ms, kernel <1 ms; wrong answer
-rejected; no axioms. Whole process 1.88 s / 1,278,580 KiB including model imports.
-This does NOT establish the cause of the earlier full-file memory failure.
-Reproduce producer: see LEAN-READY-BOUNDARY-EMITTER in certification.maude.
--/
-namespace DirectCertification.LeanReadyBoundary
-
-open Structural.Indexed
-
-variable {Sorts : Type} {sig : Signature Sorts}
-
-/- GENERAL RULES: no Bakery names, syntax interpreter, or unification search.
-   LEFT-EQ transports an equation along an explicit structural equality.
-   BIND identifies two variables with one shared fresh parameter. Its iff
-   proves completeness AND soundness for the displayed substitution. -/
-theorem leftEq (reg : Registration sig) {s} {a b c : reg.Carrier s}
-    (step : NativeEq sig reg a b) :
-    NativeEq sig reg a c ↔ NativeEq sig reg b c :=
-  ⟨fun h => .trans (.symm step) h, fun h => .trans step h⟩
-
-theorem bind (reg : Registration sig) {s} (a b : reg.Carrier s) :
-    NativeEq sig reg a b ↔
-      ∃ z : reg.Carrier s, NativeEq sig reg a z ∧ NativeEq sig reg b z :=
-  ⟨fun h => ⟨b, h, .refl _⟩,
-    fun h => Exists.elim h (fun _ h => .trans h.1 (.symm h.2))⟩
-
-theorem rightUnit (reg : Registration sig) {s} (op : sig.ACUOp s)
-    (a : reg.Carrier s) :
-    NativeEq sig reg
-      (reg.apply (sig.add op) (a, reg.apply (sig.zero op) PUnit.unit, PUnit.unit)) a := by
-  simp only [NativeEq, reg.quote_apply, Args.quote]
-  exact .trans (.comm op _ _) (.unit op _)
-
-end DirectCertification.LeanReadyBoundary
-
-
-namespace DirectCertification.LeanReadyBoundary.Bakery
-
-open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
-open DirectCertification.LeanReadyBoundary
-
-/-- Independently specified problem and whole answer family. -/
-def expected : Prop := ∀ P Q : ProcSet,
-  NativeEq Sig registration (s := Tag.s2) (ProcSet.union P ProcSet.empty) Q ↔
-    ∃ Z : ProcSet, NativeEq Sig registration (s := Tag.s2) P Z ∧
-      NativeEq Sig registration (s := Tag.s2) Q Z
-
-/-- Body copied VERBATIM from actual Maude output; no reconstruction tactic.
-Each named rule is general; no problem-specific supporting lemma is used. -/
-theorem maude_unit_bind_certificate : expected :=
-  fun P Q : ProcSet => (Iff.trans (leftEq registration (s := Tag.s2) (rightUnit registration Operator.acu P)) (bind registration (s := Tag.s2) P Q))
-
-#print axioms maude_unit_bind_certificate
-
-end DirectCertification.LeanReadyBoundary.Bakery
--- END LEAN-READY BOUNDARY EXPERIMENT
 
 /-! ## Certificates over Bakery's ordinary registered datatypes
 
@@ -130,8 +63,8 @@ No Maude process, proof-search tactic, or hidden registration obligation runs.
 
 The data terms use generated constructor identifiers solely as a future dump
 would. The readable native theorems immediately below use the user constructors.
-Handwritten proposals are deliberate here: dump/parser/search engineering is
-deferred until the general semantic rules and finite-sharing theorem stabilize.
+These handwritten certificates expose the calculus directly. Automated production
+and replay of the same rules are demonstrated in examples/certification-demo.lean.
 -/
 
 namespace DirectCertification.Bakery

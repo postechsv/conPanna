@@ -16,7 +16,40 @@ evidence -> Python proof construction -> current Lean session/kernel checking.
 Python does NOT launch another Lean executable in that interface. The current
 standalone demo invokes native unify for input preparation and launches Lean
 as a TEST HARNESS ONLY; do not mistake that harness for the intended integration.
-CERTIFICATION.md §§0, 8.3, 9, and 12.1 explicitly specify these boundaries.
+CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundaries.
+
+## Artifact cleanup — 2026-10-08
+
+- Root `certification.maude` now contains ONLY the maintained
+  `CERTIFICATION-PRODUCER`. Seven unused historical modules and the unused
+  `LeanReadyBoundary` example in `certification.lean` were removed.
+- The distinct older CERT2 engine was RENAMED from
+  `conPanna/certification.maude` to `conPanna/maude-cert2.maude`; its existing
+  protocol/exporter and saved-script callers were updated, not removed.
+  Older references below are historical filenames, not current load paths.
+- CERTIFICATION.md §§0 and 3.1 identify the maintained files and map the actual
+  Maude `solve` arguments to the mathematical state. Section 4.3 displays the
+  actual sharing rule and one retained equation list, without separate D/Balance
+  state fields. Search and checker algorithms are unchanged.
+- Root `certification.maude` is now a short rules-only system module importing
+  `certification-support.maude`. The companion contains nine acyclic fmods:
+  TERMS, EVIDENCE, EQUALITY, FREE, ACU-MATCHING, SHARING, BAG-STEPS, COVERAGE,
+  OUTPUT (each prefixed CERTIFICATION-). No helper fmod contains rewrite rules.
+  Comments distinguish semantic rules from protocol/collection and identify
+  helper modules and Lean constructors. Rule/equation bodies, rewrite-rule order
+  and equation priority within each function remain intact.
+- CERTIFICATION.md section 4 links EVERY main rule to its actual Maude label or
+  named evidence-building helper; derived rules are not given invented labels.
+- Mathematical states uniformly use `⟨α ; E⟩`; scope changes are labelled outside
+  the pair, including FINITE-SHARING. Do not reintroduce a separate triple form.
+- Validation after reorganization: all 28 Python tests pass; the automated
+  soundness/completeness Lean demo passes without sorry; both legacy saved Maude
+  scripts still load/run without warnings. Lean LSP reports no errors in the
+  cleaned handwritten certification file.
+- After the fmod split, all 28 tests pass again and the full Lean demo passes
+  without sorry under unchanged safety limits. One run hit the 30s wall limit;
+  the single bounded retry completed. No Lean file, Python protocol or calculus
+  rule was changed for this split.
 
 ## Current runnable demo: Maude -> Python -> precompiled Lean (2026-10-06)
 

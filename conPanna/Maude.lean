@@ -853,7 +853,7 @@ def renderSchema (sig : Signature) : MetaM String := do
     s!"{← constructorId sig sig.zero})"
 
 def renderModule (sig : Signature) : MetaM String := do
-  return "load conPanna/certification.maude\n\n" ++
+  return "load conPanna/maude-cert2.maude\n\n" ++
     "mod LEAN-CERTIFICATION-MODEL is\n  protecting CERT2-PROTOCOL .\n" ++
     s!"  op nativeSignature : -> Schema .\n  eq nativeSignature = {← renderSchema sig} .\nendm"
 

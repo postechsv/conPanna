@@ -5,7 +5,7 @@ import examples.bakery
 # ACU certification experiment — start here
 
 This is the ONE active Lean prototype. The companion certification2.maude loads
-the shared calculus in conPanna/certification.maude and runs the primitive trace.
+the older overlap calculus in conPanna/maude-cert2.maude and runs the primitive trace.
 Maude.Certification exports native query packets and parses replies as untrusted
 DATA. BakeryReply kernel-replays FETCHED replies. Run: lake env lean certification2.lean
 

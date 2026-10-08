@@ -9,9 +9,16 @@
 - Python forwards/compiles evidence; the CURRENT Lean session kernel-checks it.
   An external Lean process belongs only to the standalone testing harness.
 - The Lean-driven entry point is now separate from the optional standalone
-  harness. See CERTIFICATION.md §§0, 8.3, 9, and 12.1 for the specification.
+  harness. See CERTIFICATION.md §§0, 6–8, and Appendix A for the specification.
 - Later optimization only: fuse upstream native answer acquisition and evidence
   production if useful. The baseline certifier must still accept fixed Σ.
+
+### Certification artifact readability
+
+- [x] Keep all rewrite rules in one short `CERTIFICATION-PRODUCER` module.
+- [x] Split deterministic support into nine responsibility-based, acyclic fmods.
+- [x] Link every main documented rule to its actual Maude label or evidence helper.
+- [x] Recheck the module split with all 28 tests and the Lean exactness demo.
 
 ## Urgent: a general, terminating ACU certification algorithm (2026-10-05)
 
@@ -595,7 +602,7 @@ an infeasible residual constraint denotes an empty successor.
   equivalence with all old derivations. Indexed signatures, native registration,
   and the forward bridge now live in conPanna.Structural. `=[T.certified]` opts
   into indexed equality; `=[T]` and existing narrowing retain their semantics.
-- `certification2.maude` loads the shared `conPanna/certification.maude` engine
+- `certification2.maude` loads the older `conPanna/maude-cert2.maude` engine
   and remains the original trace regression. `examples/bakery-certification.maude`
   demonstrates the new packet/proposal path. No general search, automatic trace
   accumulator, reply parser or automatic native replay yet.

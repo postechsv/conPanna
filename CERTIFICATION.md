@@ -4,6 +4,47 @@ Technical design note — study-oriented revision, 2026-10-07.
 
 ## 0. Purpose, reading guide, and status
 
+The maintained artifact has one Maude engine, with matching checker and examples:
+
+| File | Role |
+| --- | --- |
+| [certification.maude](certification.maude) | `CERTIFICATION-PRODUCER`: ALL rewrite rules, importing functional support; no helper implementation or historical experimental module. |
+| [certification-support.maude](certification-support.maude) | Nine functional modules, grouped by responsibility; no rewrite rules. |
+| [Replay.lean](conPanna/Certification/Replay.lean) | Typed evidence constructors and their semantic validity proofs. |
+| [certification_compiler.py](certification_compiler.py) | Untrusted assembly of Maude evidence into applications of those Lean rules. |
+| [certification-demo.lean](examples/certification-demo.lean) | Automated certificates and readable manual counterparts over the same Bakery constructors. |
+| [certification.lean](certification.lean) | Additional explicit, handwritten calculus certificates. |
+
+The differently named `conPanna/maude-cert2.maude` is an older overlap experiment,
+retained only for its existing CERT2 protocol callers. It and `certification2.*`
+are NOT the implementation of this document. Start with the files in the table.
+
+**Reading the Maude source:** the short `certification.maude` contains ONE
+system module and ALL rewrite rules. Its groups distinguish request/output
+protocol (A.1) from semantic closure and state steps (A.2–A.4); rules marked
+“trace assembly” only collect finished children. Follow its imports to the
+functional modules below. Each `fmod` groups its own declarations and equations.
+Rule comments identify the relevant helper module and Lean constructor.
+
+| Functional module in `certification-support.maude` | Responsibility |
+| --- | --- |
+| [CERTIFICATION-TERMS](certification-support.maude#L12) | Constructor terms, sorted contexts, metadata and substitutions. |
+| [CERTIFICATION-EVIDENCE](certification-support.maude#L142) | States, proof-tree records and primitive equality-premise formatting. |
+| [CERTIFICATION-EQUALITY](certification-support.maude#L273) | ACU normal forms, equality proofs and proposed-answer soundness. |
+| [CERTIFICATION-FREE](certification-support.maude#L422) | Free-constructor equation selection and proper-occurs paths. |
+| [CERTIFICATION-ACU-MATCHING](certification-support.maude#L486) | Whole-vector answer factoring, including finite ACU matching. |
+| [CERTIFICATION-SHARING](certification-support.maude#L646) | Occurrence grids, balanced supports and the sharing substitution. |
+| [CERTIFICATION-BAG-STEPS](certification-support.maude#L836) | Bag selection, ATOM/ZERO children, purification and preparation. |
+| [CERTIFICATION-COVERAGE](certification-support.maude#L971) | Conditional coverage and optional answer-guided witnesses. |
+| [CERTIFICATION-OUTPUT](certification-support.maude#L1216) | Completed-tree serialization and diagnostic leaf collection. |
+
+All imports are acyclic: TERMS → EVIDENCE → EQUALITY → matching/sharing;
+FREE and BAG-STEPS also feed COVERAGE; OUTPUT formats completed traces.
+The producer imports COVERAGE and OUTPUT, including their dependencies.
+Equality-premise derivations such as cancellation and decomposition are helpers
+emitting checked evidence, not additional solver rewrite rules. This module
+split changes no proof rule, equation, or wire format.
+
 This document explains how to certify an ALREADY COMPUTED finite unifier set
 against registered constructor semantics. The certification input is
 `(E₀, B, Σ)): the original equations, structural theory, and supplied answers.
@@ -227,6 +268,33 @@ parameter context, `α` records every original variable's current image, and
 `E` is the remaining equation list. Introducing or removing a parameter changes
 `Γ`; it does not change which original variables must be accounted for.
 
+**Correspondence with the actual Maude state.** The active solver constructor is:
+
+```maude
+solve(HS, C, IM, ES, F, ORIG, AS, INPUTS)
+```
+
+| Maude argument | Meaning here |
+| --- | --- |
+| `C` | Current sorted variable context Γ. |
+| `IM` | Image vector α for ALL original inputs. |
+| `ES` | The ONE current equation list E, including singleton requirements. |
+| `HS` | Fixed constructor/sort metadata and structural roles. |
+| `ORIG` | Fixed original equations E₀. |
+| `AS` | Fixed supplied answer set Σ. |
+| `INPUTS` | Fixed original input context X. |
+| `F` | Proof continuation: how to wrap the finished child trace into earlier steps. |
+
+See the [constructor declaration](certification-support.maude#L163). `⟨α ; E⟩` is
+a mathematical projection of this active state, NOT a literal pair constructor
+in Maude: it displays IM/ES with C implicit in their types. We use this same
+two-field notation for EVERY rule. When scope changes need emphasis, we write
+`⟨α ; E⟩ in scope Γ` and label the new scope outside the successor state.
+The remaining request arguments stay
+fixed; F belongs to evidence assembly rather than the state's solution set.
+The producer also has pending/finished states for collecting proof children;
+they are runtime control states, not extra components of this mathematical pair.
+
 For any target context `Δ`, the state represents:
 
 ```text
@@ -389,14 +457,15 @@ FREE-OCCURS
   x occurs strictly below free constructors in t, along a free-only path.
 ```
 
-| Rule | Lean definition or evidence constructor |
-| --- | --- |
-| DELETE / ORIENT | [Equality.refl](conPanna/Certification/Replay.lean#L824) / [Derives.symm](conPanna/Certification/Replay.lean#L1683); producer bookkeeping, not separate `Complete` constructors |
-| DECOMPOSE | [Derives.decompose](conPanna/Certification/Replay.lean#L1698), justified by [decompose_native](conPanna/Certification/Replay.lean#L353) |
-| CLASH | [Complete.clash](conPanna/Certification/Replay.lean#L1985) |
-| BIND | [Complete.bind](conPanna/Certification/Replay.lean#L1930), [Binding.Removal](conPanna/Certification/Replay.lean#L1082), [Binding.complete](conPanna/Certification/Replay.lean#L1312) |
-| FREE-OCCURS | [Complete.occurs](conPanna/Certification/Replay.lean#L1936), [FreeOccurs.Proper.sound](conPanna/Certification/Replay.lean#L1395) |
-| Free-step selection | [FreePhase.classify](conPanna/Certification/Replay.lean#L1480) |
+| Rule | Maude label or helper (no standalone label where noted) | Lean definition or evidence constructor |
+| --- | --- | --- |
+| DELETE | [`chooseTerm(S,A,A,HS,P)`](certification-support.maude#L465) skips a reflexive equation; no standalone rewrite rule | [Equality.refl](conPanna/Certification/Replay.lean#L824); bookkeeping, not a separate `Complete` constructor |
+| ORIENT | [`chooseTerm`](certification-support.maude#L469) orients the selected premise via `symmText`; no standalone rewrite rule | [Derives.symm](conPanna/Certification/Replay.lean#L1683) |
+| DECOMPOSE | [`chooseArgs`](certification-support.maude#L477) with [`decompText`](certification-support.maude#L265) derives a field equation; no standalone rewrite rule | [Derives.decompose](conPanna/Certification/Replay.lean#L1698), justified by [decompose_native](conPanna/Certification/Replay.lean#L353) |
+| CLASH | [`[clash-and-emit]`](certification.maude#L107) | [Complete.clash](conPanna/Certification/Replay.lean#L1985) |
+| BIND | [`[bind]`](certification.maude#L100) | [Complete.bind](conPanna/Certification/Replay.lean#L1930), [Binding.Removal](conPanna/Certification/Replay.lean#L1082), [Binding.complete](conPanna/Certification/Replay.lean#L1312) |
+| FREE-OCCURS | [`[occurs-and-emit]`](certification.maude#L114) | [Complete.occurs](conPanna/Certification/Replay.lean#L1936), [FreeOccurs.Proper.sound](conPanna/Certification/Replay.lean#L1395) |
+| Free-step selection | [`chooseTerm`](certification-support.maude#L465) in `CERTIFICATION-FREE` | [FreePhase.classify](conPanna/Certification/Replay.lean#L1480) |
 
 BIND is valid at any sort when the scoped-replacement condition holds. The
 mandatory free phase uses it at non-bag sorts; optional bag bindings are shortcuts.
@@ -443,6 +512,9 @@ NORMALIZE                                  nf flattens + and removes 0
 
 Its proofs use `Equality.assoc`, `comm`, `unit`, `congr`, `trans`,
 and `symm`; see [Equality](conPanna/Certification/Replay.lean#L824).
+Maude: [`norm`](certification-support.maude#L323) in `CERTIFICATION-EQUALITY`
+constructs NORMALIZE evidence; `normalized` computes data-only normal forms
+for decisions. There is no standalone `[normalize]` rewrite rule.
 
 CANCEL removes the same bag contribution from both sides. It has a state
 presentation and an evidence presentation:
@@ -463,6 +535,12 @@ Lean: [Derives.cancel](conPanna/Certification/Replay.lean#L1691),
 [Derives.multiplicity](conPanna/Certification/Replay.lean#L1694),
 [cancel_native](conPanna/Certification/Replay.lean#L488),
 [multiplicity_native](conPanna/Certification/Replay.lean#L324).
+Maude: [`cancelText`](certification-support.maude#L1096) and
+[`multiplicityText`](certification-support.maude#L1086) in
+`CERTIFICATION-COVERAGE` construct CANCEL and MULTIPLICITY-CANCEL evidence.
+[`sharingPremise`](certification-support.maude#L804) also emits cancellation
+evidence during sharing preparation.
+Neither is a standalone solver rewrite rule.
 
 Both rules rely on the FREE bag algebra, not just an arbitrary ACU monoid.
 Common syntactic occurrences can be canceled without comparing payloads.
@@ -487,6 +565,10 @@ Lean: [Complete.purify](conPanna/Certification/Replay.lean#L1939),
 [Purification.exact](conPanna/Certification/Replay.lean#L1859).
 The typed fresh-slot template must reconstruct the exact old equation when its
 slot is filled; an external dump cannot simply assert that the replacement is valid.
+Maude: [`[purify]`](certification.maude#L164) invokes
+[`beginPurify`](certification-support.maude#L913) in
+`CERTIFICATION-BAG-STEPS`; `[prepare-next]` continues preparation and
+`[purify-collect]` wraps the finished child. Only `[purify]` is the semantic step.
 
 After preparation, the selected pure balance has the general form:
 
@@ -650,13 +732,48 @@ support S, define:
 θ(Xᵢ) = sum over all retained S of dᵢ(S) copies of Z_S
 θ(Yⱼ) = sum over all retained S of eⱼ(S) copies of Z_S
 
+Selected equation, derived from the current equation list:
+  E ⊢B a₁X₁ + … + aᵣXᵣ = b₁Y₁ + … + bₛYₛ
+
 FINITE-SHARING
-  ⟨α ; Balance, D, E⟩ → ⟨αθ ; Dθ, Eθ⟩
+  ⟨α ; E⟩ in scope Γ
+  → ⟨αθ ; Eθ⟩ in scope Γ′
 ```
 
-D denotes retained singleton requirements. Unrelated live variables have
-same-sort passthrough images. This is ONE parameterized family, not one branch
-per support: all Z_S coexist and any may be empty.
+There is only ONE equation list E: singleton requirements are ordinary members
+of it. The explicit sum equation is a checked premise selected from, or derived
+from, E; it is not a separate state component named “Balance”. The SAME θ acts
+on every equation and every original input image. Replay retains the selected
+equation too; its weighted balance becomes an ACU identity after substitution.
+Other equations may still need solving.
+
+Γ′ adds fresh support parameters to Γ. Unrelated live variables have same-sort
+passthrough images. For a fixed selected equation and enumeration order, this
+step is DETERMINISTIC: compute all supports, one θ, and ONE child state. There is
+no choice of a single support and no child per support; all Z_S coexist and any
+may be empty. ATOM's multiple children are a different kind of rule.
+
+**Actual Maude rule.** This is the maintained producer's entry into the step:
+
+```maude
+crl [finite-sharing] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
+  sharingState(HS, C, IM, ES, F, ORIG, AS, INPUTS, A, B, P)
+  if noCover := selectCoverage(C, IM, ES, AS, INPUTS, HS) /\ none := choose(ES, 0, HS) /\
+    balanceChoice(A, B, P) := selectBag(ES, 0, HS) .
+```
+
+Here A,B are the selected bag terms and P is evidence for their equation, not
+a pattern parameter. The guards say that coverage has not already closed the
+state, no free step is selected, and a bag balance is selected. The functions
+`sharingState`/`prepareSharing` count and cancel variable occurrences, enumerate
+supports, and compute θ. `launchSharing` creates a pending SHARING node with
+ONE child solver whose IM and ES are both substituted. `[sharing-collect]`
+wraps that child's finished trace into the SHARING evidence node.
+
+Thus the mathematical arrow summarizes deterministic helper computation and
+child creation, not a different pair-based implementation. See
+[`[finite-sharing]`](certification.maude#L156) and
+[`launchSharing`](certification-support.maude#L823) in `CERTIFICATION-SHARING`.
 
 For `2P =B 3Q`, the only nonempty balanced support is the full rectangle shown
 in the intuitive example above. Hence `θ(P)=3Z, θ(Q)=2Z`. Section 5.3 shows
@@ -679,7 +796,7 @@ leaves X arbitrary.
 The general semantic lemma states:
 
 ```text
-δ unifies Balance
+δ unifies a₁X₁ + … + aᵣXᵣ =B b₁Y₁ + … + bₛYₛ
   iff
 exists η, δ =B θη on ALL old live variables.
 ```
@@ -695,9 +812,8 @@ user problem. Lean links:
   [Complete.sharingTable](conPanna/Certification/Replay.lean#L2038) checks the
   supplied table equal to the exhaustive enumeration.
 
-Actual replay substitutes into ALL retained equations, including the selected
-balance. The abstract display omits that balance because θ already solves it;
-retaining the resulting tautology is harmless.
+The displayed state transition uses that same retained-worklist convention:
+no selected equation or singleton requirement is silently removed.
 
 ### 4.4 Singleton and zero processing — exhaustive state branching
 
@@ -777,6 +893,12 @@ Under the contract, these payload equations cannot create more bag equations.
 Lean: [Complete.atom](conPanna/Certification/Replay.lean#L1944),
 [Complete.zero](conPanna/Certification/Replay.lean#L1951),
 [Complete.nonempty](conPanna/Certification/Replay.lean#L1956).
+Maude labels: [`[atom-split]`](certification.maude#L123),
+[`[zero-split]`](certification.maude#L135), and
+[`[nonempty-close]`](certification.maude#L147).
+`[atom-collect]` / `[zero-collect]` assemble finished children; their requirements
+come from `CERTIFICATION-BAG-STEPS`. ATOM-MANY/ONE/CHOOSE are derived cases of
+these rules, not additional Maude labels.
 Their exact requirements are computed by
 [atomRequirements](conPanna/Certification/Replay.lean#L1893) and
 [zeroRequirements](conPanna/Certification/Replay.lean#L1889);
@@ -815,6 +937,10 @@ There is no child state. A valuation δ satisfying E supplies the answer witness
 At a solved leaf `E=[]`, the equalities are unconditional: this is ordinary
 COVER. At an unsolved state, they may use E: this is EARLY-COVER. Both are the
 SAME [Complete.cover](conPanna/Certification/Replay.lean#L1926) constructor.
+Maude: [`[cover-and-emit]`](certification.maude#L84) implements both COVER and
+EARLY-COVER, using [`selectCoverage`](certification-support.maude#L1155) in
+`CERTIFICATION-COVERAGE` and whole-vector
+factoring in `CERTIFICATION-ACU-MATCHING`. There is no separate early-cover label.
 Early closure does NOT assert that E is trivial or that the current state is
 exactly that answer's whole family; only the required inclusion is established.
 
@@ -859,6 +985,10 @@ not a guess that one particular solution has those pieces.
 Lean: [Complete.mutate](conPanna/Certification/Replay.lean#L1973),
 [mutated](conPanna/Certification/Replay.lean#L1760),
 [mutate_native](conPanna/Certification/Replay.lean#L449).
+Maude: [`[witness-cover-and-emit]`](certification.maude#L92) closes with a
+composite MUTATE → COVER trace constructed by
+[`tryWitness`](certification-support.maude#L1180) / `finishWitness` in
+`CERTIFICATION-COVERAGE`. There is no standalone `[mutate]` rule in this producer.
 It may enable immediate COVER by a supplied four-parameter answer (§5.4).
 The complete fallback remains FINITE-SHARING; unrestricted MUTATE search is not
 the prescribed termination argument.
@@ -896,6 +1026,12 @@ one equation and all answers;
 [exact_system](conPanna/Certification/Replay.lean#L2232) combines this with root
 coverage. For a single equation,
 [exact](conPanna/Certification/Replay.lean#L2243) is the convenience theorem.
+Maude: [`[emit-sound-evidence]`](certification.maude#L71) emits ANSWER-SOUND
+evidence using [`answersProof`](certification-support.maude#L389) in
+`CERTIFICATION-EQUALITY`;
+[`[emit]`](certification.maude#L76) packages it with completed root coverage.
+EXACT is the Lean aggregation above, NOT an additional Maude search rule or a
+claim that formatting JSON proves exactness.
 
 These are proved rule-validity/aggregation theorems. The claim that a SEARCH
 procedure can always find their premises is different, and belongs to Appendix A.
@@ -910,7 +1046,7 @@ Dump displays below are READABLE PROJECTIONS of rule records: names replace
 sorted slot indices, and routine scope/image/equation fields are abbreviated.
 They are not literal JSON inputs or copy-paste Lean syntax. Rule names and the
 `child`, `children`, `premise`, `index`, `beta`, and `derived` fields
-correspond to the actual [Maude serializer](certification.maude#L1160).
+correspond to the actual [Maude serializer](certification-support.maude#L1252).
 The full wire format also carries sorted constructor terms and checked snapshots.
 
 ### 5.1 Two unifiers: P+Q =B [wait(n)]
@@ -1097,7 +1233,7 @@ no feasibility or nonemptiness constraint has been added.
 
 See [nonlinearAnswers and automated replay](examples/certification-demo.lean#L325)
 and the explicit rule proof
-[nonlinear_replay_certificate](certification.lean#L331).
+[nonlinear_replay_certificate](certification.lean#L264).
 The finite enumeration/checking theorem is shared infrastructure, not a
 problem-specific completeness assumption.
 
@@ -1172,7 +1308,7 @@ PURIFY
 
 DECOMPOSE is inside COVER's equality evidence, rather than a separate
 completeness node. See the explicit
-[purification_binding_certificate](certification.lean#L603).
+[purification_binding_certificate](certification.lean#L536).
 This is a valid handwritten derivation, not a claim that the producer must choose
 purification for this simple query; it can decompose the original equation directly.
 
@@ -1437,7 +1573,7 @@ Unary state rules have a `child`; ATOM has `children`; COVER and contradiction
 nodes have no completeness children. A node's `premise` selects/derives an
 equation from its current worklist. COVER's `derived` field contains equality
 proofs for every original image, not further search branches.
-[traceText](certification.maude#L1160) serializes these records;
+[traceText](certification-support.maude#L1252) serializes these records;
 [compile_components](certification_compiler.py#L428) assembles the two proof
 parts; [LeanReady.prepareProof](conPanna/Certification/Frontend.lean#L104)
 loads checked nodes against Lean's independently fixed goal.

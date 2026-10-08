@@ -3,7 +3,7 @@
 --- Run from the repository root: maude -no-banner -no-advise examples/bakery-certification.maude
 --- This returns an untrusted proposal, not a kernel-checked native theorem.
 
-load ../conPanna/certification.maude
+load ../conPanna/maude-cert2.maude
 
 mod LEAN-CERTIFICATION-MODEL is
   protecting CERT2-PROTOCOL .

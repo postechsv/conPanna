@@ -1,5 +1,7 @@
---- Object-level ACU certification calculus. No built-in unify or META-LEVEL.
---- certifyOverlap is a partial, scripted strategy for the proved overlap fragment.
+--- Older CERT2 overlap experiment, retained for its existing protocol callers.
+--- This is NOT the finite-sharing calculus documented in CERTIFICATION.md.
+--- The maintained CERTIFICATION-PRODUCER lives in root certification.maude.
+--- No built-in unify or META-LEVEL; certifyOverlap is a partial scripted strategy.
 
 mod CERT2 is
   protecting NAT .
