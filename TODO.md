@@ -20,6 +20,23 @@
 - [x] Link every main documented rule to its actual Maude label or evidence helper.
 - [x] Recheck the module split with all 28 tests and the Lean exactness demo.
 
+### Inspectable native-answer coordinator
+
+- [x] Extend existing certifier.py; keep fixed-answer --certify intact.
+- [x] Coordinate native unification and fixed-answer certification in one Python
+  request, with separately replayable scripts, outputs, target and proof bundle.
+- [x] Decode sorted prefix-constructor answers, including multiple unifiers,
+  shared parameters, identity bindings, empty families and flattened ACU output.
+- [x] Demonstrate one Lean/Python request and kernel-checked exactness of the
+  two native answers for P+Q =B [wait N], using the original typed Lean problem.
+- [x] Document manual native/targeted stages in CERTIFICATION.md §7.1.
+- [x] Rename the existing coordinator to certifier.py and provide one Bash
+  inspection script under scripts/ with explained stages and stdout results.
+- [ ] Next: generate the native model/name map from registered constructor data
+  instead of the supplied fixture. Preserve independently fixed Lean semantics.
+- [ ] Integrate this entry point into unification/narrowing after exporter review;
+  no narrowing changes are made by this coordinator prototype.
+
 ## Urgent: a general, terminating ACU certification algorithm (2026-10-05)
 
 This DESIGN milestone takes priority over the implementation stages below.

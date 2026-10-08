@@ -4,7 +4,9 @@ The constructor translator does no unification, search, or Lean syntax evaluatio
 Rule templates are restricted. Lean independently fixes and checks the goals.
 Not a general ACU search engine or a production certificate loader.
 --certify takes an EXISTING problem/answer family. It never invokes native unify
-or Lean. Only --demo is a standalone test harness with an upstream native query.
+or Lean. --coordinate obtains native answers first, then calls that same fixed-
+answer certifier. Its stages can be run separately and inspected with --out.
+Standalone --build/--demo/--compare modes may launch Lean; coordinator modes do not.
 """
 import json
 import re
@@ -662,6 +664,23 @@ def validate_request(request):
         if used != set(range(len(parameters))):
             raise ValueError("normalize unused answer parameters before fixing the semantic certificate goal")
 
+def certification_query(request, module="CERTIFICATION-PRODUCER"):
+    """The SAME fixed-answer command for standalone and coordinated requests."""
+    arguments = maude_heads(request.get("signature") or []) + "," + maude_context(request["scope"]) + "," + \
+        maude_terms([{"var": i} for i in range(len(request["scope"]))]) + "," + maude_equations(request["eqs"])
+    return "rew in " + module + " : certify(" + arguments + "," + maude_answers(request["proposed"]) + ") ."
+
+def parse_certificate_output(emitted, request):
+    if "Warning:" in emitted:
+        raise ValueError("Maude reported a warning; no certificate accepted")
+    match = re.search(r'result State: result\(("(?:[^"\\]|\\.)*")\)', emitted)
+    if not match:
+        raise ValueError("certifier could not close the supplied answer family (unsupported or incorrect); no proof returned")
+    trace = json.loads(json.loads(match.group(1)))
+    trace.update(aggregate="system", problem=declaration(request["problem"]),
+        answers=declaration(request["answers"]), signature=request.get("signature"))
+    return trace
+
 def producer_result(root, request, *, untargeted=False, metrics=None):
     """Shared driver; the diagnostic untargeted entry point receives NO Sigma."""
     import time
@@ -672,15 +691,11 @@ def producer_result(root, request, *, untargeted=False, metrics=None):
     if untargeted:
         command = "rew in CERTIFICATION-PRODUCER : unifyWithoutAnswers(" + arguments + ") ."
     else:
-        command = "rew in CERTIFICATION-PRODUCER : certify(" + arguments + "," + maude_answers(request["proposed"]) + ") ."
+        command = certification_query(request)
     start = time.monotonic()
     emitted = maude_run(root, command)
     elapsed = time.monotonic() - start
-    match = re.search(r'result State: result\(("(?:[^"\\]|\\.)*")\)', emitted)
-    if not match:
-        raise ValueError("certifier could not close the supplied answer family (unsupported or incorrect); no proof returned")
-    trace = json.loads(json.loads(match.group(1)))
-    trace.update(aggregate="system", problem=problem, answers=answers, signature=request.get("signature"))
+    trace = parse_certificate_output(emitted, request)
     if metrics is not None:
         stats = re.search(r'rewrites: (\d+) in (\d+)ms cpu', emitted)
         metrics.update(wall_ms=round(elapsed * 1000, 3),
@@ -906,6 +921,260 @@ def demo(root):
     print("CERTIFIED: soundness and completeness; no sorry")
     print("Inspect: examples/certification-demo.lean; .lake/build/certification/demo.trace.json")
 
+# Coordinator: native answer acquisition is OUTSIDE the fixed-Sigma calculus.
+# All stages below are untrusted syntax/data handling; none invokes Lean.
+def native_identifier(value):
+    if type(value) is not str or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9'-]*", value):
+        raise ValueError("native export requires simple prefix identifiers")
+    return value
+
+class NativeInterface:
+    """Many-sorted constructor-prefix interface, not a unification algorithm."""
+    def __init__(self, request):
+        if request.get("aggregate") != "system" or not request.get("eqs"):
+            raise ValueError("coordinator requires a nonempty equation system")
+        if request.get("proposed"):
+            raise ValueError("answers already supplied: use --certify instead")
+        if not isinstance(request.get("signature"), list) or not request["signature"]:
+            raise ValueError("coordinator needs exported constructor metadata")
+        validate_request(dict(request, proposed=[]))
+        declaration(request["problem"])
+        declaration(request["answers"])
+        native = request["native"]
+        self.module = native_identifier(native["module"])
+        self.sorts = {}
+        for code, name in native["sort_names"].items():
+            if not re.fullmatch(r"0|[1-9][0-9]*", code):
+                raise ValueError("invalid exported sort code")
+            self.sorts[int(code)] = native_identifier(name)
+        if len(set(self.sorts.values())) != len(self.sorts):
+            raise ValueError("duplicate native sort name")
+        self.sort_codes = {name: code for code, name in self.sorts.items()}
+        self.heads = {h["id"]: h for h in request["signature"]}
+        self.names = {}
+        for code, name in native["constructor_names"].items():
+            if not re.fullmatch(r"0|[1-9][0-9]*", code):
+                raise ValueError("invalid exported constructor code")
+            self.names[int(code)] = native_identifier(name)
+        if set(self.heads) != set(self.names) or len(set(self.names.values())) != len(self.names):
+            raise ValueError("constructor name map must be total and unambiguous")
+        self.codes = {name: code for code, name in self.names.items()}
+        for sort in request["scope"] + [s for h in self.heads.values() for s in h["inputs"] + [h["output"]]]:
+            if sort not in self.sorts:
+                raise ValueError("sort name map is incomplete")
+        self.variables = [native_identifier(v) for v in native["variables"]]
+        if len(self.variables) != len(request["scope"]) or len(set(self.variables)) != len(self.variables):
+            raise ValueError("native variables must identify every original input once")
+        if set(self.variables).intersection(self.codes):
+            raise ValueError("native variable/constructor names collide")
+        self.input_sorts = dict(zip(self.variables, request["scope"]))
+
+    def term(self, t):
+        if "var" in t:
+            name = self.variables[t["var"]]
+            return name + ":" + self.sorts[self.input_sorts[name]]
+        return self.names[t["app"]] + ("(" + ",".join(self.term(a) for a in t["args"]) + ")" if t["args"] else "")
+
+    def query(self, request):
+        return "unify in " + self.module + " : " + " /\\ ".join(
+            self.term(e["left"]) + " =? " + self.term(e["right"]) for e in request["eqs"]) + " ."
+
+    def read_term(self, text):
+        tokens = re.findall(r"[^\s(),:]+|[(),:]", text)
+        index = 0
+        def read():
+            nonlocal index
+            if index >= len(tokens):
+                raise ValueError("truncated native constructor term")
+            name = tokens[index]
+            index += 1
+            if name in "(),:":
+                raise ValueError("expected a native constructor or variable")
+            if index < len(tokens) and tokens[index] == ":":
+                index += 1
+                if index >= len(tokens) or tokens[index] not in self.sort_codes:
+                    raise ValueError("unknown native variable sort")
+                sort = self.sort_codes[tokens[index]]
+                index += 1
+                if name not in self.input_sorts and not re.fullmatch(r"[#%][0-9]+", name):
+                    raise ValueError("unknown native variable")
+                return ("var", name, sort)
+            if name in self.input_sorts:
+                return ("var", name, self.input_sorts[name])
+            if name not in self.codes:
+                raise ValueError("unsupported native constructor syntax: " + name)
+            args = []
+            if index < len(tokens) and tokens[index] == "(":
+                index += 1
+                args.append(read())
+                while index < len(tokens) and tokens[index] == ",":
+                    index += 1
+                    args.append(read())
+                if index >= len(tokens) or tokens[index] != ")":
+                    raise ValueError("malformed native constructor arguments")
+                index += 1
+            return ("app", self.codes[name], args)
+        result = read()
+        if index != len(tokens):
+            raise ValueError("trailing native term syntax")
+        return result
+
+    def answer(self, bindings):
+        parameters, slots = [], {}
+        def translate(raw, expected, visiting=frozenset()):
+            kind, name, data = raw
+            if kind == "var":
+                if data != expected or (name in self.input_sorts and self.input_sorts[name] != expected):
+                    raise ValueError("native variable has wrong sort")
+                bound = bindings.get(name)
+                if bound is not None and bound != raw:
+                    if name in visiting:
+                        raise ValueError("cyclic native substitution")
+                    return translate(bound, expected, visiting | {name})
+                key = (name, expected)
+                if key not in slots:
+                    slots[key] = len(parameters)
+                    parameters.append(expected)
+                return {"var": slots[key]}
+            head = self.heads[name]
+            if head["output"] != expected:
+                raise ValueError("native constructor has wrong sort")
+            # Maude may print associative binary operators with flattened arity.
+            if head["role"] == "add" and len(data) > 2:
+                args = [translate(a, expected, visiting) for a in data]
+                result = args[-1]
+                for a in reversed(args[:-1]):
+                    result = {"app": name, "args": [a, result]}
+                return result
+            if len(data) != len(head["inputs"]):
+                raise ValueError("native constructor arity mismatch")
+            return {"app": name, "args": [translate(a, s, visiting) for a, s in zip(data, head["inputs"])]}
+        # Unmentioned original variables pass through; fresh slots are scoped
+        # PER ANSWER and shared across ALL images. Only occurring slots survive.
+        images = [translate(("var", v, self.input_sorts[v]), self.input_sorts[v]) for v in self.variables]
+        return {"parameters": parameters, "images": images}
+
+    def answers(self, output):
+        if "Warning:" in output or len(re.findall(r"^unify in ", output, re.M)) > 1:
+            raise ValueError("native transcript is not one successful query")
+        blocks, current = [], None
+        for line in output.splitlines():
+            line = line.strip()
+            heading = re.fullmatch(r"Unifier ([0-9]+)", line)
+            if heading:
+                if int(heading[1]) != len(blocks) + 1:
+                    raise ValueError("unexpected native unifier numbering")
+                current = {}
+                blocks.append(current)
+            elif " --> " in line:
+                if current is None:
+                    raise ValueError("native binding outside a unifier block")
+                domain, image = line.split(" --> ", 1)
+                variable = self.read_term(domain)
+                if variable[0] != "var" or variable[1] not in self.input_sorts or variable[2] != self.input_sorts[variable[1]]:
+                    raise ValueError("unknown native substitution domain")
+                if variable[1] in current:
+                    raise ValueError("duplicate native substitution domain")
+                current[variable[1]] = self.read_term(image)
+        if "No unifier." in output:
+            if blocks:
+                raise ValueError("conflicting native answer transcript")
+            return []
+        if not blocks:
+            raise ValueError("native output contained no unifier result")
+        return [self.answer(bindings) for bindings in blocks]
+
+def save_json(path, value):
+    path.write_text(json.dumps(value, indent=2) + "\n")
+
+def load_json(path):
+    return json.loads(path.read_text())
+
+def maude_load(path):
+    # Keep saved scripts literally replayable; no shell interpolation.
+    path = str(path.resolve())
+    if re.search(r"\s|[\"\n\r]", path):
+        raise ValueError("prototype Maude scripts require paths without whitespace/quotes")
+    return "load " + path
+
+def prepare_native(root, request, out, ctor=None):
+    """Stage 1a: export a self-contained native script, with NO Maude call."""
+    interface = NativeInterface(request)
+    native = request["native"]
+    if ctor is not None:
+        model = ctor.read_text()
+    elif "model" in native:
+        model = native["model"]
+    else:
+        model = (root / native["source"]).read_text()
+    out.mkdir(parents=True, exist_ok=True)
+    saved = out / "00-request.json"
+    exported = dict(request, native=dict(native, model=model))
+    if saved.exists() and load_json(saved) != exported:
+        raise ValueError("output directory belongs to another request; choose a fresh --out")
+    save_json(saved, exported)
+    (out / "ctor.maude").write_text(model)
+    query = interface.query(request)
+    (out / "01-native-query.maude").write_text(query + "\n")
+    script = out / "01-native.maude"
+    script.write_text(maude_load(out / "ctor.maude") + "\n" + query + "\nquit\n")
+    save_json(out / "status.json", {"stage": "native-prepared", "kernel_checked": False})
+    return script
+
+def prepare_target(root, out, native_output):
+    """Stage 1b: decode native answers, FREEZE Sigma, prepare targeted script."""
+    exported = load_json(out / "00-request.json")
+    (out / "01-native.stdout").write_text(native_output)
+    save_json(out / "status.json", {"stage": "native-received", "kernel_checked": False})
+    interface = NativeInterface(exported)
+    target = {k: exported[k] for k in ("aggregate", "problem", "answers", "signature", "scope", "eqs")}
+    target["proposed"] = interface.answers(native_output)
+    validate_request(target)
+    save_json(out / "02-target.json", target)
+    wrapper = out / "wrapper.maude"
+    wrapper.write_text(maude_load(out / "ctor.maude") + "\n" + maude_load(root / "certification.maude") +
+        "\nmod CERTIFICATION-QUERY is\n  protecting " + interface.module +
+        " .\n  protecting CERTIFICATION-PRODUCER .\nendm\n")
+    query = certification_query(target, "CERTIFICATION-QUERY")
+    (out / "02-target-query.maude").write_text(query + "\n")
+    script = out / "02-target.maude"
+    script.write_text(maude_load(wrapper) + "\n" + query + "\nquit\n")
+    save_json(out / "status.json", {"stage": "target-prepared", "kernel_checked": False,
+        "answers": len(target["proposed"])})
+    return target, script
+
+def compile_target(out, target_output):
+    """Stage 2b: assemble proof for the FIXED target; NO Maude or Lean call."""
+    (out / "02-target.stdout").write_text(target_output)
+    save_json(out / "status.json", {"stage": "trace-received", "kernel_checked": False})
+    target = load_json(out / "02-target.json")
+    validate_request(target)
+    trace = parse_certificate_output(target_output, target)
+    bundle = compile_bundle(trace)
+    save_json(out / "03-trace.json", trace)
+    save_json(out / "04-proof.json", bundle)
+    answer_value = "[" + ", ".join("{ parameters := " + scope(a["parameters"]) +
+        ", images := " + terms(a["images"]) + " }" for a in target["proposed"]) + "]"
+    result = {"format": "coordinated-certificate-v1", "request": target,
+        "answer_value": answer_value, "certificate": bundle}
+    save_json(out / "result.json", result)
+    save_json(out / "status.json", {"stage": "proof-assembled", "kernel_checked": False,
+        "answers": len(target["proposed"])})
+    return result
+
+def coordinate(root, request, out, ctor=None):
+    """ONE Lean/Python exchange, TWO sequential Maude calls; never launch Lean."""
+    native_script = prepare_native(root, request, out, ctor)
+    print("Native unification: " + str(native_script), file=sys.stderr, flush=True)
+    native_output = maude_run(root, "", source=native_script.resolve())
+    target, target_script = prepare_target(root, out, native_output)
+    print("Fixed " + str(len(target["proposed"])) + " native answers; targeted certification: " +
+        str(target_script), file=sys.stderr, flush=True)
+    target_output = maude_run(root, "", source=target_script.resolve())
+    result = compile_target(out, target_output)
+    print("Proof assembled for current Lean session; NOT kernel-checked by Python", file=sys.stderr, flush=True)
+    return result
+
 def main():
     import argparse
     from pathlib import Path
@@ -914,9 +1183,34 @@ def main():
     parser.add_argument("--demo", action="store_true", help="run Maude -> Python -> Lean end to end")
     parser.add_argument("--certify", action="store_true", help="certify supplied answers; output proof only; never run unify or Lean")
     parser.add_argument("--compare", action="store_true", help="compare supplied-answer certification against no-answer calculus search (test harness)")
+    stages = parser.add_mutually_exclusive_group()
+    stages.add_argument("--coordinate", action="store_true", help="native unify then fixed-answer certification; never run Lean")
+    stages.add_argument("--prepare-native", action="store_true", help="write native input script only; no processes")
+    stages.add_argument("--parse-native", type=Path, help="parse saved native stdout and prepare the targeted script; no processes")
+    stages.add_argument("--compile-trace", type=Path, help="compile saved targeted stdout to Lean-ready proof; no processes")
+    parser.add_argument("--request", type=Path, help="coordinator request JSON (otherwise stdin)")
+    parser.add_argument("--ctor", type=Path, help="use this exported constructor module instead of native.model/source")
+    parser.add_argument("--out", type=Path, help="inspectable coordinator directory; required for coordinator stages")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
-    if args.certify:
+    coordinating = args.coordinate or args.prepare_native or args.parse_native or args.compile_trace
+    if coordinating:
+        if args.certify or args.build or args.demo or args.compare or args.out is None:
+            parser.error("coordinator stages require --out and cannot be mixed with existing modes")
+        if args.coordinate or args.prepare_native:
+            request = load_json(args.request) if args.request else json.load(sys.stdin)
+            result = coordinate(root, request, args.out, args.ctor) if args.coordinate else \
+                {"native_script": str(prepare_native(root, request, args.out, args.ctor))}
+        elif args.parse_native:
+            target, script = prepare_target(root, args.out, args.parse_native.read_text())
+            result = {"answers": len(target["proposed"]), "target_script": str(script)}
+        else:
+            assembled = compile_target(args.out, args.compile_trace.read_text())
+            result = {"answers": len(assembled["request"]["proposed"]),
+                "proof_file": str(args.out / "04-proof.json"),
+                "result_file": str(args.out / "result.json"), "kernel_checked": False}
+        print(json.dumps(result))
+    elif args.certify:
         print(json.dumps(compile_bundle(certify(root, json.load(sys.stdin)))))
     elif args.compare:
         compare_search(root)
@@ -930,5 +1224,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, ValueError) as error:
+    except (RuntimeError, ValueError, KeyError, OSError) as error:
         sys.exit(str(error))

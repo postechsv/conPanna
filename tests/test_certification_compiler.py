@@ -3,7 +3,7 @@
 Run: python3 -B -m unittest discover -s tests -v
 Actual semantic/kernel checks live in examples/certification-demo.lean.
 This different constructor-code fixture also checks that production does not
-depend on Bakery's constructor names/codes. No native unify is called here.
+depend on Bakery's constructor names/codes. Coordinator tests also call native unify.
 """
 import copy
 import sys
@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import certification_compiler as compiler
+import certifier as compiler
 
 SIGNATURE = [
     {"id": 10, "inputs": [], "output": 0, "role": "free"},
@@ -330,6 +330,90 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(leaf["rule"], "cover")
         self.assertNotEqual(flattened(leaf["beta"][0]), flattened(leaf["beta"][1]))
         self.assertTrue(compiler.compile_bundle(trace)["steps"])
+
+class CoordinatorTests(unittest.TestCase):
+    def setUp(self):
+        self.rq = compiler.load_json(ROOT / "examples/certification-request.json")
+        self.native = compiler.NativeInterface(self.rq)
+
+    def test_two_native_answers_preserve_all_input_images(self):
+        output = compiler.maude_run(ROOT, self.native.query(self.rq), source=self.rq["native"]["source"])
+        answers = self.native.answers(output)
+        self.assertEqual(len(answers), 2)
+        self.assertTrue(all(a["parameters"] == [0] for a in answers))
+        self.assertTrue(all(a["images"][0] == var(0) for a in answers))
+        self.assertNotEqual(answers[0]["images"][1], answers[1]["images"][1])
+        compiler.validate_request(dict(self.rq, proposed=answers))
+
+    def test_repeated_parameter_and_flat_associative_output(self):
+        output = "Unifier 1\nP:Bag --> union(#1:Bag,#1:Bag,#1:Bag)\nQ:Bag --> #1:Bag\nN:Ticket --> #2:Ticket\n"
+        a = self.native.answers(output)[0]
+        self.assertEqual(a["parameters"], [0, 2])
+        self.assertEqual(a["images"][1], app(7, var(1), app(7, var(1), var(1))))
+        self.assertEqual(a["images"][2], var(1))
+
+    def test_missing_binding_is_a_passthrough_not_an_empty_term(self):
+        a = self.native.answers("Unifier 1\nP:Bag --> Q:Bag\n")[0]
+        self.assertEqual(a["parameters"], [0, 2])
+        self.assertEqual(a["images"], [var(0), var(1), var(1)])
+
+    def test_native_answer_parameters_are_local_to_each_unifier(self):
+        answers = self.native.answers("Unifier 1\nP:Bag --> #1:Bag\nQ:Bag --> #1:Bag\n"
+            "Unifier 2\nP:Bag --> empty\nQ:Bag --> #1:Bag\n")
+        self.assertEqual(answers[0]["parameters"], [0, 2])
+        self.assertEqual(answers[1]["parameters"], [0, 2])
+
+    def test_reject_wrong_sort_or_unknown_constructor(self):
+        for image in ("#1:Ticket", "mystery(#1:Bag)"):
+            with self.subTest(image=image):
+                self.assertRaises(ValueError, self.native.answers, "Unifier 1\nP:Bag --> " + image)
+
+    def test_reject_duplicate_domain_or_cyclic_substitution(self):
+        for output in ("Unifier 1\nP:Bag --> empty\nP:Bag --> empty",
+                "Unifier 1\nP:Bag --> Q:Bag\nQ:Bag --> union(P:Bag,empty)"):
+            self.assertRaises(ValueError, self.native.answers, output)
+
+    def test_reject_already_supplied_answers(self):
+        self.rq["proposed"] = [answer([0, 2, 2], var(0), var(1), var(2))]
+        self.assertRaisesRegex(ValueError, "--certify", compiler.NativeInterface, self.rq)
+
+    def test_no_unifier_is_an_empty_family(self):
+        self.assertEqual(self.native.answers("No unifier.\nBye."), [])
+        self.assertRaises(ValueError, self.native.answers, "Unifier 1\nNo unifier.")
+
+    def test_ground_native_success_keeps_all_unmentioned_inputs(self):
+        rq = dict(self.rq, eqs=[equation(app(5), app(5))])
+        output = compiler.maude_run(ROOT, self.native.query(rq), source=rq["native"]["source"])
+        self.assertEqual(self.native.answers(output), [answer([0, 2, 2], var(0), var(1), var(2))])
+
+    def test_real_empty_native_family_is_certified_not_confused_with_failure(self):
+        from tempfile import TemporaryDirectory
+        rq = dict(self.rq, eqs=[equation(app(5), app(6, app(3, var(0))))])
+        with TemporaryDirectory(prefix="conpanna-coordinator-") as temp:
+            result = compiler.coordinate(ROOT, rq, Path(temp))
+            self.assertEqual(result["request"]["proposed"], [])
+            trace = compiler.load_json(Path(temp) / "03-trace.json")
+            self.assertEqual(trace["answers"], "coordinatedAnswers")
+            self.assertIsInstance(trace["proof"], dict)
+            self.assertEqual(result["certificate"]["format"], "rule-bundle-v1")
+
+    def test_full_and_manual_stages_use_identical_certification_queries(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory(prefix="conpanna-coordinator-") as temp:
+            out = Path(temp)
+            result = compiler.coordinate(ROOT, self.rq, out)
+            target = compiler.load_json(out / "02-target.json")
+            self.assertEqual(len(target["proposed"]), 2)
+            query = (out / "02-target-query.maude").read_text().strip()
+            self.assertEqual(query, compiler.certification_query(target, "CERTIFICATION-QUERY"))
+            self.assertEqual(compiler.compile_target(out, (out / "02-target.stdout").read_text()), result)
+            self.assertEqual(result["certificate"]["format"], "rule-bundle-v1")
+            self.assertFalse(compiler.load_json(out / "status.json")["kernel_checked"])
+            self.assertIn("protecting BAKERY-DEMO-NATIVE", (out / "wrapper.maude").read_text())
+            self.assertIn("protecting CERTIFICATION-PRODUCER", (out / "wrapper.maude").read_text())
+            other = copy.deepcopy(self.rq)
+            other["eqs"][0]["left"] = var(1)
+            self.assertRaisesRegex(ValueError, "another request", compiler.prepare_native, ROOT, other, out)
 
 if __name__ == "__main__":
     unittest.main()

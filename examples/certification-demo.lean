@@ -2,11 +2,13 @@ import conPanna.Certification.Replay
 import examples.bakery_acu
 
 /-!
-Precompile the general backend with `python3 certification_compiler.py --build`.
+Precompile the general backend with `python3 certifier.py --build`.
 This Lean session supplies the problem AND its already-known answer. It asks
 Maude for certification evidence via Python, then checks the returned proof here.
 No native unify call, external Lean verifier, or proof-file prerequisite is used.
 The optional --demo harness separately checks the upstream native answer too.
+CONPANNA_COORDINATOR_DEMO=1 additionally demonstrates one Lean/Python exchange
+for native answer acquisition AND targeted certification; see the block below.
 
 Scope: free/binding, singleton/zero, sharing, finite factors, configuration fields,
 and purification. The unbounded schedule is argued in CERTIFICATION.md §7.4;
@@ -530,6 +532,73 @@ theorem overlap_certificate (n m : Nat) (P Q R : ProcSet) :
 
 #check overlap_certificate
 #print axioms overlap_certificate
+
+/- Optional ONE Lean/Python exchange, with TWO Maude operations inside Python.
+   Enabled only by CONPANNA_COORDINATOR_DEMO=1; ordinary editor elaboration does
+   not run another demo. No new tactic, library API, or native-answer assumption.
+   The fixture supplies only the native name/module map. The ACTUAL equations
+   and signature below are exported from Lean's typed atomSystem/profile.
+   Returned answers are checked DATA; their exactness is proved by the returned
+   rule bundle against the independently fixed atomSystem. Answer order need
+   not agree with the handwritten atomAnswers. -/
+run_elab do
+  if (← IO.getEnv "CONPANNA_COORDINATOR_DEMO") == some "1" then
+    let fixture ← match Lean.Json.parse (← IO.FS.readFile "examples/certification-request.json") with
+      | .ok value => pure value
+      | .error message => throwError "coordinator fixture: {message}"
+    let native ← match fixture.getObjVal? "native" with
+      | .ok value => pure value
+      | .error message => throwError "coordinator native metadata: {message}"
+    let data := LeanReady.requestJson profile profile_sortCode atomSystem []
+      "atomSystem" "coordinatedAnswers" profile_signature
+    let mut fields : List (String × Lean.Json) := []
+    for key in ["aggregate", "problem", "answers", "signature", "scope", "eqs"] do
+      match data.getObjVal? key with
+      | .ok value => fields := fields ++ [(key, value)]
+      | .error message => throwError "coordinator export: {message}"
+    let request := Lean.Json.mkObj (fields ++ [("native", native)])
+    let response ← IO.Process.output {
+      cmd := "python3"
+      args := #["certifier.py", "--coordinate", "--out",
+        ".lake/build/certifier/lean-atom"] } (some request.compress)
+    unless response.exitCode == 0 do throwError "coordinator failed: {response.stderr}"
+    let result ← match Lean.Json.parse response.stdout with
+      | .ok value => pure value
+      | .error message => throwError "coordinator reply: {message}"
+    -- Define the ACTUAL returned family, not the fixture's expected answers.
+    let answerText ← match result.getObjValAs? String "answer_value" with
+      | .ok value => pure value
+      | .error message => throwError "coordinator answer data: {message}"
+    let answerSyntax ← match Lean.Parser.runParserCategory (← Lean.getEnv) `term answerText with
+      | .ok value => pure value
+      | .error message => throwError "coordinator answer syntax: {message}"
+    let answerType ← Lean.Elab.Term.elabType (← `(List (Answer Sig [Tag.s0, Tag.s2, Tag.s2])))
+    let answerValue ← Lean.Elab.Term.elabTermEnsuringType answerSyntax (some answerType)
+    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let answerType ← Lean.instantiateMVars answerType
+    let answerValue ← Lean.instantiateMVars answerValue
+    if answerValue.hasMVar || answerValue.hasFVar || answerValue.hasSorry then
+      throwError "coordinator returned nonclosed/admitted answer data"
+    let answerName := `CertificationDemo.coordinatedAnswers
+    Lean.addDecl (.defnDecl {
+      name := answerName
+      levelParams := []
+      type := answerType
+      value := answerValue
+      hints := .abbrev
+      safety := .safe })
+    let expected ← `(∀ values, Worklist.Holds registration atomSystem values ↔
+      Solutions registration $(Lean.mkIdent answerName) values)
+    let bundle ← match result.getObjVal? "certificate" with
+      | .ok value => pure value
+      | .error message => throwError "coordinator certificate: {message}"
+    let (type, proof) ← LeanReady.prepareProof expected bundle.compress
+    Lean.addDecl (.thmDecl {
+      name := `CertificationDemo.coordinated_certificate
+      levelParams := []
+      type := type
+      value := proof })
+    Lean.logInfo m!"ONE coordinator call: native unifiers + targeted proof, kernel-checked against atomSystem"
 
 -- Optional negative replay tests; disabled in the editor's ordinary elaboration.
 -- Corrupt fresh evidence, not an old hand-written fixture. The final semantic

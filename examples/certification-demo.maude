@@ -1,14 +1,17 @@
---- End-to-end demo only: a free BIND chain over the registered Bakery signature.
---- Native unify proposes an answer; the rule engine below certifies that answer.
---- It is NOT a general ACU search driver. Terms use sorted signature identifiers.
+--- Native constructor module matching the registered Bakery demo signature.
+--- Native unify proposes answers; certification.maude certifies the fixed family.
+--- Also used as inspectable coordinator input; no certification rules here.
 fmod BAKERY-DEMO-NATIVE is
-  sorts Ticket Mode Bag .
+  sorts Ticket Mode Bag Conf .
   op zero : -> Ticket [ctor] .
   op succ : Ticket -> Ticket [ctor] .
+  op idle : -> Mode [ctor] .
   op wait : Ticket -> Mode [ctor] .
+  op crit : Ticket -> Mode [ctor] .
   op empty : -> Bag [ctor] .
   op singleton : Mode -> Bag [ctor] .
   op union : Bag Bag -> Bag [ctor assoc comm id: empty] .
+  op conf : Ticket Ticket Bag -> Conf [ctor] .
 endfm
 
 --- The reusable evidence producer lives in ../certification.maude.

@@ -1,0 +1,32 @@
+{
+  "aggregate": "system",
+  "problem": "atomSystem",
+  "answers": "coordinatedAnswers",
+  "scope": [0, 2, 2],
+  "signature": [
+    {"id": 0, "inputs": [], "output": 0, "role": "free"},
+    {"id": 1, "inputs": [0], "output": 0, "role": "free"},
+    {"id": 2, "inputs": [], "output": 1, "role": "free"},
+    {"id": 3, "inputs": [0], "output": 1, "role": "free"},
+    {"id": 4, "inputs": [0], "output": 1, "role": "free"},
+    {"id": 5, "inputs": [], "output": 2, "role": "zero"},
+    {"id": 6, "inputs": [1], "output": 2, "role": "free"},
+    {"id": 7, "inputs": [2, 2], "output": 2, "role": "add"},
+    {"id": 8, "inputs": [0, 0, 2], "output": 3, "role": "free"}
+  ],
+  "eqs": [{
+    "sort": 2,
+    "left": {"app": 7, "args": [{"var": 1}, {"var": 2}]},
+    "right": {"app": 6, "args": [{"app": 3, "args": [{"var": 0}]}]}
+  }],
+  "native": {
+    "module": "BAKERY-DEMO-NATIVE",
+    "source": "examples/certification-demo.maude",
+    "sort_names": {"0": "Ticket", "1": "Mode", "2": "Bag", "3": "Conf"},
+    "constructor_names": {
+      "0": "zero", "1": "succ", "2": "idle", "3": "wait", "4": "crit",
+      "5": "empty", "6": "singleton", "7": "union", "8": "conf"
+    },
+    "variables": ["N", "P", "Q"]
+  }
+}

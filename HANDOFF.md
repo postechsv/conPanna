@@ -18,6 +18,53 @@ standalone demo invokes native unify for input preparation and launches Lean
 as a TEST HARNESS ONLY; do not mistake that harness for the intended integration.
 CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundaries.
 
+## Inspectable coordinator — 2026-10-08
+
+- User requested merging upstream answer acquisition and certification behind
+  one Lean/Python exchange, then explicitly requested extending the EXISTING
+  Python file. That existing file was subsequently RENAMED to certifier.py
+  at the user's request. It is the coordinator, not a second implementation.
+- scripts/certify-demo.sh is the requested BASH inspection script: it invokes
+  the coordinator's stages, with explanations, separators and intermediate
+  results in stdout. Python remains machine-readable; no inspection mode was
+  added to it. Run: bash scripts/certify-demo.sh.
+  At the user's request it is a HARDCODED linear walkthrough: fixed example and
+  paths, no arguments/helper functions (only a stage timer variable); run from repo root, maude on
+  PATH. Each command is copyable individually; Maude safety limits remain local.
+  Intermediate JSON is NOT printed: stdout shows Maude input/native unifiers
+  and statistics, while raw evidence and proof artifacts stay on disk. The
+  JSON-bearing Maude result line is replaced with its saved-output pointer.
+  Each of its three stages prints wall-clock time including preparation,
+  subprocess startup and output; Python coordinator timing/logic is unchanged.
+- --coordinate performs two sequential Maude operations: native unify, then
+  certification of the parsed/frozen Sigma. Existing --certify still accepts
+  already supplied answers and does not rerun unification. No search/calculus,
+  semantic library, registration or narrowing changes.
+- --prepare-native, --parse-native and --compile-trace expose the same stages
+  without external calls. Generated ctor/wrapper modules, executable scripts,
+  raw transcripts, frozen target, trace and proof bundle remain under --out.
+  Detailed manual instructions: CERTIFICATION.md §7.1.
+- Adapter is a general sorted PREFIX-constructor parser under the existing
+  single stratified ACU contract; supports multiple answers, per-answer shared
+  fresh parameters, omitted identity bindings, flattened ACU output and empty
+  answer families. Rejects unsupported syntax/sorts/arity/cyclic substitutions.
+  Mixfix, ambiguous overloads, subsorts and additional equations are not supported.
+- examples/certification-request.json supplies native names/model source only.
+  The optional existing Lean demo exports its ACTUAL typed atomSystem/signature,
+  calls Python ONCE, elaborates returned answer DATA, and kernel-checks returned
+  evidence against that original problem, not Python's replacement proposition.
+  Enable using CONPANNA_COORDINATOR_DEMO=1 with the existing --demo harness.
+- Enabled full Lean demo passed under unchanged safety limits, including the
+  new two-native-answer certificate (83 proof steps) and old regression proofs,
+  without sorry. The default editor path does not run this optional coordinator.
+  Python never launches Lean in coordinator/stage modes; status.json intentionally
+  records kernel_checked:false because proof assembly is not verification.
+- Validation: all 39 Python regression tests pass, including a real empty native
+  answer family; saved manual stages were exercised, and git diff --check passes.
+- Remaining boundary: native model/name map currently supplied via a fixture;
+  automatic registered-model export and production integration are NEXT, not
+  claimed complete. No narrowing change or new general search guarantee.
+
 ## Artifact cleanup — 2026-10-08
 
 - Root `certification.maude` now contains ONLY the maintained
@@ -275,8 +322,8 @@ Unrelated disunification.lean is untouched.
   control, then rejects wrong successor AT bind_successor, wrong scope, hole,
   duplicate/unsupported node, and wrong final proof. Saved elaboration state is
   restored between fixtures, including their messages/admission warnings.
-  Commands: CONPANNA_CERT_NEGATIVES=1 python3 -B certification_compiler.py --demo;
-  CONPANNA_CERT_STRESS=1 python3 -B certification_compiler.py --demo separately.
+  Commands: CONPANNA_CERT_NEGATIVES=1 python3 -B certifier.py --demo;
+  CONPANNA_CERT_STRESS=1 python3 -B certifier.py --demo separately.
 - tests/test_certification_compiler.py uses alternate constructor codes, tests
   typed-input rejection and whole-vector/shared/repeated factor search, omitted
   and unsound families. All 17 tests pass. A two-SHARING regression checks that
@@ -316,7 +363,7 @@ milestone now passes; no narrowing changes or commits were made.
   answer (N, [wait(N)]+R, [wait(N)]+2R), including n's component. No holes or
   problem-specific supporting certification lemmas. Comments describe the ACTUAL
   2-by-2 support table and PURIFY/SHARING/ATOM/BIND/NONEMPTY/COVER structure.
-- Run CONPANNA_CERT_STRESS=1 python3 -B certification_compiler.py --demo. It
+- Run CONPANNA_CERT_STRESS=1 python3 -B certifier.py --demo. It
   checks that focused file separately, without another native unify. Latest
   successful consumer: 19.51 s, 685 checked nodes, root elaboration 90 ms,
   standard axioms [propext, Classical.choice, Quot.sound] only. Same resource caps.
@@ -419,7 +466,7 @@ previous successful twelve-certificate CLI check below. No test remains running.
 Older details below are historical and some implementation-status claims are
 superseded by this checkpoint. CERTIFICATION.md remains technical documentation.
 
-Run `python3 certification_compiler.py --demo` from the repository root.
+Run `python3 certifier.py --demo` from the repository root.
 `--build` precompiles only the backend. Four sequential cached modules live in
 conPanna/Certification: Core, Sharing, Enumeration, Replay. Generic proof bodies
 were moved, not reimplemented; certification.lean retains its examples. Cross-
@@ -479,7 +526,7 @@ calculus or build another dependent proof-producing interpreter.
 - A TEMPORARY five-module split compiled the same proofs/rules and ALL original
   examples without errors or admissions. Only private theorem visibility was
   relaxed to permit cross-module references; no semantic proof body changed.
-- certification_compiler.py is a thin, untrusted constructor translator. Two
+- certifier.py is a thin, untrusted constructor translator. Two
   manually supplied structured traces produce full original certificates:
   BIND/BIND/COVER for P:=Q, Q:=[wait(n)], and SHARING/COVER for 2P =B 3Q with
   P:=3Z, Q:=2Z. Both preserve the whole original input vector, including n.
