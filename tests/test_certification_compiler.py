@@ -1,6 +1,7 @@
 """Boundary and answer-guided producer regressions, not a second solver.
 
 Run: python3 -B -m unittest discover -s tests -v
+Focused kernel negatives: python3 -B tests/test_certification_compiler.py --negatives
 Actual semantic/kernel checks live in examples/certification-demo.lean.
 This different constructor-code fixture also checks that production does not
 depend on Bakery's constructor names/codes. Coordinator tests also call native unify.
@@ -103,6 +104,26 @@ class InputTests(unittest.TestCase):
         self.assertRaisesRegex(ValueError, "natural", compiler.validate_request, self.valid)
 
 class ProducerTests(unittest.TestCase):
+    def test_named_finite_side_conditions(self):
+        table = compiler.checked_table([[1, 0], [0, 1]])
+        self.assertEqual(table.count("SideCondition.tableCons"), 2)
+        self.assertNotIn("funext", table)
+        self.assertNotIn("congrArg", table)
+        branches = compiler.atom_children([0, 2], [None, None])
+        self.assertEqual(branches.count("SideCondition.finCons"), 2)
+        self.assertEqual(branches.count("SideCondition.noSupplier"), 2)
+        self.assertNotIn("False.elim", branches)
+
+    def test_atom_branch_slots_cannot_be_omitted(self):
+        self.assertRaisesRegex(ValueError, "one slot", compiler.atom_children,
+            [1, 1], [None])
+        self.assertRaisesRegex(ValueError, "one slot", compiler.atom_children,
+            [], [None])
+        self.assertRaisesRegex(ValueError, "non-unit", compiler.atom_children,
+            [2], [{}])
+        self.assertRaisesRegex(ValueError, "requires a branch", compiler.atom_children,
+            [1], [None])
+
     def test_fast_normal_forms_agree_with_proof_normalization(self):
         import random
         rng = random.Random(47)
@@ -233,6 +254,9 @@ class ProducerTests(unittest.TestCase):
             self.assertEqual(leaf["rule"], "cover")
             self.assertEqual(leaf["index"], answer_index)
             self.assertEqual(leaf["beta"], [var(0)])
+        generated = "\n".join(s["value"] for s in compiler.compile_bundle(trace)["steps"])
+        self.assertIn("SideCondition.finCons", generated)
+        self.assertNotIn("Fin.cases", generated)
 
     def test_configuration_binding_exposes_and_retains_bag_fields(self):
         # C=pair(P,Q), C=pair(Q,P), 2P=3Q forces P=Q=empty.
@@ -535,13 +559,13 @@ def precompile(root):
     cache.mkdir(parents=True, exist_ok=True)
     # Let Lake validate dependency traces; do not implement a second build cache.
     ready = compiler.run_checked(["lake", "--no-build", "--no-cache", "build",
-        "+conPanna.Certification.Replay:olean"], cwd=root, lean=True, allow_stale=True)
+        "+conPanna.Certification.Client:olean"], cwd=root, lean=True, allow_stale=True)
     if ready is not None:
         print("Certification backend: cached (Lake validated dependencies)", flush=True)
         return cache
     # Existing project dependencies must already be built (as in normal Lake use).
     # Explicit steps prevent independent backend modules compiling concurrently.
-    for name in ("Core", "Sharing", "Enumeration", "Frontend", "Replay"):
+    for name in ("Core", "Sharing", "Enumeration", "Syntax", "Calculus", "Semantics", "Parser", "Client"):
         start = time.monotonic()
         # Lake creates .ilean and dependency traces needed by the editor.
         # --old avoids unrelated transitive rebuilds in this experiment.
@@ -622,7 +646,7 @@ def check_comparison_certificate(root, cache, request, trace, bundle):
     proposed = trace["generated"] if "generated" in trace else request["proposed"]
     answer_data = ["{ parameters := " + compiler.scope(a["parameters"]) +
         ", images := " + compiler.terms(a["images"]) + " }" for a in proposed]
-    source = """import conPanna.Certification.Replay
+    source = """import conPanna.Certification.Client
 import examples.bakery_acu
 namespace CertificationComparison
 open BakeryACU Structural.Indexed BakeryACU.BakeryTheory.Generated
@@ -694,6 +718,36 @@ def compare_search(root):
     print("Results: " + str(cache / "comparison.json"), flush=True)
     return rows
 
+def negative_demo(root):
+    """Run the SAME demo negative tests without all unrelated positive examples.
+
+    Only an ignored test consumer is generated; there is no second maintained
+    Lean test/implementation. Explicit markers keep its dependency prefix intact.
+    This avoids spending one process's CPU budget on every regression twice.
+    """
+    import os
+    cache = precompile(root)
+    text = (root / "examples/certification-demo.lean").read_text()
+    prefix_marker = "-- CERTIFICATION-NEGATIVE-PREFIX-END"
+    tests_marker = "-- CERTIFICATION-NEGATIVE-TESTS-BEGIN"
+    if text.count(prefix_marker) != 1 or text.count(tests_marker) != 1:
+        raise ValueError("negative test source markers must occur exactly once")
+    source = text.split(prefix_marker)[0] + text.split(tests_marker)[1]
+    path = cache / "negatives.lean"
+    path.write_text(source)
+    env = dict(os.environ, CONPANNA_CERT_NEGATIVES="1")
+    print("Checking focused negative tests under the unchanged limits", flush=True)
+    checked = compiler.run_checked(["lake", "env", "lean", "-j1", "-M512",
+        str(path)], cwd=root, lean=True, env=env)
+    print(checked.rstrip())
+    for label in ("wrong successor", "wrong scope", "wrong conditional hypothesis",
+                  "proof hole", "duplicate node", "unsupported node kind",
+                  "wrong final proof", "omitted support row", "identical heads",
+                  "eligible supplier skipped"):
+        if "Rejected " + label not in checked:
+            raise ValueError("negative test did not run: " + label)
+
+
 def demo(root):
     import os
     import time
@@ -741,6 +795,8 @@ def demo(root):
 if __name__ == "__main__":
     if sys.argv[1:] == ["--build"]:
         precompile(ROOT)
+    elif sys.argv[1:] == ["--negatives"]:
+        negative_demo(ROOT)
     elif sys.argv[1:] == ["--demo"]:
         demo(ROOT)
     elif sys.argv[1:] == ["--compare"]:

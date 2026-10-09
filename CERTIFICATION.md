@@ -1,6 +1,6 @@
 # A finite, answer-guided ACU certification calculus
 
-Technical design note — study-oriented revision, 2026-10-07.
+Technical design note — study-oriented revision, 2026-10-09.
 
 ## 0. Purpose, reading guide, and status
 
@@ -10,7 +10,10 @@ The maintained artifact has one Maude engine, with matching checker and examples
 | --- | --- |
 | [certification.maude](certifier/certification.maude) | Nine functional support modules followed by `CERTIFICATION-PRODUCER`, which groups ALL rewrite rules. |
 | [wrapper.maude](certifier/wrapper.maude) | Fixed wrapper template loading cached `ctor.maude` and the calculus; native module/sort import information is substituted. |
-| [Replay.lean](conPanna/Certification/Replay.lean) | Typed evidence constructors and their semantic validity proofs. |
+| [Calculus.lean](conPanna/Certification/Calculus.lean) | Surface equality/state/soundness rules, mirroring Maude. Read this first. |
+| [Semantics.lean](conPanna/Certification/Semantics.lean) | General semantic validity proofs and final exactness acceptance. |
+| [Client.lean](conPanna/Certification/Client.lean) | Generated metadata, request export and Python coordination. |
+| [Parser.lean](conPanna/Certification/Parser.lean) | Parse and elaborate the Python proof bundle; check closed intermediate declarations against the fixed final goal. |
 | [certifier.py](certifier/certifier.py) | Untrusted assembly of Maude evidence into applications of those Lean rules. |
 | [certification-demo.lean](examples/certification-demo.lean) | Automated certificates and readable manual counterparts over the same Bakery constructors. |
 | [certification.lean](certification.lean) | Additional explicit, handwritten calculus certificates. |
@@ -313,8 +316,8 @@ Example: after binding `P := Q`, the original inputs `(P,Q)` are still
 recorded, now by the image vector `(Q,Q)`. Keeping both components prevents
 later coverage from silently forgetting the original P.
 
-Lean: [ReplayState](conPanna/Certification/Replay.lean#L1995),
-[ReplayState.substitute](conPanna/Certification/Replay.lean#L2006).
+Lean: [ReplayState](conPanna/Certification/Syntax.lean#L490),
+[ReplayState.substitute](conPanna/Certification/Syntax.lean#L496).
 
 ### 3.2 Three proof levels, followed by one final aggregation
 
@@ -336,8 +339,8 @@ E ⊢B s = t     equality valid for every valuation satisfying E
 
 Both conclude the SAME structural relation `=B`. The distinction is whether
 the proof may use hypotheses from E. Lean's
-[Equality](conPanna/Certification/Replay.lean#L824) records the first;
-[Derives](conPanna/Certification/Replay.lean#L1683) records the second.
+[Equality](conPanna/Certification/Calculus.lean#L37) records the first;
+[Derives](conPanna/Certification/Calculus.lean#L91) records the second.
 
 Write the coverage judgement as:
 
@@ -372,11 +375,11 @@ Independently check that every proposed answer solves every original equation:
 Exact(E₀, Σ)
 ```
 
-This is [exact_system](conPanna/Certification/Replay.lean#L2232).
-[Complete.sound](conPanna/Certification/Replay.lean#L2059) proves the validity of
+This is [exact_system](conPanna/Certification/Semantics.lean#L1057).
+[Complete.sound](conPanna/Certification/Semantics.lean#L916) proves the validity of
 a COVERAGE tree; despite its name, it is not the separate proposed-answer
 soundness proof. That reverse direction is supplied by
-[SystemSoundness.sound](conPanna/Certification/Replay.lean#L2217).
+[SystemSoundness.sound](conPanna/Certification/Semantics.lean#L1045).
 
 ### 3.3 The overall procedure
 
@@ -460,13 +463,13 @@ FREE-OCCURS
 
 | Rule | Maude label or helper (no standalone label where noted) | Lean definition or evidence constructor |
 | --- | --- | --- |
-| DELETE | [`chooseTerm(S,A,A,HS,P)`](certifier/certification.maude#L470) skips a reflexive equation; no standalone rewrite rule | [Equality.refl](conPanna/Certification/Replay.lean#L824); bookkeeping, not a separate `Complete` constructor |
-| ORIENT | [`chooseTerm`](certifier/certification.maude#L474) orients the selected premise via `symmText`; no standalone rewrite rule | [Derives.symm](conPanna/Certification/Replay.lean#L1683) |
-| DECOMPOSE | [`chooseArgs`](certifier/certification.maude#L482) with [`decompText`](certifier/certification.maude#L270) derives a field equation; no standalone rewrite rule | [Derives.decompose](conPanna/Certification/Replay.lean#L1698), justified by [decompose_native](conPanna/Certification/Replay.lean#L353) |
-| CLASH | [`[clash-and-emit]`](certifier/certification.maude#L1437) | [Complete.clash](conPanna/Certification/Replay.lean#L1985) |
-| BIND | [`[bind]`](certifier/certification.maude#L1430) | [Complete.bind](conPanna/Certification/Replay.lean#L1930), [Binding.Removal](conPanna/Certification/Replay.lean#L1082), [Binding.complete](conPanna/Certification/Replay.lean#L1312) |
-| FREE-OCCURS | [`[occurs-and-emit]`](certifier/certification.maude#L1444) | [Complete.occurs](conPanna/Certification/Replay.lean#L1936), [FreeOccurs.Proper.sound](conPanna/Certification/Replay.lean#L1395) |
-| Free-step selection | [`chooseTerm`](certifier/certification.maude#L470) in `CERTIFICATION-FREE` | [FreePhase.classify](conPanna/Certification/Replay.lean#L1480) |
+| DELETE | [`chooseTerm(S,A,A,HS,P)`](certifier/certification.maude#L470) skips a reflexive equation; no standalone rewrite rule | [Equality.refl](conPanna/Certification/Calculus.lean#L37); bookkeeping, not a separate `Complete` constructor |
+| ORIENT | [`chooseTerm`](certifier/certification.maude#L474) orients the selected premise via `symmText`; no standalone rewrite rule | [Derives.symm](conPanna/Certification/Calculus.lean#L91) |
+| DECOMPOSE | [`chooseArgs`](certifier/certification.maude#L482) with [`decompText`](certifier/certification.maude#L270) derives a field equation; no standalone rewrite rule | [Derives.decompose](conPanna/Certification/Calculus.lean#L91), justified by [decompose_native](conPanna/Certification/Semantics.lean#L144) |
+| CLASH | [`[clash-and-emit]`](certifier/certification.maude#L1437) | [Complete.clash](conPanna/Certification/Calculus.lean#L123) |
+| BIND | [`[bind]`](certifier/certification.maude#L1430) | [Complete.bind](conPanna/Certification/Calculus.lean#L123), [Binding.Removal](conPanna/Certification/Syntax.lean#L153), [Binding.complete](conPanna/Certification/Semantics.lean#L599) |
+| FREE-OCCURS | [`[occurs-and-emit]`](certifier/certification.maude#L1444) | [Complete.occurs](conPanna/Certification/Calculus.lean#L123), [FreeOccurs.Proper.sound](conPanna/Certification/Semantics.lean#L658) |
+| Free-step selection | [`chooseTerm`](certifier/certification.maude#L470) in `CERTIFICATION-FREE` | [FreePhase.classify](conPanna/Certification/Syntax.lean#L404) |
 
 BIND is valid at any sort when the scoped-replacement condition holds. The
 mandatory free phase uses it at non-bag sorts; optional bag bindings are shortcuts.
@@ -512,7 +515,7 @@ NORMALIZE                                  nf flattens + and removes 0
 ```
 
 Its proofs use `Equality.assoc`, `comm`, `unit`, `congr`, `trans`,
-and `symm`; see [Equality](conPanna/Certification/Replay.lean#L824).
+and `symm`; see [Equality](conPanna/Certification/Calculus.lean#L37).
 Maude: [`norm`](certifier/certification.maude#L328) in `CERTIFICATION-EQUALITY`
 constructs NORMALIZE evidence; `normalized` computes data-only normal forms
 for decisions. There is no standalone `[normalize]` rewrite rule.
@@ -532,10 +535,10 @@ CANCEL — evidence                         MULTIPLICITY-CANCEL — evidence
 
 Here `kU` means k repeated copies, not arithmetic on payloads. Replay can
 retain the original equation and use the derived equality for the next step.
-Lean: [Derives.cancel](conPanna/Certification/Replay.lean#L1691),
-[Derives.multiplicity](conPanna/Certification/Replay.lean#L1694),
-[cancel_native](conPanna/Certification/Replay.lean#L488),
-[multiplicity_native](conPanna/Certification/Replay.lean#L324).
+Lean: [Derives.cancel](conPanna/Certification/Calculus.lean#L91),
+[Derives.multiplicity](conPanna/Certification/Calculus.lean#L91),
+[cancel_native](conPanna/Certification/Semantics.lean#L253),
+[multiplicity_native](conPanna/Certification/Semantics.lean#L119).
 Maude: [`cancelText`](certifier/certification.maude#L1101) and
 [`multiplicityText`](certifier/certification.maude#L1091) in
 `CERTIFICATION-COVERAGE` construct CANCEL and MULTIPLICITY-CANCEL evidence.
@@ -561,9 +564,9 @@ PURIFY
 An old solution extends with `A:=[t]`; the defining equation ensures that
 every new solution restricts back to an old one.
 
-Lean: [Complete.purify](conPanna/Certification/Replay.lean#L1939),
-[Purification.state](conPanna/Certification/Replay.lean#L1813),
-[Purification.exact](conPanna/Certification/Replay.lean#L1859).
+Lean: [Complete.purify](conPanna/Certification/Calculus.lean#L123),
+[Purification.state](conPanna/Certification/Syntax.lean#L474),
+[Purification.exact](conPanna/Certification/Semantics.lean#L865).
 The typed fresh-slot template must reconstruct the exact old equation when its
 slot is filled; an external dump cannot simply assert that the replacement is valid.
 Maude: [`[purify]`](certifier/certification.maude#L1494) invokes
@@ -807,10 +810,10 @@ user problem. Lean links:
 
 - Enumeration: [supportGenerators](conPanna/Certification/Enumeration.lean#L191),
   [supportGenerators_exact](conPanna/Certification/Enumeration.lean#L225).
-- Semantic lift: [finiteSharing_native](conPanna/Certification/Replay.lean#L292),
-  [Sharing.complete / sound](conPanna/Certification/Replay.lean#L1527).
-- Replay: [Complete.sharing](conPanna/Certification/Replay.lean#L1960);
-  [Complete.sharingTable](conPanna/Certification/Replay.lean#L2038) checks the
+- Semantic lift: [finiteSharing_native](conPanna/Certification/Semantics.lean#L88),
+  [Sharing.complete / sound](conPanna/Certification/Semantics.lean#L684).
+- Replay: [Complete.sharing](conPanna/Certification/Calculus.lean#L123);
+  [Complete.sharingTable](conPanna/Certification/Calculus.lean#L222) checks the
   supplied table equal to the exhaustive enumeration.
 
 The displayed state transition uses that same retained-worklist convention:
@@ -891,9 +894,9 @@ A binding must update other requirements too: after `Z:=[u]`, a second
 requirement `Z =B [v]` becomes `[u] =B [v]`, then `u =B v`.
 Under the contract, these payload equations cannot create more bag equations.
 
-Lean: [Complete.atom](conPanna/Certification/Replay.lean#L1944),
-[Complete.zero](conPanna/Certification/Replay.lean#L1951),
-[Complete.nonempty](conPanna/Certification/Replay.lean#L1956).
+Lean: [Complete.atom](conPanna/Certification/Calculus.lean#L123),
+[Complete.zero](conPanna/Certification/Calculus.lean#L123),
+[Complete.nonempty](conPanna/Certification/Calculus.lean#L123).
 Maude labels: [`[atom-split]`](certifier/certification.maude#L1453),
 [`[zero-split]`](certifier/certification.maude#L1465), and
 [`[nonempty-close]`](certifier/certification.maude#L1477).
@@ -901,15 +904,15 @@ Maude labels: [`[atom-split]`](certifier/certification.maude#L1453),
 come from `CERTIFICATION-BAG-STEPS`. ATOM-MANY/ONE/CHOOSE are derived cases of
 these rules, not additional Maude labels.
 Their exact requirements are computed by
-[atomRequirements](conPanna/Certification/Replay.lean#L1893) and
-[zeroRequirements](conPanna/Certification/Replay.lean#L1889);
+[atomRequirements](conPanna/Certification/Syntax.lean#L484) and
+[zeroRequirements](conPanna/Certification/Syntax.lean#L480);
 the general semantic lemmas are
 [AtomProcessing.sum_atom](conPanna/Certification/Enumeration.lean#L715) and
 [sum_zero](conPanna/Certification/Enumeration.lean#L694).
 Coefficient-zero entries impose only reflexive equations and remain unrestricted.
 The binary special case is also exposed as
-[Complete.split](conPanna/Certification/Replay.lean#L1977) and
-[NativeRules.singletonCases](conPanna/Certification/Replay.lean#L419).
+[Complete.split](conPanna/Certification/Calculus.lean#L123) and
+[NativeRules.singletonCases](conPanna/Certification/Semantics.lean#L195).
 
 ### 4.5 COVER — proof closure, not a state transformation
 
@@ -937,7 +940,7 @@ There is no child state. A valuation δ satisfying E supplies the answer witness
 
 At a solved leaf `E=[]`, the equalities are unconditional: this is ordinary
 COVER. At an unsolved state, they may use E: this is EARLY-COVER. Both are the
-SAME [Complete.cover](conPanna/Certification/Replay.lean#L1926) constructor.
+SAME [Complete.cover](conPanna/Certification/Calculus.lean#L123) constructor.
 Maude: [`[cover-and-emit]`](certifier/certification.maude#L1414) implements both COVER and
 EARLY-COVER, using [`selectCoverage`](certifier/certification.maude#L1160) in
 `CERTIFICATION-COVERAGE` and whole-vector
@@ -946,7 +949,7 @@ Early closure does NOT assert that E is trivial or that the current state is
 exactly that answer's whole family; only the required inclusion is established.
 
 Evidence inside COVER uses
-[Derives.hyp / symm / trans / congr](conPanna/Certification/Replay.lean#L1683),
+[Derives.hyp / symm / trans / congr](conPanna/Certification/Calculus.lean#L91),
 possibly cancellation, multiplicity cancellation, and free decomposition.
 Unconditional ACU proofs enter via `Derives.axiom`.
 
@@ -983,9 +986,9 @@ Every old solution has such a four-piece common refinement; conversely the
 four defining equations imply the old balance. This is a general exact rule,
 not a guess that one particular solution has those pieces.
 
-Lean: [Complete.mutate](conPanna/Certification/Replay.lean#L1973),
-[mutated](conPanna/Certification/Replay.lean#L1760),
-[mutate_native](conPanna/Certification/Replay.lean#L449).
+Lean: [Complete.mutate](conPanna/Certification/Calculus.lean#L123),
+[mutated](conPanna/Certification/Syntax.lean#L449),
+[mutate_native](conPanna/Certification/Semantics.lean#L221).
 Maude: [`[witness-cover-and-emit]`](certifier/certification.maude#L1422) closes with a
 composite MUTATE → COVER trace constructed by
 [`tryWitness`](certifier/certification.maude#L1185) / `finishWitness` in
@@ -1021,12 +1024,12 @@ EXACT
 The equalities are unconditional in each answer's independent parameters.
 Assuming E₀ itself here would make soundness circular.
 
-Lean: [Soundness](conPanna/Certification/Replay.lean#L1572) records evidence for
+Lean: [Soundness](conPanna/Certification/Calculus.lean#L65) records evidence for
 one equation and all answers;
-[SystemSoundness](conPanna/Certification/Replay.lean#L2211) combines equations.
-[exact_system](conPanna/Certification/Replay.lean#L2232) combines this with root
+[SystemSoundness](conPanna/Certification/Calculus.lean#L247) combines equations.
+[exact_system](conPanna/Certification/Semantics.lean#L1057) combines this with root
 coverage. For a single equation,
-[exact](conPanna/Certification/Replay.lean#L2243) is the convenience theorem.
+[exact](conPanna/Certification/Semantics.lean#L1066) is the convenience theorem.
 Maude: [`[emit-sound-evidence]`](certifier/certification.maude#L1401) emits ANSWER-SOUND
 evidence using [`answersProof`](certifier/certification.maude#L394) in
 `CERTIFICATION-EQUALITY`;
@@ -1144,9 +1147,11 @@ indices, not a literal list. The compiler also supplies typed data and scope
 checks omitted here. It does not perform a new search in Lean.
 
 See the same proposition in
-[atom_automated_certificate](examples/certification-demo.lean#L164) and
-[atom_manual_certificate](examples/certification-demo.lean#L202).
-The manual proof uses the semantic ATOM rule `NativeRules.singletonCases`,
+[atom_automated_certificate](examples/certification-demo.lean#L227) and
+[atom_manual_certificate](examples/certification-demo.lean#L265).
+For the explicit surface-rule tree, see [atom_surface_certificate](examples/certification-demo.lean). Its completeness proof is ATOM with two COVER children; soundness is the separate equality row. Data names n, p and q hide variable-position bookkeeping, and right_unit is the fixed COMM → UNIT derivation already used by Maude.
+
+The older manual proof uses the semantic ATOM rule `NativeRules.singletonCases`,
 then witnesses N:=n in both branches. Its branch order differs from the dump;
 its rule/case structure agrees. It contains no parser or certification tactic.
 
@@ -1163,7 +1168,7 @@ This is a valid expanded replay shape; equivalent branch ordering is harmless.
 A coefficient-combined ATOM instead uses `[P]` with coefficient `[2]` and has
 no eligible children. Both presentations prove absence of solutions, rather
 than interpreting a solver's failure as a proof. Soundness of the empty answer
-list is vacuous. See [repeatedSystem](examples/certification-demo.lean#L303).
+list is vacuous. See [repeatedSystem](examples/certification-demo.lean#L366).
 
 ### 5.2 Early coverage: 2P =B 2Q
 
@@ -1193,7 +1198,7 @@ MULTIPLICITY is an equality derivation INSIDE COVER, not a state transition
 whose child must be searched. The original equation remains in the state.
 Together these proofs certify `2P =B 2Q iff exists Z, P =B Z and Q =B Z`.
 
-See [power_certificate](examples/certification-demo.lean#L253).
+See [power_certificate](examples/certification-demo.lean#L316).
 This is genuinely targeted: the supplied diagonal answer suggests the factor;
 its checked conditional equalities avoid the sharing grid. It does not imply
 that an independent solver could not discover the same cancellation.
@@ -1232,9 +1237,9 @@ there is no union-only expression in the CURRENT P,Q that universally extracts
 the required W. SHARING first introduces Z existentially. Z may be empty;
 no feasibility or nonemptiness constraint has been added.
 
-See [nonlinearAnswers and automated replay](examples/certification-demo.lean#L327)
+See [nonlinearAnswers and automated replay](examples/certification-demo.lean#L390)
 and the explicit rule proof
-[nonlinear_replay_certificate](certification.lean#L264).
+[nonlinear_replay_certificate](certification.lean#L266).
 The finite enumeration/checking theorem is shared infrastructure, not a
 problem-specific completeness assumption.
 
@@ -1273,8 +1278,8 @@ sound:
 This is the implemented optional witness-introduction shortcut. If its local
 COVER attempt fails, the fallback resumes from the original state; no unproved
 case is removed. See
-[matrix_certificate](examples/certification-demo.lean#L282) and
-[matrix_manual_certificate](examples/certification-demo.lean#L293).
+[matrix_certificate](examples/certification-demo.lean#L345) and
+[matrix_manual_certificate](examples/certification-demo.lean#L356).
 The latter is one application of `mutate_native`, whose IFF packages the
 general exact transformation.
 
@@ -1309,7 +1314,7 @@ PURIFY
 
 DECOMPOSE is inside COVER's equality evidence, rather than a separate
 completeness node. See the explicit
-[purification_binding_certificate](certification.lean#L536).
+[purification_binding_certificate](certification.lean#L538).
 This is a valid handwritten derivation, not a claim that the producer must choose
 purification for this simple query; it can decompose the original equation directly.
 
@@ -1576,7 +1581,7 @@ equation from its current worklist. COVER's `derived` field contains equality
 proofs for every original image, not further search branches.
 [traceText](certifier/certification.maude#L1257) serializes these records;
 [compile_components](certifier/certifier.py#L435) assembles the two proof
-parts; [LeanReady.prepareProof](conPanna/Certification/Frontend.lean#L104)
+parts; [LeanReady.prepareProof](conPanna/Certification/Parser.lean#L138)
 loads checked nodes against Lean's independently fixed goal.
 
 The compiler can share repeated subproofs as named, dependency-ordered nodes.
@@ -1816,6 +1821,171 @@ test harness invokes Lean. The packaged coordinator has no model-specific demo
 fixtures and never invokes Lean, including in fixed-answer and staged modes.
 Safety limits remain unchanged; do not raise them to force a regression pass.
 
+### 7.2 Lean surface-calculus boundary and evidence correspondence
+
+The module separation below is implemented. It changes neither the mathematical
+calculus nor its search strategy: the existing rules are exposed in Calculus.lean,
+with semantic justification in Semantics.lean and loading machinery in Parser.lean.
+Start with Calculus.lean if you already understand the Maude calculus.
+
+#### The language a certificate uses
+
+A certificate has three kinds of proof, followed by one acceptance theorem:
+
+| Judgment | Meaning | Current Lean declaration |
+| --- | --- | --- |
+| `t =B u` | Equality justified by structural axioms alone. | `Substitution.Equality`, with `Equalities` for argument vectors. |
+| `E ⊢ t =B u` | Equality justified by the current equations and structural/free-constructor properties. | `Worklist.Derives`, with `DerivesArgs` for argument vectors. |
+| `⟨α ; E⟩ ⇒ Σ` | Every valuation solving E makes the original-input images α an instance of a proposed answer. | `Worklist.Complete`; `ReplayState.Certified` packages the same judgment with a state. |
+| `Σ solves E₀` | Each supplied answer satisfies every original equation. | `Soundness` per equation; `Worklist.SystemSoundness` for the whole system. |
+| Exactness | Original solutions are exactly the instances of Σ. | `Worklist.exact_system` combines the last two proofs. |
+
+The first two rows are premise-evidence levels, not alternative unification
+algorithms. Completeness is a state-proof tree; soundness is a collection of
+unconditional equality proofs after substituting the proposed answers.
+The acceptance theorem is public, but its semantic proof is not part of each
+emitted certificate. All declaration names in this section are relative to
+`DirectCertification.Substitution` unless otherwise stated.
+
+#### Exhaustive correspondence for the current producer
+
+The source of the completed state-node tags is
+[traceText](certifier/certification.maude#L1221). Python's
+[nested_complete](certifier/certifier.py) translates exactly these ten tags:
+
+| Maude rule/helper → completed node | Python tag | Lean surface rule | Required evidence / children |
+| --- | --- | --- | --- |
+| `[cover-and-emit]` → `coverNode` | `cover` | `Complete.cover` | One answer index, one parameter substitution β, and a derivation for the ENTIRE input-image vector; no child. |
+| `[bind]`, `finish` → `bindNode` | `bind` | `Complete.bind` | Typed variable removal, replacement, derived binding equation, and one substituted child. |
+| `[clash-and-emit]` → `clashNode` | `clash` | `Complete.clash` | Two distinct FREE heads and a derived equality between their applications; no child. |
+| `[occurs-and-emit]` → `occursNode` | `occurs` | `Complete.occurs` | A proper path through FREE constructors and a derived binding equation; no child. |
+| `[atom-split]`, `[atom-collect]` → `atomNode` | `atom` | `Complete.atom` | Derived sum/singleton equality and EVERY coefficient-one supplier child, not just the successful child. |
+| `[zero-split]`, `[zero-collect]` → `zeroNode` | `zero` | `Complete.zero` | Derived sum/unit equality and one child containing all required zero equations. |
+| `[nonempty-close]` → `nonemptyNode` | `nonempty` | `Complete.nonempty` | Derived equality of a FREE bag atom with the unit; no child. |
+| `[finite-sharing]`, `[sharing-collect]` → `sharingNode` | `sharing` | `Complete.sharingTable` | Slots, coefficients, occurrence labels, a CHECKED exhaustive support table, a derived balance equation, and one substituted child. |
+| `[purify]`, `[purify-collect]` → `purifyNode` | `purify` | `Complete.purify` | Named term, fresh-variable template and equation position, and one scope-extended child retaining the definition. |
+| `tryWitness`, `[witness-cover-and-emit]` → `mutateNode` | `mutate` | `Complete.mutate` | Derived binary balance and one child with four fresh sharing parameters. The helper finishes it with COVER. |
+
+Lean's `Complete.sharingTable` is a derived presentation of `Complete.sharing`:
+it checks that the explicit table equals the exhaustive enumeration. Python also
+supports the basic `.sharing` form when a record omits that table. The maintained
+producer supplies the explicit table. These are not two different algorithms.
+
+Likewise, `Complete.split` exists for handwritten binary singleton proofs, but
+the maintained producer emits `atom`, NOT a `split` tag. Do not invent a dump
+rule for every available Lean constructor. The generalized `Soundness.sharing`
+constructor is also available for handwritten/legacy proof assembly; production
+`answersProof` instead supplies equality traces for the fixed native answers.
+
+The primitive and derived premise evidence is mapped independently:
+
+| Maude evidence tag | Lean rule |
+| --- | --- |
+| `refl`, `symm`, `trans`, `congr` | `Equality.refl`, `.symm`, `.trans`, `.congr` |
+| `unit`, `comm`, `assoc` | `Equality.unit`, `.comm`, `.assoc` |
+| `swap_right` | `Equality.swap_right`, a fixed derived ACU rule |
+| `scoped` | Context annotation only; Python compiles the child in that scope. No new proof rule. |
+| `hyp` | `Derives.hyp`, selecting a current equation by a checked index |
+| `axiom` | `Derives.axiom`, embedding structural equality evidence |
+| `symm`, `trans`, `congr` in a premise derivation | `Derives.symm`, `.trans`, `.congr` |
+| `decompose` | `Derives.decompose`, requiring a free head and a typed argument position |
+| `cancel` | `Derives.cancel`, canceling a common bag prefix |
+| `multiplicity` | `Derives.multiplicity`, canceling a CHECKED positive repetition count |
+
+Vector evidence uses `.nil`/`.cons` of the corresponding typed list judgment.
+Production `answersProof` produces one row per original equation and one
+structural equality per proposed answer. Python builds `Soundness.nil/cons` for
+each row, then `SystemSoundness.nil/cons` for the system. Its root application is
+`Worklist.exact_system registration ... completeness soundness`.
+Protocol rules (`start`, `emit`, pending-state collection) have no additional
+semantic proof constructor. EARLY-COVER is COVER with stronger premise evidence,
+not another certificate rule. Maude search/matching guards are not trusted proof
+premises: the certificate must carry the corresponding checked evidence.
+
+#### Typed data and side conditions underneath the surface
+
+Python emits named surface-rule applications. Its shared proof bundle additionally
+contains typed data and checked side-condition witnesses:
+
+- Typed constructor terms, equation lists and before/after state snapshots.
+  These are legitimate shared DATA, not additional semantic reasoning.
+- `ReplayState.accept`, which transports a checked child across an explicit
+  successor-state equality. Its proof currently uses `rfl` to check substitution
+  or scope extension. This check must be preserved, not trusted or discarded.
+- Named [SideCondition witnesses](conPanna/Certification/Calculus.lean#L352),
+  shared by generated and handwritten certificates. These package elementary
+  finite proofs, not extra semantic reasoning or new unification rules:
+
+| Witness | Input → checked result |
+| --- | --- |
+| `headsDiffer profile f g checked` | A proof that constructor codes differ → the sorted heads differ (CLASH). |
+| `finCons first rest` | First-slot proof and ALL remaining-slot proofs → an exhaustive finite proof vector (ATOM children, row counts, disjointness). |
+| `noSupplier checked` | A proof that coefficient k ≠ 1 → the coefficient-one supplier branch is impossible. It cannot skip an eligible branch. |
+| `tableCons row tail` | Componentwise equality for the first row and equality of the entire remaining table → equality of support tables (FINITE-SHARING). |
+
+For example, the ATOM children for `P + Q = [wait n]` are now written as
+`finCons (fun _ => COVER₀) (finCons (fun _ => COVER₁) Fin.elim0)`.
+Both children remain mandatory. The FINITE-SHARING check remains equality with
+`supportGenerators rowLabels colLabels`, not merely validity of some supplied
+supports. `tableCons` hides the fixed `congr`/`funext` expansion; it does not hide
+an assumption or run search. Numeric checks still use kernel-checked proofs.
+
+The surface language therefore needs rules PLUS typed data and checked
+side-condition witnesses. It cannot consist only of rule labels and child IDs.
+Witness construction may be internal; a displayed manual certificate should
+read as an application of the same public rule with its witnesses and children.
+No problem-specific theorem, tactic, extra user registration proof, or external
+producer-correctness assumption should be introduced for this separation.
+
+#### Implemented four-boundary architecture
+
+These are the current modules. Syntax.lean contains their shared typed DATA and
+substitution operations; Core/Sharing/Enumeration contain general internal support.
+
+| Boundary | Owns | Does NOT own |
+| --- | --- | --- |
+| `Calculus.lean` | State/judgment declarations, the public rules above, derived rule interfaces and their checked syntactic side conditions. | Native semantic induction, model export, IO, JSON, or certificate search. |
+| `Semantics.lean` | Interpretation into the registered structural relation; general rule-validity proofs; the public exactness acceptance theorem. | External parsing or search. |
+| `Parser.lean` | Bundle decoding, dependency/name management, term parsing/elaboration, closedness checks and checked intermediate declarations. | Unification, coverage search, semantic proof discovery, or subprocess calls. |
+| `Client.lean` | Registered-profile generation, request export, calling Python, and passing the reply to Parser with an independently fixed expected goal. | New calculus rules or a second proof interpreter. |
+
+Existing substitution and finite-sharing support is reused underneath. Syntax.lean
+contains the extracted prerequisite syntax/computation definitions. Rule declarations
+and semantic validity proofs are physically separated, not hidden behind an
+import-only facade. Existing declaration names and the Python proof-bundle format
+are preserved; neither a second calculus nor a new Python parser is introduced.
+
+Dependency direction: shared support → Calculus → Semantics; Parser need not
+import semantic proofs; Client brings Semantics and Parser together. The final
+acceptance theorem is implemented in Semantics but is a public certificate entry
+point, so emitted proofs never need its internal semantic argument.
+
+Parser imports only Lean and has no subprocess calls. Client owns the profile
+command, JSON export and external calls. The former mixed Replay and Frontend
+files have been replaced, not retained as alternative implementations. The
+optional coordinator demo calls Client's coordinate and Parser's
+prepareCoordinatorAnswers/prepareBundle: it no longer parses answers inline or
+compresses an already decoded bundle merely to parse it again.
+
+The current bundle contains Lean type/value STRINGS and is parsed as ordinary
+Lean term syntax. This established interface is unchanged by the module split;
+there is no second structured-certificate format or duplicate parser in Python.
+The supported compiler emits fixed rule templates, but the
+current Lean term parser does not itself enforce a rule-name whitelist. Typed
+checking against the fixed goal is the logical boundary, not a claim that
+arbitrary Lean syntax is a restricted or resource-safe language.
+
+**Refactoring acceptance examples:** the existing handwritten two-answer
+[atom_manual_certificate](examples/certification-demo.lean#L265) and its generated
+counterpart use the same unchanged rules. The new atom_surface_certificate gives
+an explicit ATOM → COVER / COVER evidence proof for the ORIGINAL atomSystem and
+atomAnswers, with no parser, tactic or problem-specific proof lemma. Every
+generated proof node must be a listed public
+rule, typed DATA, or checked side-condition evidence. Only the one root
+acceptance theorem connects the evidence to the semantic exactness goal. No new
+search, new axioms/sorries, regenerated answers, or claim of linear kernel runtime
+is justified by changing module boundaries.
+
 ## 8. Implementation map and remaining boundary
 
 ### 8.1 What already exists
@@ -1943,8 +2113,10 @@ The general infrastructure is compiled independently of individual certificates:
 - `conPanna/Certification/Core.lean`: constructor and ACU semantic rules.
 - `Sharing.lean`: finite-sharing arithmetic and semantic existence proofs.
 - `Enumeration.lean`: exhaustive supports and singleton/zero metatheorems.
-- `Replay.lean`: typed certificate data, acceptance, and generated profiles.
-- `Frontend.lean`: semantic-independent loading of closed rule evidence.
+- `Syntax.lean`: typed certificate data and substitutions.
+- `Calculus.lean` / `Semantics.lean`: surface rules and their semantic validity.
+- `Parser.lean`: semantic-independent loading of closed rule evidence.
+- `Client.lean`: generated profiles, request export and coordinator calls.
 
 `certification.lean` contains examples using these modules, not a second copy
 of the calculus. `examples/certification-demo.lean` is a lightweight consumer.
@@ -2029,7 +2201,7 @@ Run from the repository root:
 python3 tests/test_certification_compiler.py --build
 python3 tests/test_certification_compiler.py --demo
 CONPANNA_CERT_STRESS=1 python3 tests/test_certification_compiler.py --demo
-CONPANNA_CERT_NEGATIVES=1 python3 tests/test_certification_compiler.py --demo
+python3 tests/test_certification_compiler.py --negatives
 python3 -B -m unittest discover -s tests -v
 ```
 
@@ -2037,6 +2209,11 @@ The first command precompiles the backend; the second reuses cached modules,
 calls Maude, saves its trace/proof under `.lake/build/certification`, and checks
 the final theorem. A built project dependency environment is required.
 Compilation and subprocesses are sequential and resource-limited.
+`--negatives` reuses the demo's marked dependency prefix and negative-test block
+in an ignored generated consumer. It checks the seven malformed bundle cases
+plus omitted support rows, false head distinctions and skipped eligible suppliers.
+Keep positive and negative consumers separate so each has its own unchanged
+CPU/memory/wall budget; no additional maintained Lean file or checker is needed.
 
 The smaller suite also presents `overlap_certificate` in native constructors:
 `P+Q=[wait(n)]` and `Q+R=[wait(m)]` have two supplied families. Either Q is

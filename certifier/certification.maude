@@ -1410,7 +1410,7 @@ mod CERTIFICATION-PRODUCER is
   --- A.2 ANSWER-GUIDED CLOSURE: COVER / EARLY-COVER (document section 4.5).
   --- Close when ALL input images factor through ONE supplied answer under ES.
   --- Helpers: selectCoverage (CERTIFICATION-COVERAGE), whole-vector matchers (CERTIFICATION-ACU-MATCHING).
-  --- Lean: Replay.lean, Complete.cover; premise evidence: Derives.
+  --- Lean: Calculus.lean, Complete.cover; premise evidence: Derives.
   crl [cover-and-emit] : solve(HS, C, IM, ES, F, ORIG, AS, INPUTS) =>
     done(finish(coverNode(C, IM, ES, J, TS, P), F))
     if evidenceCover(J, TS, P) := selectCoverage(C, IM, ES, AS, INPUTS, HS) .

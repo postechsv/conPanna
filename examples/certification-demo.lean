@@ -1,4 +1,4 @@
-import conPanna.Certification.Replay
+import conPanna.Certification.Client
 import examples.bakery_acu
 
 /-!
@@ -149,6 +149,70 @@ def atomAnswers : List (Answer Sig [Tag.s0, Tag.s2, Tag.s2]) :=
    { parameters := [Tag.s0], images := .cons (.var .here)
       (.cons (zero Operator.acu) (.cons (waitingAtom (.var .here)) .nil)) }]
 
+/- Read this manual proof with Calculus.lean and Maude's completed trace:
+
+   atom(P,Q,[wait n])
+     cover(0, β(N)=n)   -- P=[wait n], Q=empty
+     cover(1, β(N)=n)   -- P=empty, Q=[wait n]
+
+The outer exact_system only lifts this evidence to registered semantics.
+The ATOM premise normalizes its internal sum (P+0)+((Q+0)+0) to P+Q
+using CONGR/COMM/UNIT, then uses the original equation (HYP).
+SideCondition.finCons supplies BOTH children; it is finite proof construction,
+not search. It is just the checked finite-case witness used by the compiler.
+The separate soundness row uses COMM/UNIT for answer 0 and UNIT for answer 1.
+No semantic induction, tactic, parser, quotient or problem-specific lemma appears.
+-/
+theorem atom_surface_certificate :
+    ∀ values, Worklist.Holds registration atomSystem values ↔
+      Solutions registration atomAnswers values :=
+  -- These are just DATA names for the original sorted variables (n,P,Q).
+  let n : Term Sig [Tag.s0, Tag.s2, Tag.s2] Tag.s0 := .var .here
+  let p : Term Sig [Tag.s0, Tag.s2, Tag.s2] Tag.s2 := .var (.there .here)
+  let q : Term Sig [Tag.s0, Tag.s2, Tag.s2] Tag.s2 := .var (.there (.there .here))
+  let summands : Fin 2 → Term Sig [Tag.s0, Tag.s2, Tag.s2] Tag.s2 :=
+    fun i => if i = 0 then p else q
+  -- The normalization proof uses only structural surface rules.
+  let normalize : Equality Sig [Tag.s0, Tag.s2, Tag.s2]
+      (add Operator.acu (add Operator.acu p (zero Operator.acu))
+        (add Operator.acu (add Operator.acu q (zero Operator.acu)) (zero Operator.acu)))
+      (add Operator.acu p q) :=
+    .congr (Sig.add Operator.acu)
+      (.cons (.right_unit Operator.acu p)
+        (.cons (.trans (.right_unit Operator.acu (add Operator.acu q (zero Operator.acu)))
+          (.right_unit Operator.acu q)) .nil))
+  Worklist.exact_system registration (profile := profile) atomSystem atomAnswers
+    -- COMPLETENESS: the same ATOM node that Maude emits.
+    (.atom Operator.acu (fun _ : Fin 2 => 1) summands
+      Symbol.c6 rfl (.cons (.app Symbol.c3 (.cons n .nil)) .nil)
+      (.trans
+        -- Normalize the internal sum; right_unit is Maude's COMM -> UNIT.
+        (.axiom normalize)
+        (.hyp ⟨0, of_decide_eq_true rfl⟩))
+      (SideCondition.finCons
+        (fun _ =>
+          -- COVER answer 0; β maps its fresh ticket N to the live input n.
+          .cover ⟨0, of_decide_eq_true rfl⟩ (.cons n .nil)
+            (.cons (.axiom (.refl n))
+              (.cons (.hyp ⟨0, of_decide_eq_true rfl⟩)
+                (.cons (.hyp ⟨1, of_decide_eq_true rfl⟩) .nil))))
+        (SideCondition.finCons
+          (fun _ =>
+            -- COVER answer 1; the SAME β is used for the whole input vector.
+            .cover ⟨1, of_decide_eq_true rfl⟩ (.cons n .nil)
+              (.cons (.axiom (.refl n))
+                (.cons (.hyp ⟨0, of_decide_eq_true rfl⟩)
+                  (.cons (.hyp ⟨1, of_decide_eq_true rfl⟩) .nil))))
+          (fun impossible => Fin.elim0 impossible))))
+    -- SOUNDNESS: one equation row containing one equality per proposed answer.
+    (.cons
+      (.cons
+        (.right_unit Operator.acu (waitingAtom (.var .here)))
+        (.cons (.unit Operator.acu (waitingAtom (.var .here))) .nil))
+      .nil)
+
+#print axioms atom_surface_certificate
+
 run_elab do
   let dump ← LeanReady.produce (LeanReady.requestJson profile profile_sortCode
     atomSystem atomAnswers "atomSystem" "atomAnswers" profile_signature)
@@ -158,6 +222,7 @@ run_elab do
   let name := `CertificationDemo.atom_certificate
   Lean.addDecl (.thmDecl { name := name, levelParams := [], type := type, value := proof })
 
+-- CERTIFICATION-NEGATIVE-PREFIX-END
 -- The AUTOMATED certificate, presented with ordinary user constructors.
 -- `simpa` only unfolds the data encoding of the already kernel-checked theorem.
 -- It does not do certification search or prove unification completeness.
@@ -546,43 +611,16 @@ abbrev inputProblem := atomSystem
 
 run_elab do
   if (← IO.getEnv "CONPANNA_COORDINATOR_DEMO") == some "1" then
-    let response ← IO.Process.output {
-      cmd := "python3"
-      args := #["certifier/certifier.py", "--ctor", "certifier/examples/bakery.maude",
-        "--unify", "unify in BAKERY-DEMO-NATIVE : union(P:Bag,Q:Bag) =? singleton(wait(N:Ticket)) .",
-        "--out", "certifier/.cache/lean-atom"] }
-    unless response.exitCode == 0 do throwError "coordinator failed: {response.stderr}"
-    let result ← match Lean.Json.parse response.stdout with
-      | .ok value => pure value
-      | .error message => throwError "coordinator reply: {message}"
-    -- Define the ACTUAL returned family, not our handwritten expected answers.
-    let answerText ← match result.getObjValAs? String "answer_value" with
-      | .ok value => pure value
-      | .error message => throwError "coordinator answer data: {message}"
-    let answerSyntax ← match Lean.Parser.runParserCategory (← Lean.getEnv) `term answerText with
-      | .ok value => pure value
-      | .error message => throwError "coordinator answer syntax: {message}"
-    let answerType ← Lean.Elab.Term.elabType (← `(List (Answer Sig [Tag.s0, Tag.s2, Tag.s2])))
-    let answerValue ← Lean.Elab.Term.elabTermEnsuringType answerSyntax (some answerType)
-    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
-    let answerType ← Lean.instantiateMVars answerType
-    let answerValue ← Lean.instantiateMVars answerValue
-    if answerValue.hasMVar || answerValue.hasFVar || answerValue.hasSorry then
-      throwError "coordinator returned nonclosed/admitted answer data"
+    let response ← LeanReady.coordinate "certifier/examples/bakery.maude"
+      "unify in BAKERY-DEMO-NATIVE : union(P:Bag,Q:Bag) =? singleton(wait(N:Ticket)) ."
+      "certifier/.cache/lean-atom"
     let answerName := `CertificationDemo.certifiedAnswers
-    Lean.addDecl (.defnDecl {
-      name := answerName
-      levelParams := []
-      type := answerType
-      value := answerValue
-      hints := .abbrev
-      safety := .safe })
+    let bundle ← LeanReady.prepareCoordinatorAnswers
+      (← `(List (Answer Sig [Tag.s0, Tag.s2, Tag.s2]))) answerName response
+    -- Independently fixed ORIGINAL problem; never a proposition from the reply.
     let expected ← `(∀ values, Worklist.Holds registration atomSystem values ↔
       Solutions registration $(Lean.mkIdent answerName) values)
-    let bundle ← match result.getObjVal? "certificate" with
-      | .ok value => pure value
-      | .error message => throwError "coordinator certificate: {message}"
-    let (type, proof) ← LeanReady.prepareProof expected bundle.compress
+    let (type, proof) ← LeanReady.prepareBundle expected bundle
     Lean.addDecl (.thmDecl {
       name := `CertificationDemo.coordinated_certificate
       levelParams := []
@@ -590,6 +628,7 @@ run_elab do
       value := proof })
     Lean.logInfo m!"ONE coordinator call: native unifiers + targeted proof, kernel-checked against atomSystem"
 
+-- CERTIFICATION-NEGATIVE-TESTS-BEGIN
 -- Optional negative replay tests; disabled in the editor's ordinary elaboration.
 -- Corrupt fresh evidence, not an old hand-written fixture. The final semantic
 -- goal is unchanged. A well-sorted but wrong successor must fail its transition
@@ -648,6 +687,28 @@ run_elab do
         pure true
       saved.restore true
       unless rejected do throwError "accepted corrupt certificate: {label}"
+      IO.println s!"Rejected {label}"
+    -- The named witnesses only package finite proofs; they must not admit a
+    -- dropped table row, a fake head distinction, or a skipped eligible branch.
+    let witnessFixtures : Array (String × Lean.TSyntax `term × String) := #[
+      ("omitted support row",
+        ← `(([(fun _ : Fin 2 => 1), (fun _ : Fin 2 => 2)] : List (Fin 2 → Nat)) =
+          [(fun _ : Fin 2 => 1)]),
+        "SideCondition.tableCons (SideCondition.finCons rfl (SideCondition.finCons rfl (fun i => Fin.elim0 i))) rfl"),
+      ("identical heads",
+        ← `((⟨[], Symbol.c2⟩ : Σ us, Sig.Symbol us Tag.s1) ≠ ⟨[], Symbol.c2⟩),
+        "SideCondition.headsDiffer profile Symbol.c2 Symbol.c2 (of_decide_eq_true rfl)"),
+      ("eligible supplier skipped",
+        ← `(∀ _ : Fin 1, (1 : Nat) = 1 → True),
+        "SideCondition.finCons (SideCondition.noSupplier (k := 1) (of_decide_eq_true rfl)) (fun i => Fin.elim0 i)")]
+    for (label, goal, bad) in witnessFixtures do
+      let saved ← Lean.Elab.Term.saveState
+      let rejected ← try
+        discard (LeanReady.prepareProof goal bad)
+        pure false
+      catch _ => pure true
+      saved.restore true
+      unless rejected do throwError "accepted corrupt side condition: {label}"
       IO.println s!"Rejected {label}"
 
 end CertificationDemo

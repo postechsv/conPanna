@@ -20,6 +20,32 @@
 - [x] Link every main documented rule to its actual Maude label or evidence helper.
 - [x] Recheck the module split with all 28 tests and the Lean exactness demo.
 
+### Lean certification surface and module boundaries
+
+- [x] Audit every maintained Maude state-node tag and equality/premise tag against
+  the Python compiler and actual Lean rules; document the map in CERTIFICATION.md
+  §7.2, including protocol-only steps and handwritten-only constructors.
+- [x] Specify the four public responsibilities: Calculus, Semantics, Parser,
+  Client; identify exposed successor/table/head/branch side-condition evidence.
+- [x] Extract request export/IO and profile generation into Client; give
+  Parser ownership of coordinator reply/answer parsing. Preserve
+  fixed `(E₀, B, Σ)` certification and the existing proof-bundle format.
+- [x] Separate surface judgment/rule declarations from semantic validity proofs,
+  extracting prerequisite syntactic support without circular imports or a facade
+  that merely imports the whole mixed Replay module.
+- [x] Add a direct handwritten ATOM → COVER / COVER certificate over the original
+  atomic problem, using surface rules and ordinary typed DATA only; no tactics,
+  problem-specific lemmas or new user registration obligations.
+- [x] Finish regression verification of generated/manual certificates after the
+  module split, including malformed-evidence rejection and original fixed goals.
+  All 47 Python regressions, the full coordinated Lean demo and certification.lean
+  pass; surface-calculus LSP diagnostics are clean. No resource limits were raised.
+- [x] Give head/table/branch side-condition witnesses compact general names in
+  Calculus.SideCondition; use them in generated and handwritten certificates.
+  No additional calculus, parser format or semantic proof obligation. All 49
+  Python tests and the coordinated positive demo pass. Run kernel negatives
+  separately with --negatives to retain the unchanged per-process resource caps.
+
 ### Inspectable native-answer coordinator
 
 - [x] Extend existing certifier.py; keep fixed-answer --certify intact.

@@ -61,7 +61,7 @@ def finite_proofs(xs, argument=None):
     if not xs:
         return "(fun (i : Fin 0) => Fin.elim0 i)" if argument is None else "(Fin.elim0 " + argument + ")"
     applied = "" if argument is None else " " + argument
-    return "(Fin.cases " + fact(xs[0]) + " (fun i => " + finite_proofs(xs[1:], "i") + ")" + applied + ")"
+    return "(SideCondition.finCons " + fact(xs[0]) + " " + finite_proofs(xs[1:]) + applied + ")"
 
 def finite_terms(xs):
     if not xs:
@@ -72,9 +72,14 @@ def finite_terms(xs):
     return "(fun (i : Fin " + number(len(xs)) + ") => " + body + ")"
 
 def atom_children(coefficients, children, argument=None, expected=None, offset=0):
+    if len(coefficients) != len(children):
+        raise ValueError("atom requires one slot per coefficient")
     if not coefficients:
         return "(fun (i : Fin 0) => Fin.elim0 i)" if argument is None else "(Fin.elim0 " + argument + ")"
+    number(coefficients[0])
     if coefficients[0] == 1:
+        if children[0] is None:
+            raise ValueError("eligible atom coefficient requires a branch")
         child = complete(children[0])
         if ACTIVE_COMPILER is not None and expected is not None:
             child = ACTIVE_COMPILER.successor(children[0], expected(offset), child, "atom")
@@ -82,9 +87,9 @@ def atom_children(coefficients, children, argument=None, expected=None, offset=0
     else:
         if children[0] is not None:
             raise ValueError("non-unit atom coefficient has a branch")
-        head = "(fun impossible => False.elim ((of_decide_eq_true rfl : (" + number(coefficients[0]) + " : Nat) ≠ 1) impossible))"
+        head = "(SideCondition.noSupplier (k := " + number(coefficients[0]) + ") (of_decide_eq_true rfl))"
     applied = "" if argument is None else " " + argument
-    return "(Fin.cases " + head + " (fun i => " + atom_children(coefficients[1:], children[1:], "i", expected, offset + 1) + ")" + applied + ")"
+    return "(SideCondition.finCons " + head + " " + atom_children(coefficients[1:], children[1:], expected=expected, offset=offset + 1) + applied + ")"
 
 def fact(f):
     if f == "rfl":
@@ -159,7 +164,7 @@ def slots(xs):
 def checked_table(xs):
     if not xs:
         return "rfl"
-    return "(congr (congrArg List.cons (funext " + finite_proofs(["rfl"] * len(xs[0])) + ")) " + checked_table(xs[1:]) + ")"
+    return "(SideCondition.tableCons " + finite_proofs(["rfl"] * len(xs[0])) + " " + checked_table(xs[1:]) + ")"
 
 def sharing_fields(p, sound=False):
     counts = p["counts"]
@@ -219,8 +224,7 @@ def nested_complete(p):
         return "(.sharing " + state + sharing_fields(p) + " " + derives(p["premise"], p["scope"]) + " " + child + ")"
     if p["rule"] == "clash":
         f, g = "Symbol.c" + number(p["leftHead"]), "Symbol.c" + number(p["rightHead"])
-        different = "(fun same => (of_decide_eq_true rfl : profile.code " + f + " ≠ profile.code " + g + \
-            ") (congrArg (fun x => profile.code x.2) same))"
+        different = "(SideCondition.headsDiffer profile " + f + " " + g + " (of_decide_eq_true rfl))"
         return "(.clash (sig := Sig) " + common + "Symbol.c" + number(p["leftHead"]) + \
             " Symbol.c" + number(p["rightHead"]) + " rfl rfl " + different + " " + \
             terms(p["leftArgs"]) + " " + terms(p["rightArgs"]) + " " + derives(p["premise"], p["scope"]) + ")"

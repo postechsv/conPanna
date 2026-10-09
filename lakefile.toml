@@ -21,12 +21,12 @@ roots = ["Expresso.Expresso"]
 
 [[lean_lib]]
 name = "conPanna"
-roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Structural", "conPanna.StructuralSemantics", "conPanna.Narrowing", "conPanna.Maude", "conPanna.PatternPretty", "conPanna.Certification.Replay"]
+roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Structural", "conPanna.StructuralSemantics", "conPanna.Narrowing", "conPanna.Maude", "conPanna.PatternPretty", "conPanna.Certification.Client"]
 
 # Separate library configuration keeps proof-backend builds resource-limited
 # without changing how ordinary conPanna modules compile.
 [[lean_lib]]
 name = "Certification"
-roots = ["conPanna.Certification.Replay"]
+roots = ["conPanna.Certification.Client"]
 globs = ["conPanna.Certification.+"]
 moreLeanArgs = ["-j1", "-M512"]

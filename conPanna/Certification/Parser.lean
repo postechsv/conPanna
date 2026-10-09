@@ -1,7 +1,13 @@
 import Lean
 
-/-! Semantic-independent loader for closed rule evidence. No search or tactics.
-The host independently fixes the final semantic goal. -/
+/-!
+# Certificate parsing and typed proof construction
+Python supplies a dependency-ordered bundle of surface rule applications.
+This module owns JSON and Lean term parsing, name management, elaboration and
+closedness checks. It imports only Lean: no search, semantics or process calls.
+The host independently fixes the final semantic goal. Typed intermediate DATA
+and rule evidence are checked declarations, never generated axioms or sorries.
+-/
 namespace DirectCertification.Substitution.LeanReady
 
 open Lean Meta Elab Term
@@ -101,17 +107,12 @@ private def prepareSteps (bundle : Json) : TermElabM Syntax := do
   withCurrHeartbeats do
     pure (renameSteps renames (← parseProofSyntax body))
 
-def prepareProof (expectedSyntax : Syntax) (dump : String) : TermElabM (Expr × Expr) :=
+private def prepare (expectedSyntax : Syntax) (parseAction : TermElabM Syntax) : TermElabM (Expr × Expr) :=
   withoutErrToSorry <| withEnableInfoTree false do
     -- Generated proof text has no user source positions. Retaining an infoview
     -- snapshot for every internal application needlessly retains whole states.
     let started ← IO.monoMsNow
-    let stx ← match Json.parse dump with
-      | .ok bundle =>
-        unless (bundle.getObjValAs? String "format").toOption == some "rule-bundle-v1" do
-          throwError "unsupported certificate bundle"
-        prepareSteps bundle
-      | .error _ => parseProofSyntax dump -- legacy text regression fixtures
+    let stx ← parseAction
     let parsed ← IO.monoMsNow
     if (← IO.getEnv "CONPANNA_CERT_DEBUG") == some "1" then IO.eprintln "Certificate steps and root syntax prepared"
     withCurrHeartbeats do
@@ -125,5 +126,43 @@ def prepareProof (expectedSyntax : Syntax) (dump : String) : TermElabM (Expr × 
       logInfo m!"Rule preparation/checking: {parsed - started} ms; root elaboration: {elaborated - parsed} ms"
       pure (expected, proof)
 
+/-- Load an already decoded proof bundle. No compress/reparse round trip. -/
+def prepareBundle (expectedSyntax : Syntax) (bundle : Json) : TermElabM (Expr × Expr) :=
+  prepare expectedSyntax do
+    unless (bundle.getObjValAs? String "format").toOption == some "rule-bundle-v1" do
+      throwError "unsupported certificate bundle"
+    prepareSteps bundle
+
+/-- Fixed-answer entry point. Raw proof text remains supported for handwritten
+regression fixtures; production uses the rule-bundle-v1 surface proof format. -/
+def prepareProof (expectedSyntax : Syntax) (dump : String) : TermElabM (Expr × Expr) :=
+  match Json.parse dump with
+  | .ok bundle => prepareBundle expectedSyntax bundle
+  | .error _ => prepare expectedSyntax (parseProofSyntax dump)
+
+/-- Decode a coordinated reply and install its checked answer DATA.
+The caller fixes the answer type/name, then fixes the original-problem goal
+independently and passes the returned bundle to prepareBundle. The request field
+from Python is NEVER used to select or replace the semantic goal. -/
+def prepareCoordinatorAnswers (answerTypeSyntax : Syntax) (answerName : Name)
+    (dump : String) : TermElabM Json := withoutErrToSorry do
+  let result ← match Json.parse dump with
+    | .ok value => pure value
+    | .error message => throwError "coordinator reply: {message}"
+  unless (result.getObjValAs? String "format").toOption == some "coordinated-certificate-v1" do
+    throwError "unsupported coordinator reply"
+  let bundle ← match result.getObjVal? "certificate" with
+    | .ok value => pure value
+    | .error message => throwError "coordinator certificate: {message}"
+  let answerText ← match result.getObjValAs? String "answer_value" with
+    | .ok value => pure value
+    | .error message => throwError "coordinator answer data: {message}"
+  let answerType ← elabType answerTypeSyntax
+  let answerValue ← elabTermEnsuringType (← parseProofSyntax answerText) (some answerType)
+  let (type, value) ← checkClosed answerType answerValue
+  addDecl (.defnDecl {
+    name := answerName, levelParams := [], type := type, value := value,
+    hints := .abbrev, safety := .safe })
+  pure bundle
 
 end DirectCertification.Substitution.LeanReady

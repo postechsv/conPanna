@@ -1,12 +1,14 @@
-import conPanna.Certification.Replay
+import conPanna.Certification.Client
 import examples.bakery_acu
 
 /-!
 # ACU certification: semantic rules and checked coverage
 
 Specification and provenance: CERTIFICATION.md, especially §§3–8, §10, and Appendix A.
-General proofs are precompiled in conPanna/Certification/{Core,Sharing,
-Enumeration,Replay}.lean. This file retains their explicit demonstration proofs.
+Read conPanna/Certification/Calculus.lean for the surface rules mirroring Maude.
+General validity proofs are precompiled in Semantics.lean and its support modules;
+Parser.lean handles loading and Client.lean handles metadata/export/IO.
+This file retains their explicit demonstration proofs.
 Together they form ONE prototype, with four parts:
 1. GENERAL SEMANTIC RULES over the existing registered structural equality.
 2. EXHAUSTIVE FINITE SHARING: semantic exactness and typed substitution generation.

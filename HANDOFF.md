@@ -18,6 +18,68 @@ standalone demo invokes native unify for input preparation and launches Lean
 as a TEST HARNESS ONLY; do not mistake that harness for the intended integration.
 CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundaries.
 
+## Lean surface calculus and separate loader — 2026-10-09 (current)
+
+- Calculus.lean is the reading entry point: primitive structural equality,
+  conditional equality premises, all Complete state rules with Maude labels,
+  explicit successor/table checks, and per-equation/per-answer soundness evidence.
+- Existing declarations were physically extracted, retaining their original
+  namespaces/names. Semantics.lean owns native evaluation and general rule-validity
+  proofs, plus exact_system/exact. Syntax.lean owns prerequisite typed DATA and
+  substitutions. Core/Sharing/Enumeration remain unchanged internal support.
+- Client.lean owns derive_direct_profile, requestJson, fixed-answer produce and
+  optional native coordinate. Parser.lean imports ONLY Lean and owns loading,
+  closedness, dependency renaming and intermediate kernel-checked declarations.
+  Former Replay.lean/Frontend.lean were removed, not kept as parallel engines.
+- The proof bundle is unchanged; Maude rules are unchanged. Python templates now
+  use Calculus.SideCondition (headsDiffer, finCons, noSupplier, tableCons) for
+  the SAME checked finite witnesses instead of inline lambda/congr/funext trees.
+  prepareBundle accepts parsed JSON directly. prepareCoordinatorAnswers moves
+  answer-data parsing out of the demo; the host still independently fixes the
+  ORIGINAL atomSystem goal. No externally supplied replacement goal is accepted.
+- examples/certification-demo.lean has atom_surface_certificate: one direct
+  ATOM → COVER / COVER tree, separate soundness row, no tactic/problem lemma.
+  Ordinary lets name sorted input DATA; normalization is a local structural-rule
+  proof. Equality.right_unit is the general Maude COMM → UNIT derivation.
+- Sequential backend compilation, all 49 Python regressions, the FULL coordinated
+  Lean demo and certification.lean pass under unchanged resource limits. The
+  handwritten/generated certificates have no sorryAx; Calculus LSP reports zero
+  errors (complete response). Updated Lake roots/harness build order use Client
+  and the new dependency graph. Local documentation source links resolve.
+- Side-condition witness polish is complete without another rule system or
+  tactic. The handwritten ATOM certificate uses the same finCons as generated
+  proofs. Missing/extra branch slots are rejected explicitly by Python too.
+- Kernel negatives: python3 -B tests/test_certification_compiler.py --negatives.
+  It runs the EXISTING demo prefix and marked negative block in an ignored
+  generated consumer, not a second maintained Lean file. All seven bundle
+  corruptions plus omitted support rows, identical heads and skipped eligible
+  suppliers are rejected. The combined all-positive/all-negative consumer hit
+  its safety cap; separate consumers pass, with no limit increases.
+- Strict linear reconstruction/kernel runtime and general formal search success
+  are NOT claimed. Production narrowing/model export remain later work.
+  No new modeling contract.
+
+## Lean surface-calculus audit — 2026-10-09 (preceding design)
+
+- CERTIFICATION.md §7.2 maps all ten maintained completed-state tags, all
+  structural-equality/premise-evidence tags, and soundness/root aggregation to
+  their actual Lean declarations. It separates protocol steps from proof rules.
+- This turn only documented the architecture/interface; no Lean/Python/Maude
+  implementation or certificate format changed. Calculus/Semantics/Parser/Client
+  are the agreed refactoring TARGET, not modules already created.
+- Keep typed state DATA and checked successor/table/head/branch witnesses.
+  The producer emits atom, not Lean's handwritten-only Complete.split. It uses
+  Complete.sharingTable and per-answer equality soundness; no new rule is needed.
+- Frontend already imports only Lean; Replay's reverse import, embedded profile
+  command, semantic proofs and export/subprocess code are the ownership problem.
+  First move operational responsibilities and coordinator parsing, then extract
+  surface declarations from validity proofs with an acyclic dependency graph.
+  Preserve constants/format where possible; no import-only facade, duplicate
+  parser, new tactic, additional user registration proof, or changed search.
+- Narrowing integration remains later. The refactoring acceptance examples are
+  the existing manual and automated two-answer atomic certificates. Current
+  unrestricted Lean term parsing is not a syntax whitelist or runtime guarantee.
+
 ## Standalone certifier package — 2026-10-08 (current)
 
 - Canonical engine is now certifier/: certifier.py, fixed wrapper.maude template,
