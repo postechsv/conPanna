@@ -21,7 +21,7 @@ roots = ["Expresso.Expresso"]
 
 [[lean_lib]]
 name = "Tiny"
-roots = ["Tiny.Expresso", "Tiny.conPanna"]
+roots = ["Tiny.Expresso.core", "Tiny.conPanna"]
 
 [[lean_lib]]
 name = "conPanna"
