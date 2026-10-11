@@ -20,6 +20,10 @@ name = "Expresso"
 roots = ["Expresso.Expresso"]
 
 [[lean_lib]]
+name = "Tiny"
+roots = ["Tiny.Expresso", "Tiny.conPanna"]
+
+[[lean_lib]]
 name = "conPanna"
 roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Structural", "conPanna.StructuralSemantics", "conPanna.Narrowing", "conPanna.Maude", "conPanna.PatternPretty", "conPanna.Certification.Client"]
 
