@@ -1,121 +1,17 @@
-/-!
-Pure semantics: constructor theories, patterns and conditional transitions.
-No imports of the old libraries, registration commands or tactic machinery.
-Equations are parameters; supported unification algorithms are a separate concern.
--/
-namespace Tiny
+/-! Native pattern and transition semantics, independent of constructor encoding. -/
+namespace Expresso
 
 universe u v w x y
 
-/-! ## Constructor presentation and generated structural equality -/
-
-structure Signature (Sorts : Type u) where
-  Symbol : List Sorts → Sorts → Type v
-
-variable {Sorts : Type u} {sig : Signature.{u, v} Sorts}
-
-mutual
-  inductive Tree (sig : Signature.{u, v} Sorts) : Sorts → Type (max u v) where
-    | app {ss s} (head : sig.Symbol ss s) (args : Trees sig ss) : Tree sig s
-  inductive Trees (sig : Signature.{u, v} Sorts) : List Sorts → Type (max u v) where
-    | nil : Trees sig []
-    | cons {s ss} (first : Tree sig s) (rest : Trees sig ss) : Trees sig (s :: ss)
-end
-
-/-- Instances of the declared equations. For example, all ground instances of
-commutativity for a chosen symbol. Different symbols may have different laws. -/
-abbrev Theory (sig : Signature.{u, v} Sorts) :=
-  {s : Sorts} → Tree sig s → Tree sig s → Prop
-
-mutual
-  /-- The LEAST equivalence closed under the declared equations and constructors. -/
-  inductive EqMod (laws : Theory sig) :
-      {s : Sorts} → Tree sig s → Tree sig s → Prop where
-    | refl {s} (a : Tree sig s) : EqMod laws a a
-    | symm {s} {a b : Tree sig s} : EqMod laws a b → EqMod laws b a
-    | trans {s} {a b c : Tree sig s} :
-        EqMod laws a b → EqMod laws b c → EqMod laws a c
-    | law {s} {a b : Tree sig s} : laws a b → EqMod laws a b
-    | congr {ss s} (head : sig.Symbol ss s) {a b : Trees sig ss} :
-        EqsMod laws a b → EqMod laws (.app head a) (.app head b)
-  inductive EqsMod (laws : Theory sig) :
-      {ss : List Sorts} → Trees sig ss → Trees sig ss → Prop where
-    | nil : EqsMod laws .nil .nil
-    | cons {s ss} {a b : Tree sig s} {as bs : Trees sig ss} :
-        EqMod laws a b → EqsMod laws as bs → EqsMod laws (.cons a as) (.cons b bs)
-end
-
-theorem EqMod.equivalence (laws : Theory sig) (s : Sorts) :
-    Equivalence (EqMod laws (s := s)) :=
-  ⟨EqMod.refl, EqMod.symm, EqMod.trans⟩
-
-/-! ## Faithful interpretation using ordinary user-defined constructors
-The two registration equations concern syntax, NOT literal commutativity of
-Lean constructors. A generator may supply them later, outside this file.
--/
-
-def Args (Carrier : Sorts → Type w) : List Sorts → Type w
-  | [] => PUnit
-  | s :: ss => Carrier s × Args Carrier ss
-
-structure Algebra (sig : Signature.{u, v} Sorts) where
-  Carrier : Sorts → Type w
-  apply : ∀ {ss s}, sig.Symbol ss s → Args Carrier ss → Carrier s
-
-mutual
-  def Tree.eval (A : Algebra sig) : {s : Sorts} → Tree sig s → A.Carrier s
-    | _, .app head args => A.apply head (args.eval A)
-  def Trees.eval (A : Algebra sig) : {ss : List Sorts} → Trees sig ss → Args A.Carrier ss
-    | _, .nil => PUnit.unit
-    | _, .cons a as => (a.eval A, as.eval A)
-end
-
-def Args.quote {Carrier : Sorts → Type w} (quote : ∀ s, Carrier s → Tree sig s) :
-    (ss : List Sorts) → Args Carrier ss → Trees sig ss
-  | [], _ => .nil
-  | s :: ss, (a, as) => .cons (quote s a) (Args.quote quote ss as)
-
-structure Registration (sig : Signature.{u, v} Sorts) extends Algebra.{u, v, w} sig where
-  quote : ∀ s, Carrier s → Tree sig s
-  eval_quote : ∀ s a, (quote s a).eval toAlgebra = a
-  quote_apply : ∀ {ss s} (head : sig.Symbol ss s) (args : Args Carrier ss),
-    quote s (apply head args) = .app head (Args.quote quote ss args)
-
-mutual
-  /-- Constructor compatibility also gives the other round trip. -/
-  theorem Registration.quote_eval (reg : Registration sig) {s : Sorts} (a : Tree sig s) :
-      reg.quote s (a.eval reg.toAlgebra) = a :=
-    match a with
-    | .app head args =>
-      (reg.quote_apply head (args.eval reg.toAlgebra)).trans
-        (congrArg (Tree.app head) (reg.quote_eval_args args))
-  theorem Registration.quote_eval_args (reg : Registration sig) {ss : List Sorts}
-      (args : Trees sig ss) : Args.quote reg.quote ss (args.eval reg.toAlgebra) = args :=
-    match args with
-    | .nil => rfl
-    | .cons a as => congr (congrArg Trees.cons (reg.quote_eval a)) (reg.quote_eval_args as)
-end
-
-/-- One structural equality on native values; no legacy representation/bridge. -/
-def NativeEq (laws : Theory sig) (reg : Registration sig) {s : Sorts}
-    (a b : reg.Carrier s) : Prop :=
-  EqMod laws (reg.quote s a) (reg.quote s b)
-
-theorem NativeEq.equivalence (laws : Theory sig) (reg : Registration sig) (s : Sorts) :
-    Equivalence (NativeEq laws reg (s := s)) :=
-  ⟨fun a => .refl (reg.quote s a), fun h => .symm h, fun h k => .trans h k⟩
-
 /-! ## Pattern and rule representations
-B is the chosen equality on the state type: NativeEq above, or ordinary Eq.
+B is the chosen equality on the state type: ordinary Eq or a supplied structural relation.
 There is only ONE interpretation interface for each kind of representation.
 Conditions remain predicates on the original assignments, not on quotient values.
 -/
 
 variable {α : Type u} {B : α → α → Prop}
 
-structure Atom (α : Type u) where
-  term : α
-  requires : Prop := True
+
 
 structure RuleBody (α : Type u) where
   lhs : α
@@ -126,6 +22,10 @@ structure RuleBody (α : Type u) where
 structure Choice (P : Type v) (Q : Type w) where
   left : P
   right : Q
+
+structure Atom (α : Type u) where
+  term : α
+  requires : Prop := True
 
 inductive EmptyPattern where
   | empty
@@ -211,4 +111,4 @@ theorem reaches_of_under_overlaps [Pattern B P] [Pattern B Post] [Pattern B Q] [
     match under after hpost with
     | ⟨before, hsource, hstep⟩ => ⟨before, after, hsource, hstep, htarget⟩
 
-end Tiny
+end Expresso
