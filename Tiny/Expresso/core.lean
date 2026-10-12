@@ -8,6 +8,7 @@ universe u
 -- α is the type of states, B is a user defined equality relation.
 variable {α : Type u} {B : α → α → Prop}
 
+-- TODO: maybe separate out atomic pattern as a different type
 inductive Patt (α : Type u) : Type (u + 1) where
   | bott : Patt α
   | atom (state : α) (cond : Prop := True) : Patt α
@@ -20,6 +21,11 @@ def Patt.holds (B : α → α → Prop) : Patt α → α → Prop
   | .atom state cond, actual => B state actual ∧ cond
   | .disj left right, state => left.holds B state ∨ right.holds B state
   | .bind body, state => ∃ a, (body a).holds B state
+
+-- make sense only for atomic patterns
+def Patt.getTerm : Patt α → Option α
+  | .atom state _ => some state
+  | _ => none
 
 inductive System (α : Type u) : Type (u + 1) where
   | empty : System α
