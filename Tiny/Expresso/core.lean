@@ -3,27 +3,24 @@ namespace Expresso
 
 universe u
 
-/-! ## Pattern and rule representations
-B is the chosen equality on the state type: ordinary Eq or a supplied structural relation.
-Each datatype has one recursive interpretation, without interpretation typeclasses.
-Conditions remain predicates on the original assignments, not on quotient values.
--/
+/-! ## Equality Parameterized Patterns and Rules -/
 
+-- α is the type of states, B is a user defined equality relation.
 variable {α : Type u} {B : α → α → Prop}
-/-- Patterns with explicit disjunction and existentially bound parameters. -/
+
 inductive Patt (α : Type u) : Type (u + 1) where
   | bott : Patt α
-  | atom (state : α) (requires : Prop := True) : Patt α
+  | atom (state : α) (cond : Prop := True) : Patt α
   | disj (left right : Patt α) : Patt α
   | bind {A : Type u} (body : A → Patt α) : Patt α
 
+-- Patt.holds B means "holds modulo B", e.g., Patt.holds Eq
 def Patt.holds (B : α → α → Prop) : Patt α → α → Prop
   | .bott, _ => False
-  | .atom state condition, actual => B state actual ∧ condition
+  | .atom state cond, actual => B state actual ∧ cond
   | .disj left right, state => left.holds B state ∨ right.holds B state
   | .bind body, state => ∃ a, (body a).holds B state
 
-/-- One-step rule choice. Bound parameters are shared by both sides and the condition. -/
 inductive System (α : Type u) : Type (u + 1) where
   | empty : System α
   | rule (lhs rhs : α) (requires : Prop := True) : System α
@@ -32,8 +29,8 @@ inductive System (α : Type u) : Type (u + 1) where
 
 def System.step (B : α → α → Prop) : System α → α → α → Prop
   | .empty, _, _ => False
-  | .rule lhs rhs condition, before, after =>
-      B lhs before ∧ B rhs after ∧ condition
+  | .rule lhs rhs cond, before, after =>
+      B lhs before ∧ B rhs after ∧ cond
   | .choice left right, before, after =>
       left.step B before after ∨ right.step B before after
   | .bind body, before, after => ∃ a, (body a).step B before after
