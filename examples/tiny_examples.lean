@@ -142,13 +142,15 @@ def solutions : UnifierSet (Status × Status × Status) := [unifier1, unifier2]
 --     (∃ u, x = idle ∧ y = u ∧ z = u) ∨
 --     (∃ u, x = u ∧ y = idle ∧ z = u).
 example : UnifierSet.Complete problem solutions := by
-
-  unfold UnifierSet.Complete UnifierSet.Covers solutions
-
   unfold problem
-
-  unfold Problem.unifies
-  sorry
+  unfold solutions unifier1 unifier2
+  rintro ⟨X, Y, Z⟩ h
+  unfold Problem.unifies at h
+  -- Quotient equality exposes either identity or the swap generating B.
+  have hB : B (.pair X Y) (.pair .idle Z) := Quotient.exact h
+  cases hB with
+  | refl => exact ⟨unifier1, List.Mem.head [unifier2], ⟨Y, rfl⟩⟩
+  | comm => exact ⟨unifier2, List.Mem.tail _ (List.Mem.head []), ⟨X, rfl⟩⟩
 
 end PairUnification
 
