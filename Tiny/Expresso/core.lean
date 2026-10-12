@@ -1,109 +1,90 @@
 /-! Native pattern and transition semantics, independent of constructor encoding. -/
 namespace Expresso
 
-universe u v w x y
+universe u
 
 /-! ## Pattern and rule representations
 B is the chosen equality on the state type: ordinary Eq or a supplied structural relation.
-There is only ONE interpretation interface for each kind of representation.
+Each datatype has one recursive interpretation, without interpretation typeclasses.
 Conditions remain predicates on the original assignments, not on quotient values.
 -/
 
 variable {α : Type u} {B : α → α → Prop}
+/-- Patterns with explicit disjunction and existentially bound parameters. -/
+inductive Patt (α : Type u) : Type (u + 1) where
+  | bott : Patt α
+  | atom (state : α) (requires : Prop := True) : Patt α
+  | disj (left right : Patt α) : Patt α
+  | bind {A : Type u} (body : A → Patt α) : Patt α
 
+def Patt.holds (B : α → α → Prop) : Patt α → α → Prop
+  | .bott, _ => False
+  | .atom state condition, actual => B state actual ∧ condition
+  | .disj left right, state => left.holds B state ∨ right.holds B state
+  | .bind body, state => ∃ a, (body a).holds B state
 
+/-- One-step rule choice. Bound parameters are shared by both sides and the condition. -/
+inductive System (α : Type u) : Type (u + 1) where
+  | empty : System α
+  | rule (lhs rhs : α) (requires : Prop := True) : System α
+  | choice (left right : System α) : System α
+  | bind {A : Type u} (body : A → System α) : System α
 
-structure RuleBody (α : Type u) where
-  lhs : α
-  rhs : α
-  requires : Prop := True
-
-/-- Shared data for heterogeneous pattern disjunction and rule choice. -/
-structure Choice (P : Type v) (Q : Type w) where
-  left : P
-  right : Q
-
-structure Atom (α : Type u) where
-  term : α
-  requires : Prop := True
-
-inductive EmptyPattern where
-  | empty
-
-class Pattern (B : α → α → Prop) (P : Type v) where
-  holds : P → α → Prop
-
-instance : Pattern B α := ⟨fun term state => B term state⟩
-instance : Pattern B (Atom α) := ⟨fun atom state => B atom.term state ∧ atom.requires⟩
-instance {A : Type v} {P : Type w} [Pattern B P] : Pattern B (A → P) :=
-  ⟨fun pattern state => ∃ a, Pattern.holds B (pattern a) state⟩
-instance {P : Type v} {Q : Type w} [Pattern B P] [Pattern B Q] :
-    Pattern B (Choice P Q) :=
-  ⟨fun choice state => Pattern.holds B choice.left state ∨ Pattern.holds B choice.right state⟩
-instance : Pattern B EmptyPattern := ⟨fun _ _ => False⟩
-
-class Rules (B : α → α → Prop) (R : Type v) where
-  step : R → α → α → Prop
-
-instance : Rules B (RuleBody α) :=
-  ⟨fun rule before after => B rule.lhs before ∧ B rule.rhs after ∧ rule.requires⟩
-instance {A : Type v} {R : Type w} [Rules B R] : Rules B (A → R) :=
-  ⟨fun rule before after => ∃ a, Rules.step B (rule a) before after⟩
-instance {R : Type v} {S : Type w} [Rules B R] [Rules B S] : Rules B (Choice R S) :=
-  ⟨fun choice before after => Rules.step B choice.left before after ∨
-    Rules.step B choice.right before after⟩
+def System.step (B : α → α → Prop) : System α → α → α → Prop
+  | .empty, _, _ => False
+  | .rule lhs rhs condition, before, after =>
+      B lhs before ∧ B rhs after ∧ condition
+  | .choice left right, before, after =>
+      left.step B before after ∨ right.step B before after
+  | .bind body, before, after => ∃ a, (body a).step B before after
 
 /-! ## Semantic judgments and universal/existential decomposition
 These describe ONE-STEP transitions. Choice is nondeterminism, not sequencing.
 None of these definitions computes unifiers or post-images.
 -/
 
-variable {P : Type v} {Q : Type w} {Post : Type x} {R : Type y}
+def Subsumes (B : α → α → Prop) (source target : Patt α) : Prop :=
+  ∀ state, source.holds B state → target.holds B state
 
-def Subsumes (B : α → α → Prop) [Pattern B P] [Pattern B Q]
-    (source : P) (target : Q) : Prop :=
-  ∀ state, Pattern.holds B source state → Pattern.holds B target state
+def Overlaps (B : α → α → Prop) (left right : Patt α) : Prop :=
+  ∃ state, left.holds B state ∧ right.holds B state
 
-def Overlaps (B : α → α → Prop) [Pattern B P] [Pattern B Q]
-    (left : P) (right : Q) : Prop :=
-  ∃ state, Pattern.holds B left state ∧ Pattern.holds B right state
+def postImage (B : α → α → Prop)
+    (rule : System α) (source : Patt α) (after : α) : Prop :=
+  ∃ before, source.holds B before ∧ rule.step B before after
 
-def postImage (B : α → α → Prop) [Pattern B P] [Rules B R]
-    (rule : R) (source : P) (after : α) : Prop :=
-  ∃ before, Pattern.holds B source before ∧ Rules.step B rule before after
-
-def MapsInto (B : α → α → Prop) [Pattern B P] [Pattern B Q] [Rules B R]
-    (rule : R) (source : P) (target : Q) : Prop :=
-  ∀ before after, Pattern.holds B source before → Rules.step B rule before after →
-    Pattern.holds B target after
+def MapsInto (B : α → α → Prop)
+    (rule : System α) (source target : Patt α) : Prop :=
+  ∀ before after, source.holds B before → rule.step B before after →
+    target.holds B after
 
 /-- No missing states: the candidate contains every actual successor.
 This is the SAME universal mapping judgment, not a second semantics. -/
-abbrev Over (B : α → α → Prop) [Pattern B P] [Pattern B Post] [Rules B R]
-    (rule : R) (source : P) (post : Post) : Prop := MapsInto B rule source post
+abbrev Over (B : α → α → Prop)
+    (rule : System α) (source post : Patt α) : Prop := MapsInto B rule source post
 
 /-- No junk states: every candidate state is an actual successor. -/
-def Under (B : α → α → Prop) [Pattern B P] [Pattern B Post] [Rules B R]
-    (rule : R) (source : P) (post : Post) : Prop :=
-  ∀ after, Pattern.holds B post after → postImage B rule source after
+def Under (B : α → α → Prop)
+    (rule : System α) (source post : Patt α) : Prop :=
+  ∀ after, post.holds B after → postImage B rule source after
 
-def Exact (B : α → α → Prop) [Pattern B P] [Pattern B Post] [Rules B R]
-    (rule : R) (source : P) (post : Post) : Prop :=
+def Exact (B : α → α → Prop)
+    (rule : System α) (source post : Patt α) : Prop :=
   Over B rule source post ∧ Under B rule source post
 
-def Reaches (B : α → α → Prop) [Pattern B P] [Pattern B Q] [Rules B R]
-    (rule : R) (source : P) (target : Q) : Prop :=
-  ∃ before after, Pattern.holds B source before ∧ Rules.step B rule before after ∧
-    Pattern.holds B target after
+def Reaches (B : α → α → Prop)
+    (rule : System α) (source target : Patt α) : Prop :=
+  ∃ before after, source.holds B before ∧ rule.step B before after ∧
+    target.holds B after
 
-theorem mapsInto_of_over_subsumes [Pattern B P] [Pattern B Post] [Pattern B Q] [Rules B R]
-    {rule : R} {source : P} {post : Post} {target : Q}
+theorem mapsInto_of_over_subsumes
+    {rule : System α} {source post target : Patt α}
     (over : Over B rule source post) (subsumes : Subsumes B post target) :
     MapsInto B rule source target :=
   fun before after hsource hstep => subsumes after (over before after hsource hstep)
 
-theorem reaches_of_under_overlaps [Pattern B P] [Pattern B Post] [Pattern B Q] [Rules B R]
-    {rule : R} {source : P} {post : Post} {target : Q}
+theorem reaches_of_under_overlaps
+    {rule : System α} {source post target : Patt α}
     (under : Under B rule source post) (overlap : Overlaps B post target) :
     Reaches B rule source target :=
   match overlap with
