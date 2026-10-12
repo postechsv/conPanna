@@ -1,10 +1,12 @@
 import Tiny.Expresso.core
+import Tiny.conPanna.Unification.Problem
 
 /-!
 A single-process Bakery slice for reading the native core at the user level.
 It keeps ticket allocation and service, but omits process bags and ACU.
 This is a semantics demonstration, not a proof of the full Bakery protocol.
-Only ordinary equality is used; there are no wrappers, tactics, or external calls.
+The first examples use ordinary equality; the final example uses commutativity.
+There are no wrappers, tactics, or external calls.
 -/
 namespace TinyBakery
 
@@ -68,5 +70,86 @@ example (state : Conf) : waiting.holds Eq state ↔
 example : Subsumes Eq waiting bakeryInv :=
   fun _ hwaiting => Or.inr (Or.inl hwaiting)
 
+/-! ## A completeness claim with two unifiers
+A separate two-process Bakery slice, keeping only idle/wait/critical modes.
+Its pair is commutative, not associative. The quotient makes structural equality
+ordinary equality, with no constructor encoding or registration in unification.
+-/
+namespace PairUnification
+
+open Unification
+
+inductive Status where
+  | idle | wait | crit
+
+inductive RawPairState where
+  | pair (left right : Status) : RawPairState -- comm
+
+/-! ### Native structural equality (not part of the completeness proof) -/
+
+-- One theory B supplies pair commutativity; it has no equations on Status.
+-- For this nonrecursive pair, identity and one swap already form the full equivalence.
+inductive B : RawPairState → RawPairState → Prop where
+  | refl (a : RawPairState) : B a a
+  | comm (a b : Status) : B (.pair a b) (.pair b a)
+
+def pairSetoid : Setoid RawPairState where
+  r := B
+  iseqv :=
+    ⟨B.refl,
+     fun h => match h with
+       | .refl a => .refl a
+       | .comm a b => .comm b a,
+     fun h₁ h₂ => match h₁, h₂ with
+       | .refl _, h => h
+       | .comm a b, .refl _ => .comm a b
+       | .comm a b, .comm _ _ => .refl (.pair a b)⟩
+
+abbrev PairState := Quotient pairSetoid
+
+def pair (left right : Status) : PairState :=
+  Quotient.mk pairSetoid (.pair left right)
+
+theorem pair_comm (a b : Status) : pair a b = pair b a :=
+  Quotient.sound (B.comm a b)
+
+-- The existing core works unchanged with Eq on quotient-valued states.
+example : (Patt.atom (pair .idle .wait)).holds Eq (pair .wait .idle) :=
+  ⟨pair_comm .idle .wait, True.intro⟩
+
+/-! ### User-facing problem and proposed answer
+Γ packages the three original variables X, Y, Z. Each answer binds its own U.
+Here Γ is the anonymous tuple `Status × Status × Status`, in that order.
+-/
+
+-- pair X Y =[B] pair idle Z
+-- On PairState, this is now ordinary equality. No context readers are needed.
+def problem : Problem PairState (Status × Status × Status) where
+  lhs := fun (X, Y, _) => pair X Y
+  rhs := fun (_, _, Z) => pair .idle Z
+
+def unifier1 : Unifier (Status × Status × Status) :=
+  .bind (fun u : Status => .subst ⟨.idle, u, u⟩)
+
+def unifier2 : Unifier (Status × Status × Status) :=
+  .bind (fun u : Status => .subst ⟨u, .idle, u⟩)
+
+def solutions : UnifierSet (Status × Status × Status) := [unifier1, unifier2]
+
+-- Every solution of the displayed equation is an instance of one of these two families.
+-- Expanded meaning (ordinary equality accounts for each sort's theory):
+--   ∀ x y z, pair x y = pair idle z →
+--     (∃ u, x = idle ∧ y = u ∧ z = u) ∨
+--     (∃ u, x = u ∧ y = idle ∧ z = u).
+example : UnifierSet.Complete problem solutions := by
+
+  unfold UnifierSet.Complete UnifierSet.Covers solutions
+
+  unfold problem
+
+  unfold Problem.unifies
+  sorry
+
+end PairUnification
 
 end TinyBakery

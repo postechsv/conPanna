@@ -1,59 +1,70 @@
 namespace Unification
 
-universe u v w x
+universe u v x y
+
+/-!
+Native unification semantics. Model types account for their structural equality:
+use quotient values for sorts with nontrivial axioms, and ordinary values for free sorts.
+Consequently, terms and assignment packages are compared using ordinary Lean equality.
+Theory/presentation recovery and supported-theory validation belong in a separate module.
+There is no constructor encoding, registration, or metaprogramming dependency here.
+-/
 
 -- meaning `t1[Γ] =B? t2[Γ]` the B-unification problem
 -- e.g., { X := x, Y := y } : Γ (user provides x, y from their own context)
 -- Γ → α is the type of α-terms with free variables in dom(Γ)
--- TODO: shouldn't it also be parameterized by B?
+-- The model's quotient types now absorb B; α and Γ are native Lean types.
 structure Problem (α : Type u) (Γ : Type v) where
   lhs : Γ → α
   rhs : Γ → α
 
 -- abbrev ProblemSet (α : Type u) (Vars : Type v) := List (Problem α Vars)
 -- this cannot encode many sorted problems; all are α
+-- This note still applies to a list indexed by a single result type α.
 
 variable {α : Type u} {Γ : Type v}
 
 /- meaning `σ(t1) =[B] σ(t2)` -/
-def Problem.unifies (problem : Problem α Γ) (B : α → α → Prop) (γ : Γ)
+def Problem.unifies (problem : Problem α Γ) (γ : Γ)
     : Prop :=
-  B (problem.lhs γ) (problem.rhs γ)
+  problem.lhs γ = problem.rhs γ
 
--- TODO: should i separate out substitution for ceritifcation etc?
-inductive Unifier (Γ : Type v) : Type (max v (w + 1)) where
+-- Note: should i separate out substitution for ceritifcation etc?
+inductive Unifier (Γ : Type v) : Type (max v (x + 1)) where
   | subst (γ : Γ) : Unifier Γ
-  | bind {A : Type w} (closure : A → Unifier Γ) : Unifier Γ
+  | bind {A : Type x} (closure : A → Unifier Γ) : Unifier Γ
     -- e.g., `.bind (fun u => .subst { X := f u, Y := u })` for `X ↦ f(U), Y ↦ U`
 
--- TODO: should i eliminate Γ?
-abbrev UnifierSet (Γ : Type v) := List (Unifier.{v, w} Γ)
+-- Note: should i eliminate Γ?
+abbrev UnifierSet (Γ : Type v) := List (Unifier.{v, x} Γ)
 
 
 
 
-/-- `R` compares original assignments variable-by-variable modulo their sort's laws.
-It is NOT merely equality of the two problem terms. Bindings are existential here.
--/
-def Unifier.Covers (R : Γ → Γ → Prop) : Unifier Γ → Γ → Prop
-  | .subst γ, assignment => R assignment γ
-  | .bind fresh, assignment => ∃ value, (fresh value).Covers R assignment
+/- σ.Covers γ iff γ ∈ σ -/
+def Unifier.Covers : Unifier Γ → Γ → Prop
+  | .subst γ', γ => γ = γ'
+  | .bind fresh, γ => ∃ u, (fresh u).Covers γ
 
-/-- At least one proposed unifier covers this original assignment. -/
-def UnifierSet.Covers (R : Γ → Γ → Prop)
-    (unifiers : UnifierSet Γ) (assignment : Γ) : Prop :=
-  ∃ σ, σ ∈ unifiers ∧ σ.Covers R assignment
+/- this will be the main judgment for our certification calculus -/
+-- Σ covers γ
+def UnifierSet.Covers (unifiers : UnifierSet Γ) (γ : Γ) : Prop :=
+  ∃ σ, σ ∈ unifiers ∧ σ.Covers γ
 
-/-- No original solution is missed.
-`B` compares terms; `R` compares assignments.
-For a mixed context, define `R` with the appropriate structural relation per field.
-Completeness does not assert that the proposed answers are sound.
--/
-def UnifierSet.Complete (B : α → α → Prop) (R : Γ → Γ → Prop)
-    (problem : Problem α Γ) (solutions : UnifierSet Γ) : Prop :=
-  ∀ γ, problem.unifies B γ → solutions.Covers R γ
--- `σ(t1) =[B] σ(t2)` => ∃ σ' ∈ solutions, σ' covers γ modulo R`
+/- this will be the main judgment for our certification calculus -/
+def UnifierSet.Complete (problem : Problem α Γ) (solutions : UnifierSet Γ) : Prop :=
+  ∀ γ, problem.unifies γ → solutions.Covers γ
+-- for any γ s.t. `γ(t1) =[B] γ(t2)`, ∃ σ ∈ solutions, σ covers γ modulo R`
+-- With quotient-valued sorts, the old B and R comparisons are ordinary equality.
 
+/-- Every instance of this proposed unifier solves the native equation. -/
+def Unifier.Sound (problem : Problem α Γ) : Unifier Γ → Prop
+  | .subst γ => problem.unifies γ
+  | .bind fresh => ∀ value, (fresh value).Sound problem
+
+/-- No proposed unifier produces a nonsolution. -/
+def UnifierSet.Sound (problem : Problem α Γ) (solutions : UnifierSet Γ) : Prop :=
+  ∀ σ, σ ∈ solutions → σ.Sound problem
 
 
 
@@ -66,8 +77,8 @@ e.g.,
 `σ = .bind (fun u => .subst (f u, u))` becomes `.bind (fun u => .subst (p (f u) u))`.
 by `closure = fun (x, y) => p x y`
 -/
-def Unifier.apply {β : Type x} (σ : Unifier.{v, w} Γ) (closure : Γ → β)
-    : Unifier.{x, w} β :=
+def Unifier.apply {β : Type y} (σ : Unifier.{v, x} Γ) (closure : Γ → β)
+    : Unifier.{y, x} β :=
   match σ with
   | .subst γ => .subst (closure γ)
   | .bind fresh => .bind (fun value => (fresh value).apply closure)
