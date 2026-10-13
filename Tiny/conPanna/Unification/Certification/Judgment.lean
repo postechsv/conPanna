@@ -18,23 +18,21 @@ namespace Unification.Certification
 universe u v w x
 
 /-- A state `⟨α ; E ; D⟩` over fresh variables `Γ`, for original variables `Γ₀`. -/
-structure State (Γ₀ : Type v) where
-  Γ : Type w
+structure State (Γ₀ : Type v) (Γ : Type w) where
   α : Γ → Γ₀
   E : Γ → Prop
   D : Γ → Prop := fun _ => True
 
-variable {α : Type u} {Γ₀ : Type v}
+variable {α : Type u} {Γ₀ : Type v} {Γ Γ' : Type w}
 
 /-- `⟨α ; E ; D⟩ ⊩ answers`: every solution described by the state is covered. -/
-def State.Holds (s : State.{v, w} Γ₀) (answers : UnifierSet.{v, x} Γ₀) : Prop :=
+def State.Holds (s : State Γ₀ Γ) (answers : UnifierSet.{v, x} Γ₀) : Prop :=
   ∀ ρ, s.E ρ → s.D ρ → answers.Covers (s.α ρ)
 
 @[inherit_doc] infix:50 " ⊩ " => State.Holds
 
 /-- The initial state `⟨id ; E₀ ; ∅⟩` of a problem. -/
-def State.start (problem : Problem α Γ₀) : State.{v, v} Γ₀ where
-  Γ := Γ₀
+def State.start (problem : Problem α Γ₀) : State Γ₀ Γ₀ where
   α := id
   E := problem.unifies
 
@@ -47,7 +45,7 @@ variable {answers : UnifierSet.{v, x} Γ₀}
 
 /-- Every non-closing rule is an instance of this: each solution of the
 conclusion state is a solution of some premise state, with the same image. -/
-theorem transfer {ι : Type} {s : State.{v, w} Γ₀} (premise : ι → State.{v, w} Γ₀)
+theorem transfer {ι : Type} {s : State Γ₀ Γ} (premise : ι → State Γ₀ Γ')
     (step : ∀ ρ, s.E ρ → s.D ρ →
       ∃ i ρ', s.α ρ = (premise i).α ρ' ∧ (premise i).E ρ' ∧ (premise i).D ρ')
     (h : ∀ i, premise i ⊩ answers) : s ⊩ answers := by
@@ -57,12 +55,12 @@ theorem transfer {ι : Type} {s : State.{v, w} Γ₀} (premise : ι → State.{v
   exact h i ρ' hE' hD'
 
 /-- A state with no solutions holds trivially. -/
-theorem close {s : State.{v, w} Γ₀} (h : ∀ ρ, s.E ρ → s.D ρ → False) : s ⊩ answers :=
+theorem close {s : State Γ₀ Γ} (h : ∀ ρ, s.E ρ → s.D ρ → False) : s ⊩ answers :=
   fun ρ hE hD => (h ρ hE hD).elim
 
 /-- A state holds if one answer covers all its solutions, with a witness
 computed from the fresh variables. -/
-theorem cover {s : State.{v, w} Γ₀} (σ : Unifier.{v, x} Γ₀) (mem : σ ∈ answers)
+theorem cover {s : State Γ₀ Γ} (σ : Unifier.{v, x} Γ₀) (mem : σ ∈ answers)
     (h : ∀ ρ, s.E ρ → s.D ρ → σ.Covers (s.α ρ)) : s ⊩ answers :=
   fun ρ hE hD => ⟨σ, mem, h ρ hE hD⟩
 

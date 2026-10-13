@@ -88,6 +88,9 @@ theorem plus_comm (X Y : ACU E) : X + Y = Y + X := by
   induction Y using Quotient.inductionOn
   exact Quotient.sound (Equiv.comm _ _)
 
+theorem plus_left_comm (X Y Z : ACU E) : X + (Y + Z) = Y + (X + Z) := by
+  rw [← plus_assoc, plus_comm X Y, plus_assoc]
+
 theorem unit_plus (X : ACU E) : ∅ + X = X := by
   induction X using Quotient.inductionOn
   exact Quotient.sound (Equiv.unit_plus _)
