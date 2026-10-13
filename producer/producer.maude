@@ -11,7 +11,8 @@
   fresh counts the fresh variables F1, F2, ... introduced so far.
 
   The strategy takes the first pending equation:
-    - a bag equation:  IDENTIFY an undecided pair of aliens, else SOLVE;
+    - a bag equation:  SOLVE, unless S2* fails for a clique of compatible aliens
+                       (then IDENTIFY a pair of it);
     - a free equation: DELETE / ELIM / OCCURS / DECOMP / CLASH.
   SOLVE's data P (particular solutions) and B (basis) are read off a native
   metaUnify of the equation with its aliens replaced by constants k0, k1, ...
@@ -237,25 +238,103 @@ fmod PRODUCER is
     else elim(V, T, derive(X, st(substA(mod(X), Al, V <- T), substE(mod(X), E, V <- T),
                                  substD(mod(X), D, V <- T), K), Fu)) fi .
 
-  *** Bag equations: IDENTIFY an undecided alien pair, else SOLVE.
+  *** Bag equations: SOLVE, unless condition S2* fails for some clique of
+  *** compatible aliens; then IDENTIFY a pair of that clique.
+  *** Two aliens are compatible if they unify and are not recorded distinct.
+  *** S2*(GR): every solution of the system with GR's aliens merged lies above a
+  *** sum of particular solutions, one per class of GR. It is checked on the
+  *** answers of the merged abstracted equation.
   op bagStep : Ctx State Nat -> Tree .
   ceq bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) =
       identify(A, A',
         derive(X, st(Al, eqn(A, A') ;; eqn(T1, T2) ;; E, D, K), Fu),
         derive(X, st(Al, eqn(T1, T2) ;; E, neq(A, A') ,, D, K), Fu))
     if BI := infoOf(bis(X), T1, T2)
-    /\ (A, A') := undecided(aliens(BI, (flat(BI, T1), flat(BI, T2)), empty), D) .
+    /\ LS := flat(BI, T1) /\ RS := flat(BI, T2)
+    /\ VL := bvars(BI, (LS, RS), empty) /\ AL := aliens(BI, (LS, RS), empty)
+    /\ P := partOf(absUnifiers(VL, AL, LS, RS), VL, AL, 0)
+    /\ (A, A') := failingPair(VL, AL, LS, RS, P, cliques(X, D, AL, 0, len(AL))) .
   eq bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) = solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) [owise] .
 
-  op undecided : TermList Diseqs ~> TermList .     *** first pair not yet known equal or distinct
-  op undec1 : Term TermList Diseqs ~> TermList .
-  eq undecided((T, TL), D) = if undec1(T, TL, D) :: TermList then undec1(T, TL, D) else undecided(TL, D) fi .
-  eq undec1(T, (T', TL), D) =
-    if T =/= T' and not known(T, T', D) then (T, T') else undec1(T, TL, D) fi .
   op known : Term Term Diseqs -> Bool .
   eq known(T, T', neq(T, T') ,, D) = true .
   eq known(T, T', neq(T', T) ,, D) = true .
   eq known(T, T', D) = false [owise] .
+
+  op compat : Ctx Diseqs Term Term -> Bool .
+  eq compat(X, D, T, T') =
+    not known(T, T', D) and metaUnify(mod(X), T =? T', 0, 0) :: UnificationPair .
+
+  *** Cliques of size >= 2, as lists of class indices.
+  sort Groups .  op grp : NatL -> Groups [ctor] .
+  op noGrp : -> Groups [ctor] .
+  op _@@_ : Groups Groups -> Groups [ctor assoc id: noGrp] .
+  vars GS GS' : Groups .  vars GR GR' : NatL .
+  op cliques : Ctx Diseqs TermList Nat Nat -> Groups .   *** cliques among indices I..K-1
+  eq cliques(X, D, AL, I, K) = bigOnes(cliq(X, D, AL, I, K)) .
+  op cliq : Ctx Diseqs TermList Nat Nat -> Groups .       *** all cliques, including small ones
+  eq cliq(X, D, AL, I, K) =
+    if I < K then cliq(X, D, AL, s I, K) @@ extend(X, D, AL, I, cliq(X, D, AL, s I, K)) @@ grp(I)
+    else grp(nilN) fi .
+  op extend : Ctx Diseqs TermList Nat Groups -> Groups .  *** add I to every clique it fits
+  eq extend(X, D, AL, I, noGrp) = noGrp .
+  eq extend(X, D, AL, I, grp(GR) @@ GS) =
+    (if GR =/= nilN and fits(X, D, AL, I, GR) then grp(I ^^ GR) else noGrp fi) @@ extend(X, D, AL, I, GS) .
+  op fits : Ctx Diseqs TermList Nat NatL -> Bool .
+  eq fits(X, D, AL, I, nilN) = true .
+  eq fits(X, D, AL, I, J ^^ GR) = compat(X, D, nth(AL, I), nth(AL, J)) and fits(X, D, AL, I, GR) .
+  op bigOnes : Groups -> Groups .
+  eq bigOnes(noGrp) = noGrp .
+  eq bigOnes(grp(GR) @@ GS) = (if size(GR) >= 2 then grp(GR) else noGrp fi) @@ bigOnes(GS) .
+  op size : NatL -> Nat .
+  eq size(nilN) = 0 .
+  eq size(N ^^ NL) = 1 + size(NL) .
+
+  *** The first pair of a clique violating S2*.
+  op failingPair : TermList TermList TermList TermList VecsL Groups ~> TermList .
+  eq failingPair(VL, AL, LS, RS, P, grp(I ^^ J ^^ GR) @@ GS) =
+    if s2star(VL, AL, LS, RS, P, I ^^ J ^^ GR) then failingPair(VL, AL, LS, RS, P, GS)
+    else (nth(AL, I), nth(AL, J)) fi .
+
+  op s2star : TermList TermList TermList TermList VecsL NatL -> Bool .
+  eq s2star(VL, AL, LS, RS, P, I ^^ GR) =
+    allDominate(mergedUnifiers(VL, AL, LS, RS, I ^^ GR), I, len(VL), P, I ^^ GR) .
+  op allDominate : Answers Nat Nat VecsL NatL -> Bool .
+  eq allDominate(noAns, I, K, P, GR) = true .
+  eq allDominate(Sb :: US, I, K, P, GR) =
+    domSum(cvec(Sb, absAlien(I), K, 0), GR, P) and allDominate(US, I, K, P, GR) .
+  op domSum : NatL NatL VecsL -> Bool .     *** some choice p_c in P_c (c in GR) has sum <= m
+  eq domSum(NL, nilN, P) = true .
+  eq domSum(NL, J ^^ GR, P) = domAny(NL, clsAt(P, J), GR, P) .
+  op domAny : NatL Vecs NatL VecsL -> Bool .
+  eq domAny(NL, noVec, GR, P) = false .
+  eq domAny(NL, [NL'] || VS, GR, P) =
+    (leq(NL', NL) and domSum(minus(NL, NL'), GR, P)) or domAny(NL, VS, GR, P) .
+  op clsAt : VecsL Nat -> Vecs .
+  eq clsAt(cls(VS) ## PL, 0) = VS .
+  eq clsAt(cls(VS) ## PL, s N) = clsAt(PL, N) .
+  op leq : NatL NatL -> Bool .
+  eq leq(nilN, nilN) = true .
+  eq leq(N ^^ NL, K ^^ NL') = N <= K and leq(NL, NL') .
+  op minus : NatL NatL -> NatL .
+  eq minus(nilN, nilN) = nilN .
+  eq minus(K ^^ NL, N ^^ NL') = sd(K, N) ^^ minus(NL, NL') .
+
+  *** The abstracted equation with the aliens of GR merged into one constant.
+  op mergedUnifiers : TermList TermList TermList TermList NatL -> Answers .
+  eq mergedUnifiers(VL, AL, LS, RS, I ^^ GR) =
+    allUnifiers(upModule('ABS-BAG, false),
+      mk(bag('Bag, '__, 'none.Bag), absListM(VL, AL, LS, I ^^ GR)),
+      mk(bag('Bag, '__, 'none.Bag), absListM(VL, AL, RS, I ^^ GR)), 0) .
+  op absListM : TermList TermList TermList NatL -> TermList .
+  eq absListM(VL, AL, empty, GR) = empty .
+  eq absListM(VL, AL, (T, TL), I ^^ GR) =
+    (if mem(T, VL) then absVar(pos(T, VL))
+     else absAlien(if inG(pos(T, AL), I ^^ GR) then I else pos(T, AL) fi) fi),
+    absListM(VL, AL, TL, I ^^ GR) .
+  op inG : Nat NatL -> Bool .
+  eq inG(N, nilN) = false .
+  eq inG(N, K ^^ NL) = N == K or inG(N, NL) .
 
   *** SOLVE.
   op solveStep : Ctx State Nat -> Tree .

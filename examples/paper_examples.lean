@@ -53,11 +53,13 @@ example : UnifierSet.Complete problem answers := by
       (glue := fun N? V => (V 0, V 1, N?)) (hglue := fun _ => rfl)
       (a := fun N? => ![Elem.w N?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1]) (Ra := ![1])
       (E' := fun _ => True) (P := fun _ => [![0, 0]]) (B := ![![1, 1]])
-      ?hE ?S1p ?S1b ?S2 ?S3 ?next
+      (cp := fun _ _ => false)
+      ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
     case hE =>
       intro ⟨X?, Y?, N?⟩ h _
-      refine ⟨?_, trivial, fun c c' hc => absurd (Subsingleton.elim c c') hc⟩
+      refine ⟨?_, trivial, fun c c' hc _ => absurd (Subsingleton.elim c c') hc⟩
       simpa [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
+    case S0 => decide
     case S1p => decide
     case S1b => decide
     case S2 => intro c v _; exact ⟨![0, 0], by simp, fun i => by fin_cases i <;> simp⟩
@@ -79,12 +81,14 @@ example : UnifierSet.Complete problem answers := by
       (a := fun (N?, M?) => ![Elem.w N?, Elem.w M?]) (L := ![1, 0]) (R := ![0, 1])
       (La := ![1, 0]) (Ra := ![0, 1]) (E' := fun _ => True)
       (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-      ?hE ?S1p ?S1b ?S2 ?S3 ?next
+      (cp := fun _ _ => false)
+      ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
     case hE =>
       intro ⟨X?, Y?, N?, M?⟩ h ⟨_, hNM⟩
-      refine ⟨?_, trivial, fun c c' hc => ?_⟩
+      refine ⟨?_, trivial, fun c c' hc _ => ?_⟩
       · simpa [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
       · fin_cases c <;> fin_cases c' <;> simp_all [eq_comm]
+    case S0 => decide
     case S1p => decide
     case S1b => decide
     case S2 =>
@@ -142,13 +146,15 @@ example : UnifierSet.Complete (problem (El := El)) answers := by
     (glue := fun _ V => (V 0, V 1, V 2)) (hglue := fun _ => rfl)
     (a := fun _ => Fin.elim0) (L := ![1, 1, 0]) (R := ![0, 0, 2]) (La := Fin.elim0) (Ra := Fin.elim0)
     (E' := fun _ => True) (P := Fin.elim0) (B := basis)
-    ?hE ?S1p ?S1b ?S2 ?S3 ?next
+    (cp := fun _ _ => false)
+    ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
   case hE =>
     intro ⟨X?, Y?, Z?⟩ h _
     have h : X? + Y? = Z? + Z? := h
     refine ⟨?_, trivial, fun c => c.elim0⟩
     simp [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
     exact h
+  case S0 => decide
   case S1p => intro c; exact c.elim0
   case S1b => intro j; fin_cases j <;> decide
   case S2 => intro c; exact c.elim0

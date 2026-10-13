@@ -112,11 +112,13 @@ example : UnifierSet.Complete problem solutions := by
     (glue := fun N? V => (N?, V 0, V 1)) (hglue := fun _ => rfl)
     (a := fun N? => ![Mode.wait N?]) (L := ![1, 1]) (R := ![0, 0]) (La := ![0]) (Ra := ![1])
     (E' := fun _ => True) (P := fun _ => [![1, 0], ![0, 1]]) (B := Fin.elim0)
-    ?hE ?S1p ?S1b ?S2 ?S3 ?next
+    (cp := fun _ _ => false)
+    ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
   case hE =>
     intro ⟨N?, P?, Q?⟩ h _
-    refine ⟨?_, trivial, fun c c' hc => absurd (Subsingleton.elim c c') hc⟩
+    refine ⟨?_, trivial, fun c c' hc _ => absurd (Subsingleton.elim c c') hc⟩
     simpa [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
+  case S0 => decide
   case S1p => decide
   case S1b => decide
   case S2 => intro c v h; fin_cases c; simp [dot, Below, List.ofFn_succ, Fin.forall_fin_two] at h ⊢; omega
@@ -158,13 +160,15 @@ example : UnifierSet.Complete problem2 solutions2 := by
     (a := fun N? => ![Mode.wait N?]) (L := ![1, 1, 0]) (R := ![0, 0, 1]) (La := ![0]) (Ra := ![1])
     (E' := fun _ => True) (P := fun _ => [![1, 0, 0], ![0, 1, 0]])
     (B := fun (j : Fin 2) => if j = 0 then ![1, 0, 1] else ![0, 1, 1])
-    ?hE ?S1p ?S1b ?S2 ?S3 ?next
+    (cp := fun _ _ => false)
+    ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
   case hE =>
     intro ⟨N?, P?, Q?, R?⟩ h _
     have h : P? + Q? = {.wait N?} + R? := h
-    refine ⟨?_, trivial, fun c c' hc => absurd (Subsingleton.elim c c') hc⟩
+    refine ⟨?_, trivial, fun c c' hc _ => absurd (Subsingleton.elim c c') hc⟩
     simp [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
     rw [h, ACU.plus_comm]
+  case S0 => decide
   case S1p => decide
   case S1b => decide
   case S2 =>
