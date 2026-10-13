@@ -301,8 +301,8 @@ open ProcSet
 -- ⟨n + 1, n, union P Q⟩ = ⟨n + 1, n, singleton (wait n)⟩
 -- The equation is on native configurations, whose process field is an ACU quotient.
 def problem : Problem Conf (Nat × ProcSet × ProcSet) :=
-  .bind fun (N_, P_, Q_) =>
-    (⟨N_ + 1, N_, union P_ Q_⟩, ⟨N_ + 1, N_, singleton (.wait N_)⟩)
+  .bind fun (N?, P?, Q?) =>
+    (⟨N? + 1, N?, union P? Q?⟩, ⟨N? + 1, N?, singleton (.wait N?)⟩)
 
 -- Provided answers, not computed by this proof:
 -- σ₁: n ↦ u, P ↦ empty, Q ↦ singleton (wait u)
@@ -317,14 +317,14 @@ def solutions : UnifierSet (Nat × ProcSet × ProcSet) := [unifier1, unifier2]
 
 -- Completeness only: every concrete solution is covered by a provided answer.
 example : UnifierSet.Complete problem solutions := by
-  rintro ⟨N_, P_, Q_⟩ h
+  rintro ⟨N?, P?, Q?⟩ h
   -- DECOMP: `Conf` is free, so its process fields are equal.
-  have hprocs : union P_ Q_ = ProcSet.singleton (.wait N_) := congrArg Conf.procs h
+  have hprocs : union P? Q? = ProcSet.singleton (.wait N?) := congrArg Conf.procs h
   -- ATOM: one side holds the process, the other is empty.
   rcases ACU.Bag.union_eq_singleton.mp hprocs with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   -- COVER: (answer, fresh witness u := N).
-  · exact ⟨unifier1, List.Mem.head _, N_, rfl⟩
-  · exact ⟨unifier2, List.Mem.tail _ (List.Mem.head _), N_, rfl⟩
+  · exact ⟨unifier1, List.Mem.head _, N?, rfl⟩
+  · exact ⟨unifier2, List.Mem.tail _ (List.Mem.head _), N?, rfl⟩
 
 /-! ### A problem needing REFINE: unknown bags on both sides
 `union P Q = union (singleton (wait n)) R`, original variables (n, P, Q, R).
@@ -356,85 +356,3 @@ example : UnifierSet.Complete problem2 solutions2 := by
       by simp [Unifier.Covers, ACU.Bag.empty_union]⟩
 
 end TinyBakery
-
-/-! ## A commutative pair: completeness with two unifiers
-The pair is commutative, not associative. The quotient makes structural equality
-ordinary equality, with no constructor encoding or registration in unification.
--/
-namespace PairUnification
-
-open Expresso Unification
-
-inductive Status where
-  | idle | wait | crit
-
-inductive RawPairState where
-  | pair (left right : Status) : RawPairState -- comm
-
-/-! ### Native structural equality (not part of the completeness proof) -/
-
--- One theory B supplies pair commutativity; it has no equations on Status.
--- For this nonrecursive pair, identity and one swap already form the full equivalence.
-inductive B : RawPairState → RawPairState → Prop where
-  | refl (a : RawPairState) : B a a
-  | comm (a b : Status) : B (.pair a b) (.pair b a)
-
-def pairSetoid : Setoid RawPairState where
-  r := B
-  iseqv :=
-    ⟨B.refl,
-     fun h => match h with
-       | .refl a => .refl a
-       | .comm a b => .comm b a,
-     fun h₁ h₂ => match h₁, h₂ with
-       | .refl _, h => h
-       | .comm a b, .refl _ => .comm a b
-       | .comm a b, .comm _ _ => .refl (.pair a b)⟩
-
-abbrev PairState := Quotient pairSetoid
-
-def pair (left right : Status) : PairState :=
-  Quotient.mk pairSetoid (.pair left right)
-
-theorem pair_comm (a b : Status) : pair a b = pair b a :=
-  Quotient.sound (B.comm a b)
-
--- The existing core works unchanged with Eq on quotient-valued states.
-example : (Patt.atom (pair .idle .wait)).holds Eq (pair .wait .idle) :=
-  ⟨pair_comm .idle .wait, True.intro⟩
-
-/-! ### User-facing problem and proposed answer
-Γ packages the three original variables X, Y, Z. Each answer binds its own U.
-Here Γ is the anonymous tuple `Status × Status × Status`, in that order.
--/
-
--- pair X Y =[B] pair idle Z
--- On PairState, this is now ordinary equality. No context readers are needed.
-def problem : Problem PairState (Status × Status × Status) :=
-  .bind fun (X, Y, Z) => (pair X Y, pair .idle Z)
-
-def unifier1 : Unifier (Status × Status × Status) :=
-  .bind (fun u : Status => .subst ⟨.idle, u, u⟩)
-
-def unifier2 : Unifier (Status × Status × Status) :=
-  .bind (fun u : Status => .subst ⟨u, .idle, u⟩)
-
-def solutions : UnifierSet (Status × Status × Status) := [unifier1, unifier2]
-
--- Every solution of the displayed equation is an instance of one of these two families.
--- Expanded meaning (ordinary equality accounts for each sort's theory):
---   ∀ x y z, pair x y = pair idle z →
---     (∃ u, x = idle ∧ y = u ∧ z = u) ∨
---     (∃ u, x = u ∧ y = idle ∧ z = u).
-example : UnifierSet.Complete problem solutions := by
-  unfold problem
-  unfold solutions unifier1 unifier2
-  rintro ⟨X, Y, Z⟩ h
-  unfold Problem.unifies at h
-  -- Quotient equality exposes either identity or the swap generating B.
-  have hB : B (.pair X Y) (.pair .idle Z) := Quotient.exact h
-  cases hB with
-  | refl => exact ⟨unifier1, List.Mem.head [unifier2], ⟨Y, rfl⟩⟩
-  | comm => exact ⟨unifier2, List.Mem.tail _ (List.Mem.head []), ⟨X, rfl⟩⟩
-
-end PairUnification
