@@ -16,7 +16,7 @@ evidence -> Python proof construction -> current Lean session/kernel checking.
 Python does NOT launch another Lean executable in that interface. The current
 standalone demo invokes native unify for input preparation and launches Lean
 as a TEST HARNESS ONLY; do not mistake that harness for the intended integration.
-CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundaries.
+CERTIFICATION.deprecated.md §§0, 6–8, and Appendix A explicitly specify these boundaries.
 
 ## Lean surface calculus and separate loader — 2026-10-09 (current)
 
@@ -61,7 +61,7 @@ CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundarie
 
 ## Lean surface-calculus audit — 2026-10-09 (preceding design)
 
-- CERTIFICATION.md §7.2 maps all ten maintained completed-state tags, all
+- CERTIFICATION.deprecated.md §7.2 maps all ten maintained completed-state tags, all
   structural-equality/premise-evidence tags, and soundness/root aggregation to
   their actual Lean declarations. It separates protocol steps from proof rules.
 - This turn only documented the architecture/interface; no Lean/Python/Maude
@@ -160,7 +160,7 @@ CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundarie
 - --prepare-native, --parse-native and --compile-trace expose the same stages
   without external calls. Generated ctor/wrapper modules, executable scripts,
   raw transcripts, frozen target, trace and proof bundle remain under --out.
-  Detailed manual instructions: CERTIFICATION.md §7.1.
+  Detailed manual instructions: CERTIFICATION.deprecated.md §7.1.
 - Adapter is a general sorted PREFIX-constructor parser under the existing
   single stratified ACU contract; supports multiple answers, per-answer shared
   fresh parameters, omitted identity bindings, flattened ACU output and empty
@@ -191,7 +191,7 @@ CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundarie
   `conPanna/certification.maude` to `conPanna/maude-cert2.maude`; its existing
   protocol/exporter and saved-script callers were updated, not removed.
   Older references below are historical filenames, not current load paths.
-- CERTIFICATION.md §§0 and 3.1 identify the maintained files and map the actual
+- CERTIFICATION.deprecated.md §§0 and 3.1 identify the maintained files and map the actual
   Maude `solve` arguments to the mathematical state. Section 4.3 displays the
   actual sharing rule and one retained equation list, without separate D/Balance
   state fields. Search and checker algorithms are unchanged.
@@ -202,7 +202,7 @@ CERTIFICATION.md §§0, 6–8, and Appendix A explicitly specify these boundarie
   Comments distinguish semantic rules from protocol/collection and identify
   helper modules and Lean constructors. Rule/equation bodies, rewrite-rule order
   and equation priority within each function remain intact.
-- CERTIFICATION.md section 4 links EVERY main rule to its actual Maude label or
+- CERTIFICATION.deprecated.md section 4 links EVERY main rule to its actual Maude label or
   named evidence-building helper; derived rules are not given invented labels.
 - Mathematical states uniformly use `⟨α ; E⟩`; scope changes are labelled outside
   the pair, including FINITE-SHARING. Do not reintroduce a separate triple form.
@@ -348,7 +348,7 @@ Lean files or tactics. Existing files edited only; disunification.lean untouched
 - Concrete issue fixed: normalized bags encode P as P+empty, so definitions must
   be looked up in original equations, not mistaken for normalized variable heads.
   The simplification and subsequent normalization still emit checked evidence.
-- CERTIFICATION.md §9.1 describes algorithm, finite control, and limitations.
+- CERTIFICATION.deprecated.md §9.1 describes algorithm, finite control, and limitations.
   Σ does NOT automatically supply a factor expressible in the CURRENT scope:
   for 2P=3Q, parameter Z cannot generally be a union-only term in P,Q. Sharing
   introduces witnesses before COVER; known answers need not eliminate all solving.
@@ -381,7 +381,7 @@ still deliberately untouched. No extra permanent Lean file or tactic was added.
   branches, N:=n. The native surface groups binding equalities/witness emission
   and reverses branch order; it is NOT falsely described as byte-identical to
   the serialized proof. A producer test checks the expanded tree and both βs.
-- CERTIFICATION.md §7.4 gives the retained-worklist scheduler's INFORMAL finite
+- CERTIFICATION.deprecated.md §7.4 gives the retained-worklist scheduler's INFORMAL finite
   phase audit: finitely many non-bag bindings; finitely many original frontiers
   between them; decreasing explicit atoms in preparation; once-only sharing;
   permanent solved equations; finite ATOM/ZERO local obligations processed by
@@ -460,7 +460,7 @@ Unrelated disunification.lean is untouched.
   the original certification.lean metatheorem/handwritten suite passes with no
   sorryAx. The focused balance demo remains separately capped. All Lean jobs
   ran sequentially with the unchanged safety limits; no owned test stays running.
-- CERTIFICATION.md §8.1 now documents the executable matcher invariant and its
+- CERTIFICATION.deprecated.md §8.1 now documents the executable matcher invariant and its
   informal completeness/finiteness argument. Its replay section documents the
   successor boundary and test commands. It remains technical documentation,
   not a timing diary. TODO.md marks these checkpoints and the remaining boundary.
@@ -767,7 +767,7 @@ the WHOLE input vector and every residual equation, preserving skipped sorts and
 inactive inputs. nonlinear_replay_certificate checks 2P =B 3Q in the mixed scope
 [ticket, P, Q], with generated images [ticket, 3Z, 2Z], by explicit finite data.
 Full-file LSP checks and axiom audits pass without errors, warnings, or sorryAx.
-Coefficient-aware singleton/zero rules (CERTIFICATION.md §4.4) now have general
+Coefficient-aware singleton/zero rules (CERTIFICATION.deprecated.md §4.4) now have general
 IFF metatheorems AtomProcessing.sum_atom/sum_zero and typed Complete.atom/zero
 replay. Every coefficient-one supplier requires a child; inactive fields are
 not constrained. Explicit atoms yield payload equations via Derives.decompose;
@@ -798,7 +798,7 @@ calls were added. The free-phase checklist item is PARTIALLY complete: selection
 and rejection work, but repeated binding/decomposition/deletion execution and
 postponed-equation scheduling do not exist yet. Factor search was NOT started.
 No general automated search is claimed. Follow TODO.md's current checkbox list
-and CERTIFICATION.md §12.1. Next implement the repeated typed free-phase worklist
+and CERTIFICATION.deprecated.md §12.1. Next implement the repeated typed free-phase worklist
 driver, then automatic bag preprocessing and phase scheduling using these checked
 primitives.
 Do not touch narrowing yet.

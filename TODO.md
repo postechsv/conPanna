@@ -9,7 +9,7 @@
 - Python forwards/compiles evidence; the CURRENT Lean session kernel-checks it.
   An external Lean process belongs only to the standalone testing harness.
 - The Lean-driven entry point is now separate from the optional standalone
-  harness. See CERTIFICATION.md §§0, 6–8, and Appendix A for the specification.
+  harness. See CERTIFICATION.deprecated.md §§0, 6–8, and Appendix A for the specification.
 - Later optimization only: fuse upstream native answer acquisition and evidence
   production if useful. The baseline certifier must still accept fixed Σ.
 
@@ -23,7 +23,7 @@
 ### Lean certification surface and module boundaries
 
 - [x] Audit every maintained Maude state-node tag and equality/premise tag against
-  the Python compiler and actual Lean rules; document the map in CERTIFICATION.md
+  the Python compiler and actual Lean rules; document the map in CERTIFICATION.deprecated.md
   §7.2, including protocol-only steps and handwritten-only constructors.
 - [x] Specify the four public responsibilities: Calculus, Semantics, Parser,
   Client; identify exposed successor/table/head/branch side-condition evidence.
@@ -55,7 +55,7 @@
   shared parameters, identity bindings, empty families and flattened ACU output.
 - [x] Demonstrate one Lean/Python request and kernel-checked exactness of the
   two native answers for P+Q =B [wait N], using the original typed Lean problem.
-- [x] Document manual native/targeted stages in CERTIFICATION.md §7.1.
+- [x] Document manual native/targeted stages in CERTIFICATION.deprecated.md §7.1.
 - [x] Rename the existing coordinator to certifier.py and provide one Bash
   inspection script under scripts/ with explained stages and stdout results.
 - [ ] Next: generate the native model/name map from registered constructor data
@@ -119,7 +119,7 @@ correctness argument are credible at technical-report level.
 ### Design checkpoint: finite sharing, not unrestricted mutation
 
 Historical design checkpoint: the whole-model argument was subsequently written
-in CERTIFICATION.md and the restricted fallback implemented. The notes below
+in CERTIFICATION.deprecated.md and the restricted fallback implemented. The notes below
 record the design rationale; the checked implementation checklist later in this
 file gives current progress. Examples alone do not prove search success.
 
@@ -483,7 +483,7 @@ Executable producer checklist (supersedes the historical implementation notes):
 - [ ] Only afterward connect exact unifier certification to constrained narrowing.
 
 - [x] State the restricted modeling contract and the informal complete fallback /
-  targeted early-closure argument in CERTIFICATION.md. This is NOT a formal Lean
+  targeted early-closure argument in CERTIFICATION.deprecated.md. This is NOT a formal Lean
   search-success theorem or a claim of universal speedup.
 - [x] Generate native constructor metadata; retain existing indexed structural
   semantics. Model-only Bakery declarations need no semantic bridge proof.

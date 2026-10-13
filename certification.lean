@@ -4,7 +4,7 @@ import examples.bakery_acu
 /-!
 # ACU certification: semantic rules and checked coverage
 
-Specification and provenance: CERTIFICATION.md, especially §§3–8, §10, and Appendix A.
+Specification and provenance: CERTIFICATION.deprecated.md, especially §§3–8, §10, and Appendix A.
 Read conPanna/Certification/Calculus.lean for the surface rules mirroring Maude.
 General validity proofs are precompiled in Semantics.lean and its support modules;
 Parser.lean handles loading and Client.lean handles metadata/export/IO.
@@ -30,7 +30,7 @@ The profile command generates/checks syntactic metadata, not semantic user proof
 Scoped binding preparation and free-step classification compute checked data;
 proper free-occurrence/clash closure is automatic. The external worklist driver,
 bag-phase schedule, and complete factor matcher now live in certifier/certification.maude;
-their informal search argument is in CERTIFICATION.md Appendix A.3.4–A.4.1. A formal Lean
+their informal search argument is in CERTIFICATION.deprecated.md Appendix A.3.4–A.4.1. A formal Lean
 search-success theorem remains unfinished; individual certificates are checked.
 
 Proved acceptance is not proved search success:
@@ -53,7 +53,7 @@ Rule provenance:
 * Whole-vector factorization: standard complete-unifier-set instantiation.
 * External search / checked acceptance: skeptical certification (e.g. SMTCoq).
 No complement/disunification calculus or order-sorted membership rules are used.
-Full references, differences, and limits on novelty are in CERTIFICATION.md §10.
+Full references, differences, and limits on novelty are in CERTIFICATION.deprecated.md §10.
 -/
 
 /-! ## Certificates over Bakery's ordinary registered datatypes
@@ -173,7 +173,7 @@ theorem atomic_certificate (n : Nat) (P Q : ProcSet) :
         Q =[BakeryTheory.certified] ProcSet.empty) :=
   split_native profile registration Operator.acu P Q (ProcSet.singleton (.wait n)) rfl
 
-/- Answer-guided nonlinear certificate (CERTIFICATION.md §9.1).
+/- Answer-guided nonlinear certificate (CERTIFICATION.deprecated.md §9.1).
 
      E = { kP =B kQ }, k>0; native proposal σ(P,Q)=(R,R).
      Pick β(R)=P. From E, MULTIPLICITY-CANCEL derives P=B Q.
