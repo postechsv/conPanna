@@ -1,0 +1,52 @@
+***(
+  Tests exercising every rule.  Run:  maude -no-banner tests.maude
+  Expected outcome in each comment; `stuck(...)` in an output means the
+  strategy found no rule or no covering answer.
+)
+load producer.maude
+load models.maude
+
+select PRODUCER .
+
+*** T1 CLASH (free), no answers:  < s N, N, P > =? < z, M, Q >
+red run('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'M:Num, 'Q:ProcSet),
+        '<_`,_`,_>['s['N:Num], 'N:Num, 'P:ProcSet], '<_`,_`,_>['z.Num, 'M:Num, 'Q:ProcSet]) .
+
+*** T2 CLASH inside a bag:  P wait(N) =? Q idle
+***    IDENTIFY wait(N) vs idle: equal -> CLASH; distinct -> SOLVE -> COVER
+red run('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'Q:ProcSet),
+        '__['P:ProcSet, 'wait['N:Num]], '__['Q:ProcSet, 'idle.Mode]) .
+
+*** T3 OCCURS and an empty particular set, no answers:  X w(N) =? X w(s N)
+***    equal -> DECOMP N = s N -> OCCURS; distinct -> SOLVE with no choice
+red run('MIXED, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'N:Num, 'M:Num),
+        '__['X:Bag, 'w['N:Num]], '__['X:Bag, 'w['s['N:Num]]]) .
+
+*** T4 DISTINCT:  X w(N) =? Y w(M)  /\  N =? M
+***    distinct branch records w(N) =/= w(M); the second equation then makes them equal
+red run('MIXED, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'N:Num, 'M:Num),
+        eqn('__['X:Bag, 'w['N:Num]], '__['Y:Bag, 'w['M:Num]]) ;; eqn('N:Num, 'M:Num)) .
+
+*** T5 Two bag equations sharing variables:  X Y =? Z a  /\  Y =? W b
+***    SOLVE one equation at a time; the second sees the first's fresh variables
+red run('BAGS2, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'Z:Bag, 'W:Bag),
+        eqn('__['X:Bag, 'Y:Bag], '__['Z:Bag, 'a.Elem]) ;; eqn('Y:Bag, '__['W:Bag, 'b.Elem])) .
+
+*** T6 Nested bags (two bag sorts):  {X} | R =? {a Y} | {b}
+red run('NESTED, bag('Bag, '__, 'none.Bag) &b bag('Boxes, '_|_, 'nil.Boxes), 'tup,
+        ('X:Bag, 'Y:Bag, 'R:Boxes),
+        '_|_['`{_`}['X:Bag], 'R:Boxes], '_|_['`{_`}['__['a.Elem, 'Y:Bag]], '`{_`}['b.Elem]]) .
+
+*** T7 A Bakery transition step: rule ENTER's left side against a three-process state
+***    < s K, K, wait(K) P >  =?  < s N, N, wait(N) idle wait(M) Q >
+red run('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('K:Num, 'P:ProcSet, 'N:Num, 'M:Num, 'Q:ProcSet),
+        '<_`,_`,_>['s['K:Num], 'K:Num, '__['wait['K:Num], 'P:ProcSet]],
+        '<_`,_`,_>['s['N:Num], 'N:Num, '__['wait['N:Num], 'idle.Mode, 'wait['M:Num], 'Q:ProcSet]]) .
+
+quit

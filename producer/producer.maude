@@ -17,7 +17,8 @@
   metaUnify of the equation with its aliens replaced by constants k0, k1, ...
   COVER finds an answer and its witness by native ACU matching.
 
-  Prototype limits: one bag sort per model; SOLVE takes one equation at a time.
+  Prototype limits: SOLVE takes one equation at a time; different bag sorts need
+  different union operators; at most 8 alien classes per equation (k0..k7).
 )
 
 *** The abstracted bag theory used to compute SOLVE's data.
@@ -40,19 +41,28 @@ fmod PRODUCER is
   *** ------------------------------------------------------------------
   *** Problem context: module, bag sort, bag operator, its unit, tuple op,
   *** original variables, and the answers.
-  sorts BagInfo Ctx Answers .
+  sorts BagInfo BagInfos Ctx Answers .
   op bag : Sort Qid Constant -> BagInfo [ctor] .      *** bag sort, union op, unit
+  subsort BagInfo < BagInfos .
+  op noBag : -> BagInfos [ctor] .
+  op _&b_ : BagInfos BagInfos -> BagInfos [ctor assoc comm id: noBag] .
   subsort Substitution < Answers .
   op noAns : -> Answers [ctor] .
   op _::_ : Answers Answers -> Answers [ctor assoc id: noAns] .
-  op ctx : Module BagInfo Qid TermList Answers -> Ctx [ctor] .  *** M, bag, tuple op, originals, answers
-  var BI : BagInfo .  var X : Ctx .  var AS AS' : Answers .
+  op ctx : Module BagInfos Qid TermList Answers -> Ctx [ctor] .  *** M, bag sorts, tuple op, originals, answers
+  var BI : BagInfo .  var BIs : BagInfos .  var X : Ctx .  var AS AS' : Answers .
 
-  op mod : Ctx -> Module .           eq mod(ctx(M, BI, Q, TL, AS)) = M .
-  op bi : Ctx -> BagInfo .           eq bi(ctx(M, BI, Q, TL, AS)) = BI .
-  op tupOp : Ctx -> Qid .            eq tupOp(ctx(M, BI, Q, TL, AS)) = Q .
-  op origs : Ctx -> TermList .       eq origs(ctx(M, BI, Q, TL, AS)) = TL .
-  op answers : Ctx -> Answers .      eq answers(ctx(M, BI, Q, TL, AS)) = AS .
+  op mod : Ctx -> Module .           eq mod(ctx(M, BIs, Q, TL, AS)) = M .
+  op bis : Ctx -> BagInfos .         eq bis(ctx(M, BIs, Q, TL, AS)) = BIs .
+  *** The bag sort an equation belongs to (by its union operator, unit or variable sort).
+  op infoOf : BagInfos Term Term ~> BagInfo .
+  ceq infoOf(BI &b BIs, T1, T2) = BI if isBagSide(BI, T1) or isBagSide(BI, T2) .
+  op isBagAny : BagInfos Term -> Bool .
+  eq isBagAny(noBag, T) = false .
+  eq isBagAny(BI &b BIs, T) = isBagSide(BI, T) or isBagAny(BIs, T) .
+  op tupOp : Ctx -> Qid .            eq tupOp(ctx(M, BIs, Q, TL, AS)) = Q .
+  op origs : Ctx -> TermList .       eq origs(ctx(M, BIs, Q, TL, AS)) = TL .
+  op answers : Ctx -> Answers .      eq answers(ctx(M, BIs, Q, TL, AS)) = AS .
 
   *** ------------------------------------------------------------------
   *** Equations, disequations, states.
@@ -203,7 +213,7 @@ fmod PRODUCER is
     delete(eqn(T, T), derive(X, st(Al, E, D, K), Fu)) .
 
   eq derive(X, st(Al, eqn(T1, T2) ;; E, D, K), s Fu) =
-    if isBagSide(bi(X), T1) or isBagSide(bi(X), T2)
+    if isBagAny(bis(X), T1) or isBagAny(bis(X), T2)
     then bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu)
     else freeStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) fi [owise] .
 
@@ -233,7 +243,8 @@ fmod PRODUCER is
       identify(A, A',
         derive(X, st(Al, eqn(A, A') ;; eqn(T1, T2) ;; E, D, K), Fu),
         derive(X, st(Al, eqn(T1, T2) ;; E, neq(A, A') ,, D, K), Fu))
-    if (A, A') := undecided(aliens(bi(X), (flat(bi(X), T1), flat(bi(X), T2)), empty), D) .
+    if BI := infoOf(bis(X), T1, T2)
+    /\ (A, A') := undecided(aliens(BI, (flat(BI, T1), flat(BI, T2)), empty), D) .
   eq bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) = solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) [owise] .
 
   op undecided : TermList Diseqs ~> TermList .     *** first pair not yet known equal or distinct
@@ -250,9 +261,10 @@ fmod PRODUCER is
   op solveStep : Ctx State Nat -> Tree .
   ceq solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) =
       solve(eqn(T1, T2), VL, AL, counts(VL, LS), counts(VL, RS), counts(AL, LS), counts(AL, RS),
-            P, B, branches(X, st(Al, E, D, K + len2(B)), VL, AL, choices(P), B, K, Fu))
-    if LS := flat(bi(X), T1) /\ RS := flat(bi(X), T2)
-    /\ VL := bvars(bi(X), (LS, RS), empty) /\ AL := aliens(bi(X), (LS, RS), empty)
+            P, B, branches(X, BI, st(Al, E, D, K + len2(B)), VL, AL, choices(P), B, K, Fu))
+    if BI := infoOf(bis(X), T1, T2)
+    /\ LS := flat(BI, T1) /\ RS := flat(BI, T2)
+    /\ VL := bvars(BI, (LS, RS), empty) /\ AL := aliens(BI, (LS, RS), empty)
     /\ US := absUnifiers(VL, AL, LS, RS)
     /\ P := partOf(US, VL, AL, 0)
     /\ B := basisOf(US, VL, noVec) .
@@ -281,10 +293,13 @@ fmod PRODUCER is
   eq absUnifiers(VL, AL, LS, RS) =
     allUnifiers(upModule('ABS-BAG, false), absSide(VL, AL, LS), absSide(VL, AL, RS), 0) .
   op allUnifiers : Module Term Term Nat -> Answers .
-  eq allUnifiers(M, T1, T2, N) = unifAt(M, T1, T2, N, metaUnify(M, T1 =? T2, 0, N)) .
-  op unifAt : Module Term Term Nat UnificationPair? -> Answers .
-  eq unifAt(M, T1, T2, N, {Sb, I}) = Sb :: allUnifiers(M, T1, T2, s N) .
-  eq unifAt(M, T1, T2, N, noUnifier) = noAns .
+  eq allUnifiers(M, T1, T2, N) = allUnifs(M, T1 =? T2, N) .
+  op allUnifs : Module UnificationProblem Nat -> Answers .
+  eq allUnifs(M, UP, N) = unifAt(M, UP, N, metaUnify(M, UP, 0, N)) .
+  op unifAt : Module UnificationProblem Nat UnificationPair? -> Answers .
+  eq unifAt(M, UP, N, {Sb, I}) = Sb :: allUnifs(M, UP, s N) .
+  eq unifAt(M, UP, N, noUnifier) = noAns .
+  var UP : UnificationProblem .
 
   *** Binding of abstract variable Vi in a unifier, flattened.
   op bnd : Substitution Nat -> TermList .
@@ -340,30 +355,30 @@ fmod PRODUCER is
   eq pre([NL], ch(VS) % CL) = ch([NL] || VS) % pre([NL], CL) .
 
   *** theta_pi: Vi := sum_c pi_c,i {a_c} + sum_j B_j,i F_(K+j).
-  op branches : Ctx State TermList TermList ChoiceL Vecs Nat Nat -> Branches .
-  eq branches(X, st(Al, E, D, K'), VL, AL, noChoice, B, K, Fu) = noBranch .
-  eq branches(X, st(Al, E, D, K'), VL, AL, ch(VS) % CL, B, K, Fu) =
-    branch(VS, theta(X, VL, AL, VS, B, K, 0),
-      derive(X, st(substA(mod(X), Al, theta(X, VL, AL, VS, B, K, 0)),
-                   substE(mod(X), E, theta(X, VL, AL, VS, B, K, 0)),
-                   substD(mod(X), D, theta(X, VL, AL, VS, B, K, 0)), K'), Fu))
-    & branches(X, st(Al, E, D, K'), VL, AL, CL, B, K, Fu) .
+  op branches : Ctx BagInfo State TermList TermList ChoiceL Vecs Nat Nat -> Branches .
+  eq branches(X, BI, st(Al, E, D, K'), VL, AL, noChoice, B, K, Fu) = noBranch .
+  eq branches(X, BI, st(Al, E, D, K'), VL, AL, ch(VS) % CL, B, K, Fu) =
+    branch(VS, theta(X, BI, VL, AL, VS, B, K, 0),
+      derive(X, st(substA(mod(X), Al, theta(X, BI, VL, AL, VS, B, K, 0)),
+                   substE(mod(X), E, theta(X, BI, VL, AL, VS, B, K, 0)),
+                   substD(mod(X), D, theta(X, BI, VL, AL, VS, B, K, 0)), K'), Fu))
+    & branches(X, BI, st(Al, E, D, K'), VL, AL, CL, B, K, Fu) .
   var K' : Nat .
 
-  op theta : Ctx TermList TermList Vecs Vecs Nat Nat -> Substitution .
-  eq theta(X, empty, AL, VS, B, K, I) = none .
-  eq theta(X, (V, VL), AL, VS, B, K, I) =
-    (V <- norm(mod(X), mk(bi(X), (alienPart(AL, VS, I), freshPart(X, B, K, I, 1))))) ; theta(X, VL, AL, VS, B, K, s I) .
+  op theta : Ctx BagInfo TermList TermList Vecs Vecs Nat Nat -> Substitution .
+  eq theta(X, BI, empty, AL, VS, B, K, I) = none .
+  eq theta(X, BI, (V, VL), AL, VS, B, K, I) =
+    (V <- norm(mod(X), mk(BI, (alienPart(AL, VS, I), freshPart(BI, B, K, I, 1))))) ; theta(X, BI, VL, AL, VS, B, K, s I) .
 
   op alienPart : TermList Vecs Nat -> TermList .   *** pi_c,i copies of a_c
   eq alienPart(empty, VS, I) = empty .
   eq alienPart((T, TL), [NL] || VS, I) = (copies(T, at(NL, I))), alienPart(TL, VS, I) .
-  op freshPart : Ctx Vecs Nat Nat Nat -> TermList .  *** B_j,i copies of F_(K+j)
-  eq freshPart(X, noVec, K, I, J) = empty .
-  eq freshPart(X, [NL] || VS, K, I, J) =
-    copies(freshVar(X, K + J), at(NL, I)), freshPart(X, VS, K, I, s J) .
-  op freshVar : Ctx Nat -> Term .
-  eq freshVar(ctx(M, bag(S, F, C), Q, TL, AS), N) = qid("F" + string(N, 10) + ":" + string(S)) .
+  op freshPart : BagInfo Vecs Nat Nat Nat -> TermList .  *** B_j,i copies of F_(K+j)
+  eq freshPart(BI, noVec, K, I, J) = empty .
+  eq freshPart(BI, [NL] || VS, K, I, J) =
+    copies(freshVar(BI, K + J), at(NL, I)), freshPart(BI, VS, K, I, s J) .
+  op freshVar : BagInfo Nat -> Term .
+  eq freshVar(bag(S, F, C), N) = qid("F" + string(N, 10) + ":" + string(S)) .
   op copies : Term Nat -> TermList .
   eq copies(T, 0) = empty .
   eq copies(T, s N) = T, copies(T, N) .
@@ -383,11 +398,17 @@ fmod PRODUCER is
 
   *** ------------------------------------------------------------------
   *** Entry point: prior unify, then the derivation.
-  op run : Qid BagInfo Qid TermList Term Term -> Result .
-  eq run(Q, BI, F, TL, T1, T2) =
-    result(allUnifiers(upModule(Q, false), T1, T2, 0),
-      derive(ctx(upModule(Q, false), BI, F, TL, allUnifiers(upModule(Q, false), T1, T2, 0)),
-             st(idSub(TL), eqn(T1, T2), noNeq, 0), 50)) .
+  *** run(module, bag sorts, tuple op, original variables, equations)
+  op run : Qid BagInfos Qid TermList Eqns -> Result .
+  eq run(Q, BIs, F, TL, E) =
+    result(allUnifs(upModule(Q, false), prob(E), 0),
+      derive(ctx(upModule(Q, false), BIs, F, TL, allUnifs(upModule(Q, false), prob(E), 0)),
+             st(idSub(TL), E, noNeq, 0), 100)) .
+  op run : Qid BagInfos Qid TermList Term Term -> Result .
+  eq run(Q, BIs, F, TL, T1, T2) = run(Q, BIs, F, TL, eqn(T1, T2)) .
+  op prob : Eqns ~> UnificationProblem .
+  eq prob(eqn(T1, T2)) = T1 =? T2 .
+  eq prob(eqn(T1, T2) ;; E) = (T1 =? T2) /\ prob(E) [owise] .
   op idSub : TermList -> Substitution .
   eq idSub(empty) = none .
   eq idSub((V, TL)) = (V <- V) ; idSub(TL) .

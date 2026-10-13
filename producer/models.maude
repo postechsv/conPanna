@@ -18,6 +18,8 @@ fmod BAKERY is
   op <_,_,_> : Num Num ProcSet -> Conf [ctor] .
   op tup : Num ProcSet ProcSet -> Tup [ctor] .
   op tup : Num ProcSet ProcSet ProcSet -> Tup [ctor] .
+  op tup : Num ProcSet Num ProcSet -> Tup [ctor] .
+  op tup : Num ProcSet Num Num ProcSet -> Tup [ctor] .
 endfm
 
 *** Paper §6.1: mixed free and ACU.
@@ -39,4 +41,28 @@ fmod NONLINEAR is
   op none : -> Bag [ctor] .
   op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
   op tup : Bag Bag Bag -> Tup [ctor] .
+endfm
+
+*** Bags over two constants (tests with shared variables).
+fmod BAGS2 is
+  sorts Elem Bag Tup .
+  subsort Elem < Bag .
+  ops a b : -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag Bag Bag -> Tup [ctor] .
+endfm
+
+*** Nested bags: an outer bag (|) of boxed inner bags ({_}).
+fmod NESTED is
+  sorts Elem Bag Box Boxes Tup .
+  subsort Elem < Bag .
+  subsort Box < Boxes .
+  ops a b : -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op {_} : Bag -> Box [ctor] .
+  op nil : -> Boxes [ctor] .
+  op _|_ : Boxes Boxes -> Boxes [ctor assoc comm id: nil] .
+  op tup : Bag Bag Boxes -> Tup [ctor] .
 endfm
