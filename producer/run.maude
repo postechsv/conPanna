@@ -1,0 +1,32 @@
+***(
+  Run:  maude -no-banner producer/run.maude
+  Each `red run(...)` prints the answers of the prior unify, then the tree.
+  run(module, bag(bag sort, union op, unit), tuple op, original variables, lhs, rhs)
+)
+load producer.maude
+load models.maude
+
+select PRODUCER .
+
+*** L137:  < s N, N, P Q >  =?  < s N, N, wait(N) >
+red run('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'Q:ProcSet),
+        '<_`,_`,_>['s['N:Num], 'N:Num, '__['P:ProcSet, 'Q:ProcSet]],
+        '<_`,_`,_>['s['N:Num], 'N:Num, 'wait['N:Num]]) .
+
+*** Bakery, two-sided:  P Q  =?  wait(N) R
+red run('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'Q:ProcSet, 'R:ProcSet),
+        '__['P:ProcSet, 'Q:ProcSet], '__['wait['N:Num], 'R:ProcSet]) .
+
+*** Paper §6.1:  X w(N)  =?  Y w(M)
+red run('MIXED, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'N:Num, 'M:Num),
+        '__['X:Bag, 'w['N:Num]], '__['Y:Bag, 'w['M:Num]]) .
+
+*** Paper §6.2:  X Y  =?  Z Z
+red run('NONLINEAR, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'Z:Bag),
+        '__['X:Bag, 'Y:Bag], '__['Z:Bag, 'Z:Bag]) .
+
+quit

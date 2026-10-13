@@ -1,0 +1,394 @@
+***(
+  Answer-guided certificate producer (prototype).
+
+  Input:  a user module, a problem  lhs =? rhs  over original variables,
+          and the answers of a prior  metaUnify  on the same module.
+  Output: a derivation tree in the rules of the paper draft:
+            DELETE, DECOMP, CLASH, OCCURS, ELIM, IDENTIFY, DISTINCT, SOLVE, COVER.
+
+  States are  st(alpha, E, D, fresh) : alpha maps each original variable to its
+  current image, E are pending equations, D are disequations between aliens,
+  fresh counts the fresh variables F1, F2, ... introduced so far.
+
+  The strategy takes the first pending equation:
+    - a bag equation:  IDENTIFY an undecided pair of aliens, else SOLVE;
+    - a free equation: DELETE / ELIM / OCCURS / DECOMP / CLASH.
+  SOLVE's data P (particular solutions) and B (basis) are read off a native
+  metaUnify of the equation with its aliens replaced by constants k0, k1, ...
+  COVER finds an answer and its witness by native ACU matching.
+
+  Prototype limits: one bag sort per model; SOLVE takes one equation at a time.
+)
+
+*** The abstracted bag theory used to compute SOLVE's data.
+fmod ABS-BAG is
+  sorts Elt Bag .
+  subsort Elt < Bag .
+  ops k0 k1 k2 k3 k4 k5 k6 k7 : -> Elt [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+endfm
+
+fmod PRODUCER is
+  protecting META-LEVEL .
+  protecting CONVERSION .
+
+  vars M : Module .  vars T T' T1 T2 A A' : Term .  vars TL TL' TL2 : TermList .
+  vars V V' : Variable .  var C : Constant .  vars F G : Qid .  var Q : Qid .
+  vars Sb Sb' Al : Substitution .  vars N K I J : Nat .  var S : Sort .
+
+  *** ------------------------------------------------------------------
+  *** Problem context: module, bag sort, bag operator, its unit, tuple op,
+  *** original variables, and the answers.
+  sorts BagInfo Ctx Answers .
+  op bag : Sort Qid Constant -> BagInfo [ctor] .      *** bag sort, union op, unit
+  subsort Substitution < Answers .
+  op noAns : -> Answers [ctor] .
+  op _::_ : Answers Answers -> Answers [ctor assoc id: noAns] .
+  op ctx : Module BagInfo Qid TermList Answers -> Ctx [ctor] .  *** M, bag, tuple op, originals, answers
+  var BI : BagInfo .  var X : Ctx .  var AS AS' : Answers .
+
+  op mod : Ctx -> Module .           eq mod(ctx(M, BI, Q, TL, AS)) = M .
+  op bi : Ctx -> BagInfo .           eq bi(ctx(M, BI, Q, TL, AS)) = BI .
+  op tupOp : Ctx -> Qid .            eq tupOp(ctx(M, BI, Q, TL, AS)) = Q .
+  op origs : Ctx -> TermList .       eq origs(ctx(M, BI, Q, TL, AS)) = TL .
+  op answers : Ctx -> Answers .      eq answers(ctx(M, BI, Q, TL, AS)) = AS .
+
+  *** ------------------------------------------------------------------
+  *** Equations, disequations, states.
+  sorts Eqn Eqns Diseq Diseqs State .
+  subsort Eqn < Eqns .  subsort Diseq < Diseqs .
+  op eqn : Term Term -> Eqn [ctor] .
+  op noEq : -> Eqns [ctor] .
+  op _;;_ : Eqns Eqns -> Eqns [ctor assoc id: noEq] .
+  op neq : Term Term -> Diseq [ctor] .
+  op noNeq : -> Diseqs [ctor] .
+  op _,,_ : Diseqs Diseqs -> Diseqs [ctor assoc comm id: noNeq] .
+  op st : Substitution Eqns Diseqs Nat -> State [ctor] .
+  vars E E' : Eqns .  vars D D' : Diseqs .
+
+  *** ------------------------------------------------------------------
+  *** Natural-number vectors (count vectors) and lists of them.
+  sorts Vec Vecs Choices .
+  op [_] : NatL -> Vec [ctor] .
+  sort NatL .  subsort Nat < NatL .
+  op nilN : -> NatL [ctor] .
+  op _^^_ : NatL NatL -> NatL [ctor assoc id: nilN] .
+  subsort Vec < Vecs .
+  op noVec : -> Vecs [ctor] .
+  op _||_ : Vecs Vecs -> Vecs [ctor assoc id: noVec] .
+  sort VecsL .  subsort Vecs < VecsL .                  *** one Vecs per alien class
+  op cls : Vecs -> VecsL [ctor] .
+  op noCls : -> VecsL [ctor] .
+  op _##_ : VecsL VecsL -> VecsL [ctor assoc id: noCls] .
+  vars NL NL' : NatL .  vars VS VS' : Vecs .  vars PL PL' : VecsL .
+
+  *** ------------------------------------------------------------------
+  *** Derivation trees.
+  sorts Tree Branches Result .
+  op delete : Eqn Tree -> Tree [ctor] .
+  op decomp : Eqn Eqns Tree -> Tree [ctor] .
+  op clash : Eqn -> Tree [ctor] .
+  op occurs : Eqn -> Tree [ctor] .
+  op elim : Variable Term Tree -> Tree [ctor] .
+  op identify : Term Term Tree Tree -> Tree [ctor] .
+  op distinct : Term Term -> Tree [ctor] .
+  op solve : Eqn TermList TermList NatL NatL NatL NatL VecsL Vecs Branches -> Tree [ctor] .
+       *** equation, bag vars V, aliens a, L, R, La, Ra, P, B, one branch per choice
+  op branch : Vecs Substitution Tree -> Branches [ctor] .   *** choice pi, theta_pi, subtree
+  op noBranch : -> Branches [ctor] .
+  op _&_ : Branches Branches -> Branches [ctor assoc id: noBranch] .
+  op cover : Nat Substitution Substitution -> Tree [ctor] .  *** answer index, leaf alpha, witness
+  op stuck : State -> Tree [ctor] .
+  op result : Answers Tree -> Result [ctor] .
+
+  *** ------------------------------------------------------------------
+  *** Term utilities.
+  op _<<_ : Term Substitution -> Term .
+  op _<<<_ : TermList Substitution -> TermList .
+  eq V << (V <- T ; Sb) = T .
+  eq V << Sb = V [owise] .
+  eq C << Sb = C .
+  eq F[TL] << Sb = F[TL <<< Sb] .
+  eq empty <<< Sb = empty .
+  eq (T, TL) <<< Sb = (T << Sb), (TL <<< Sb) .
+
+  op norm : Module Term -> Term .
+  eq norm(M, T) = getTerm(metaReduce(M, T)) .
+
+  op occ : Variable TermList -> Bool .
+  eq occ(V, empty) = false .
+  eq occ(V, (T, TL)) = (V == T) or occ(V, TL) or occArgs(V, T) .
+  op occArgs : Variable Term -> Bool .
+  eq occArgs(V, F[TL]) = occ(V, TL) .
+  eq occArgs(V, T) = false [owise] .
+
+  op mem : Term TermList -> Bool .
+  eq mem(T, empty) = false .
+  eq mem(T, (T', TL)) = (T == T') or mem(T, TL) .
+
+  op count : Term TermList -> Nat .
+  eq count(T, empty) = 0 .
+  eq count(T, (T', TL)) = (if T == T' then 1 else 0 fi) + count(T, TL) .
+
+  op len : TermList -> Nat .
+  eq len(empty) = 0 .
+  eq len((T, TL)) = 1 + len(TL) .
+
+  op nth : TermList Nat -> Term .
+  eq nth((T, TL), 0) = T .
+  eq nth((T, TL), s N) = nth(TL, N) .
+
+  *** Flatten a bag term into its summands.
+  op flat : BagInfo Term -> TermList .
+  eq flat(bag(S, F, C), F[TL]) = TL .
+  eq flat(bag(S, F, C), C) = empty .
+  eq flat(BI, T) = T [owise] .
+
+  *** Rebuild a bag term from summands.
+  op mk : BagInfo TermList -> Term .
+  eq mk(bag(S, F, C), empty) = C .
+  eq mk(bag(S, F, C), T) = T .
+  eq mk(bag(S, F, C), (T, T', TL)) = F[T, T', TL] .
+
+  op isBagVar : BagInfo Term -> Bool .
+  eq isBagVar(bag(S, F, C), V) = getType(V) == S .
+  eq isBagVar(BI, T) = false [owise] .
+
+  op isBagSide : BagInfo Term -> Bool .
+  eq isBagSide(bag(S, F, C), F[TL]) = true .
+  eq isBagSide(bag(S, F, C), C) = true .
+  eq isBagSide(BI, T) = isBagVar(BI, T) [owise] .
+
+  *** Distinct bag variables / aliens of a summand list, in order of appearance.
+  op bvars : BagInfo TermList TermList -> TermList .   *** summands, accumulator
+  eq bvars(BI, empty, TL') = TL' .
+  eq bvars(BI, (T, TL), TL') =
+    bvars(BI, TL, if isBagVar(BI, T) and not mem(T, TL') then (TL', T) else TL' fi) .
+  op aliens : BagInfo TermList TermList -> TermList .
+  eq aliens(BI, empty, TL') = TL' .
+  eq aliens(BI, (T, TL), TL') =
+    aliens(BI, TL, if not isBagVar(BI, T) and not mem(T, TL') then (TL', T) else TL' fi) .
+
+  op counts : TermList TermList -> NatL .   *** count of each listed term in the summands
+  eq counts(empty, TL') = nilN .
+  eq counts((T, TL), TL') = count(T, TL') ^^ counts(TL, TL') .
+
+  *** Substitution applied to states.
+  op substA : Module Substitution Substitution -> Substitution .
+  eq substA(M, none, Sb) = none .
+  eq substA(M, (V <- T ; Al), Sb) = (V <- norm(M, T << Sb)) ; substA(M, Al, Sb) .
+  op substE : Module Eqns Substitution -> Eqns .
+  eq substE(M, noEq, Sb) = noEq .
+  eq substE(M, eqn(T1, T2) ;; E, Sb) = eqn(norm(M, T1 << Sb), norm(M, T2 << Sb)) ;; substE(M, E, Sb) .
+  op substD : Module Diseqs Substitution -> Diseqs .
+  eq substD(M, noNeq, Sb) = noNeq .
+  eq substD(M, neq(T1, T2) ,, D, Sb) = neq(norm(M, T1 << Sb), norm(M, T2 << Sb)) ,, substD(M, D, Sb) .
+
+  *** ------------------------------------------------------------------
+  *** The derivation strategy.
+  op derive : Ctx State Nat -> Tree .         *** fuel bounds the depth
+  var Fu : Nat .
+
+  eq derive(X, st(Al, E, D, K), 0) = stuck(st(Al, E, D, K)) .
+
+  *** DISTINCT: a recorded disequation between equal terms.
+  eq derive(X, st(Al, E, neq(T, T) ,, D, K), s Fu) = distinct(T, T) .
+
+  *** COVER: no equation left; match the answers against the images.
+  eq derive(X, st(Al, noEq, D, K), s Fu) = cover(X, Al, answers(X), 0) [owise] .
+
+  *** DELETE.
+  eq derive(X, st(Al, eqn(T, T) ;; E, D, K), s Fu) =
+    delete(eqn(T, T), derive(X, st(Al, E, D, K), Fu)) .
+
+  eq derive(X, st(Al, eqn(T1, T2) ;; E, D, K), s Fu) =
+    if isBagSide(bi(X), T1) or isBagSide(bi(X), T2)
+    then bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu)
+    else freeStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) fi [owise] .
+
+  *** Free equations.
+  op freeStep : Ctx State Nat -> Tree .
+  eq freeStep(X, st(Al, eqn(T, V) ;; E, D, K), Fu) = elimOrOccurs(X, V, T, st(Al, E, D, K), Fu) .
+  eq freeStep(X, st(Al, eqn(V, T) ;; E, D, K), Fu) = elimOrOccurs(X, V, T, st(Al, E, D, K), Fu) [owise] .
+  eq freeStep(X, st(Al, eqn(F[TL], G[TL']) ;; E, D, K), Fu) =
+    if F == G then decomp(eqn(F[TL], G[TL']), pairs(TL, TL'),
+                          derive(X, st(Al, pairs(TL, TL') ;; E, D, K), Fu))
+    else clash(eqn(F[TL], G[TL'])) fi [owise] .
+  eq freeStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) = clash(eqn(T1, T2)) [owise] .
+
+  op pairs : TermList TermList -> Eqns .
+  eq pairs(empty, empty) = noEq .
+  eq pairs((T, TL), (T', TL')) = eqn(T, T') ;; pairs(TL, TL') .
+
+  op elimOrOccurs : Ctx Variable Term State Nat -> Tree .
+  eq elimOrOccurs(X, V, T, st(Al, E, D, K), Fu) =
+    if occ(V, T) then occurs(eqn(V, T))
+    else elim(V, T, derive(X, st(substA(mod(X), Al, V <- T), substE(mod(X), E, V <- T),
+                                 substD(mod(X), D, V <- T), K), Fu)) fi .
+
+  *** Bag equations: IDENTIFY an undecided alien pair, else SOLVE.
+  op bagStep : Ctx State Nat -> Tree .
+  ceq bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) =
+      identify(A, A',
+        derive(X, st(Al, eqn(A, A') ;; eqn(T1, T2) ;; E, D, K), Fu),
+        derive(X, st(Al, eqn(T1, T2) ;; E, neq(A, A') ,, D, K), Fu))
+    if (A, A') := undecided(aliens(bi(X), (flat(bi(X), T1), flat(bi(X), T2)), empty), D) .
+  eq bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) = solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) [owise] .
+
+  op undecided : TermList Diseqs ~> TermList .     *** first pair not yet known equal or distinct
+  op undec1 : Term TermList Diseqs ~> TermList .
+  eq undecided((T, TL), D) = if undec1(T, TL, D) :: TermList then undec1(T, TL, D) else undecided(TL, D) fi .
+  eq undec1(T, (T', TL), D) =
+    if T =/= T' and not known(T, T', D) then (T, T') else undec1(T, TL, D) fi .
+  op known : Term Term Diseqs -> Bool .
+  eq known(T, T', neq(T, T') ,, D) = true .
+  eq known(T, T', neq(T', T) ,, D) = true .
+  eq known(T, T', D) = false [owise] .
+
+  *** SOLVE.
+  op solveStep : Ctx State Nat -> Tree .
+  ceq solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) =
+      solve(eqn(T1, T2), VL, AL, counts(VL, LS), counts(VL, RS), counts(AL, LS), counts(AL, RS),
+            P, B, branches(X, st(Al, E, D, K + len2(B)), VL, AL, choices(P), B, K, Fu))
+    if LS := flat(bi(X), T1) /\ RS := flat(bi(X), T2)
+    /\ VL := bvars(bi(X), (LS, RS), empty) /\ AL := aliens(bi(X), (LS, RS), empty)
+    /\ US := absUnifiers(VL, AL, LS, RS)
+    /\ P := partOf(US, VL, AL, 0)
+    /\ B := basisOf(US, VL, noVec) .
+  vars LS RS VL AL : TermList .  var P : VecsL .  var B : Vecs .  var US : Answers .
+
+  op len2 : Vecs -> Nat .
+  eq len2(noVec) = 0 .
+  eq len2([NL] || VS) = 1 + len2(VS) .
+
+  *** The abstracted problem: variables V0, V1, ... and alien constants k0, k1, ...
+  op absVar : Nat -> Term .
+  eq absVar(N) = qid("V" + string(N, 10) + ":Bag") .
+  op absAlien : Nat -> Term .
+  eq absAlien(N) = qid("k" + string(N, 10) + ".Elt") .
+  op absSide : TermList TermList TermList -> Term .    *** summands -> abstracted bag
+  eq absSide(VL, AL, LS) = mk(bag('Bag, '__, 'none.Bag), absList(VL, AL, LS)) .
+  op absList : TermList TermList TermList -> TermList .
+  eq absList(VL, AL, empty) = empty .
+  eq absList(VL, AL, (T, TL)) =
+    (if mem(T, VL) then absVar(pos(T, VL)) else absAlien(pos(T, AL)) fi), absList(VL, AL, TL) .
+  op pos : Term TermList -> Nat .
+  eq pos(T, (T, TL)) = 0 .
+  eq pos(T, (T', TL)) = s pos(T, TL) [owise] .
+
+  op absUnifiers : TermList TermList TermList TermList -> Answers .
+  eq absUnifiers(VL, AL, LS, RS) =
+    allUnifiers(upModule('ABS-BAG, false), absSide(VL, AL, LS), absSide(VL, AL, RS), 0) .
+  op allUnifiers : Module Term Term Nat -> Answers .
+  eq allUnifiers(M, T1, T2, N) = unifAt(M, T1, T2, N, metaUnify(M, T1 =? T2, 0, N)) .
+  op unifAt : Module Term Term Nat UnificationPair? -> Answers .
+  eq unifAt(M, T1, T2, N, {Sb, I}) = Sb :: allUnifiers(M, T1, T2, s N) .
+  eq unifAt(M, T1, T2, N, noUnifier) = noAns .
+
+  *** Binding of abstract variable Vi in a unifier, flattened.
+  op bnd : Substitution Nat -> TermList .
+  eq bnd(Sb, N) = flat(bag('Bag, '__, 'none.Bag), absVar(N) << Sb) .
+
+  *** P: for each alien class c, the distinct vectors (count of kc in V0..Vn-1).
+  op partOf : Answers TermList TermList Nat -> VecsL .
+  eq partOf(US, VL, empty, N) = noCls .
+  eq partOf(US, VL, (T, TL), N) = cls(pvecs(US, len(VL), N, noVec)) ## partOf(US, VL, TL, s N) .
+  op pvecs : Answers Nat Nat Vecs -> Vecs .
+  eq pvecs(noAns, K, N, VS) = VS .
+  eq pvecs(Sb :: US, K, N, VS) = pvecs(US, K, N, addVec(VS, [cvec(Sb, absAlien(N), K, 0)])) .
+  op cvec : Substitution Term Nat Nat -> NatL .        *** count of T in each Vi
+  eq cvec(Sb, T, K, I) = if I < K then count(T, bnd(Sb, I)) ^^ cvec(Sb, T, K, s I) else nilN fi .
+
+  *** B: the distinct nonzero vectors (count of each fresh variable in V0..Vn-1).
+  op basisOf : Answers TermList Vecs -> Vecs .
+  eq basisOf(noAns, VL, VS) = VS .
+  eq basisOf(Sb :: US, VL, VS) = basisOf(US, VL, addVecs(VS, fvecs(Sb, freshIn(Sb, len(VL), 0, empty), len(VL)))) .
+  op freshIn : Substitution Nat Nat TermList -> TermList .   *** variables occurring in the bindings
+  eq freshIn(Sb, K, I, TL) =
+    if I < K then freshIn(Sb, K, s I, addVars(bnd(Sb, I), TL)) else TL fi .
+  op addVars : TermList TermList -> TermList .
+  eq addVars(empty, TL) = TL .
+  eq addVars((T, TL'), TL) = addVars(TL', if T :: Variable and not mem(T, TL) then (TL, T) else TL fi) .
+  op fvecs : Substitution TermList Nat -> Vecs .
+  eq fvecs(Sb, empty, K) = noVec .
+  eq fvecs(Sb, (T, TL), K) = [cvec(Sb, T, K, 0)] || fvecs(Sb, TL, K) .
+
+  op addVec : Vecs Vec -> Vecs .
+  eq addVec(VS || [NL] || VS', [NL]) = VS || [NL] || VS' .
+  eq addVec(VS, [NL]) = VS || [NL] [owise] .
+  op addVecs : Vecs Vecs -> Vecs .
+  eq addVecs(VS, noVec) = VS .
+  eq addVecs(VS, [NL] || VS') = addVecs(if zero(NL) then VS else addVec(VS, [NL]) fi, VS') .
+  op zero : NatL -> Bool .
+  eq zero(nilN) = true .
+  eq zero(N ^^ NL) = N == 0 and zero(NL) .
+
+  *** All choices of one particular vector per class.
+  sort ChoiceL .  op noChoice : -> ChoiceL [ctor] .
+  op ch : Vecs -> ChoiceL [ctor] .
+  op _%_ : ChoiceL ChoiceL -> ChoiceL [ctor assoc id: noChoice] .
+  vars CL CL' : ChoiceL .
+  op choices : VecsL -> ChoiceL .
+  eq choices(noCls) = ch(noVec) .
+  eq choices(cls(VS) ## PL) = prod(VS, choices(PL)) .
+  op prod : Vecs ChoiceL -> ChoiceL .
+  eq prod(noVec, CL) = noChoice .
+  eq prod([NL] || VS, CL) = pre([NL], CL) % prod(VS, CL) .
+  op pre : Vec ChoiceL -> ChoiceL .
+  eq pre([NL], noChoice) = noChoice .
+  eq pre([NL], ch(VS) % CL) = ch([NL] || VS) % pre([NL], CL) .
+
+  *** theta_pi: Vi := sum_c pi_c,i {a_c} + sum_j B_j,i F_(K+j).
+  op branches : Ctx State TermList TermList ChoiceL Vecs Nat Nat -> Branches .
+  eq branches(X, st(Al, E, D, K'), VL, AL, noChoice, B, K, Fu) = noBranch .
+  eq branches(X, st(Al, E, D, K'), VL, AL, ch(VS) % CL, B, K, Fu) =
+    branch(VS, theta(X, VL, AL, VS, B, K, 0),
+      derive(X, st(substA(mod(X), Al, theta(X, VL, AL, VS, B, K, 0)),
+                   substE(mod(X), E, theta(X, VL, AL, VS, B, K, 0)),
+                   substD(mod(X), D, theta(X, VL, AL, VS, B, K, 0)), K'), Fu))
+    & branches(X, st(Al, E, D, K'), VL, AL, CL, B, K, Fu) .
+  var K' : Nat .
+
+  op theta : Ctx TermList TermList Vecs Vecs Nat Nat -> Substitution .
+  eq theta(X, empty, AL, VS, B, K, I) = none .
+  eq theta(X, (V, VL), AL, VS, B, K, I) =
+    (V <- norm(mod(X), mk(bi(X), (alienPart(AL, VS, I), freshPart(X, B, K, I, 1))))) ; theta(X, VL, AL, VS, B, K, s I) .
+
+  op alienPart : TermList Vecs Nat -> TermList .   *** pi_c,i copies of a_c
+  eq alienPart(empty, VS, I) = empty .
+  eq alienPart((T, TL), [NL] || VS, I) = (copies(T, at(NL, I))), alienPart(TL, VS, I) .
+  op freshPart : Ctx Vecs Nat Nat Nat -> TermList .  *** B_j,i copies of F_(K+j)
+  eq freshPart(X, noVec, K, I, J) = empty .
+  eq freshPart(X, [NL] || VS, K, I, J) =
+    copies(freshVar(X, K + J), at(NL, I)), freshPart(X, VS, K, I, s J) .
+  op freshVar : Ctx Nat -> Term .
+  eq freshVar(ctx(M, bag(S, F, C), Q, TL, AS), N) = qid("F" + string(N, 10) + ":" + string(S)) .
+  op copies : Term Nat -> TermList .
+  eq copies(T, 0) = empty .
+  eq copies(T, s N) = T, copies(T, N) .
+  op at : NatL Nat -> Nat .
+  eq at(N ^^ NL, 0) = N .
+  eq at(N ^^ NL, s I) = at(NL, I) .
+
+  *** COVER: the first answer whose images match the leaf images.
+  op cover : Ctx Substitution Answers Nat -> Tree .
+  eq cover(X, Al, noAns, N) = stuck(st(Al, noEq, noNeq, 0)) .
+  eq cover(X, Al, Sb :: AS, N) =
+    if metaMatch(mod(X), tupOf(X, Sb), tupOf(X, Al), nil, 0) :: Substitution
+    then cover(N, Al, metaMatch(mod(X), tupOf(X, Sb), tupOf(X, Al), nil, 0))
+    else cover(X, Al, AS, s N) fi .
+  op tupOf : Ctx Substitution -> Term .          *** tup(X1 << Sb, ..., Xn << Sb)
+  eq tupOf(X, Sb) = tupOp(X)[origs(X) <<< Sb] .
+
+  *** ------------------------------------------------------------------
+  *** Entry point: prior unify, then the derivation.
+  op run : Qid BagInfo Qid TermList Term Term -> Result .
+  eq run(Q, BI, F, TL, T1, T2) =
+    result(allUnifiers(upModule(Q, false), T1, T2, 0),
+      derive(ctx(upModule(Q, false), BI, F, TL, allUnifiers(upModule(Q, false), T1, T2, 0)),
+             st(idSub(TL), eqn(T1, T2), noNeq, 0), 50)) .
+  op idSub : TermList -> Substitution .
+  eq idSub(empty) = none .
+  eq idSub((V, TL)) = (V <- V) ; idSub(TL) .
+endfm

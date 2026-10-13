@@ -1,0 +1,42 @@
+***(
+  User models, as a user would write them in Maude. Each declares one bag sort
+  with an ACU union, its free constructors, and a tuple operator `tup` that
+  packs the original variables of a problem (used only to match answers).
+  Numbers are free (z, s) so that unification stays in the ACU + free fragment.
+)
+
+*** Bakery (the L137 example and its two-sided variant).
+fmod BAKERY is
+  sorts Num Mode ProcSet Conf Tup .
+  subsort Mode < ProcSet .
+  op z : -> Num [ctor] .
+  op s : Num -> Num [ctor] .
+  op idle : -> Mode [ctor] .
+  ops wait crit : Num -> Mode [ctor] .
+  op none : -> ProcSet [ctor] .
+  op __ : ProcSet ProcSet -> ProcSet [ctor assoc comm id: none] .
+  op <_,_,_> : Num Num ProcSet -> Conf [ctor] .
+  op tup : Num ProcSet ProcSet -> Tup [ctor] .
+  op tup : Num ProcSet ProcSet ProcSet -> Tup [ctor] .
+endfm
+
+*** Paper §6.1: mixed free and ACU.
+fmod MIXED is
+  sorts Num Elem Bag Tup .
+  subsort Elem < Bag .
+  op z : -> Num [ctor] .
+  op s : Num -> Num [ctor] .
+  op w : Num -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag Num Num -> Tup [ctor] .
+endfm
+
+*** Paper §6.2: nonlinear.
+fmod NONLINEAR is
+  sorts Elem Bag Tup .
+  subsort Elem < Bag .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag Bag -> Tup [ctor] .
+endfm
