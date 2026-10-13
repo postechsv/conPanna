@@ -136,67 +136,75 @@ def solutions : UnifierSet (Nat × ProcSet × ProcSet) := [unifier1, unifier2]
 -- All reasoning is here, with no separate decomposition/certification theorem.
 example : UnifierSet.Complete problem solutions := by
   --unfold problem
-  rintro ⟨N_, P_, Q_⟩ h
+  rintro ⟨N?, P?, Q?⟩ h
   -- Ordinary projection exposes structural equality of the quotient-valued field.
-  have hprocs : union P_ Q_ = singleton (.wait N_) := congrArg Conf.procs h
+  have hprocs : union P? Q? = singleton (.wait N?) := congrArg Conf.procs h
   clear h
-  -- Choose arbitrary raw constructor trees, not flattened-list model values.
-  revert hprocs
-  refine Quotient.inductionOn₂ P_ Q_ ?_
-  intro ps qs h
-  have hB : B (.union ps qs) (.singleton (.wait N_)) := Quotient.exact h
 
-  -- Every generated ACU step preserves contents up to permutation.
-  have preserves : ∀ {a b}, B a b → List.Perm (contents a) (contents b) := by
-    intro a b hab
-    induction hab with
-    | refl a => exact List.Perm.refl _
-    | symm _ ih => exact ih.symm
-    | trans _ _ ih₁ ih₂ => exact ih₁.trans ih₂
-    | congr _ _ ih₁ ih₂ => exact ih₁.append ih₂
-    | assoc a b c => exact List.Perm.of_eq (List.append_assoc _ _ _)
-    | comm a b => exact List.perm_append_comm
-    | unit_left a => exact List.Perm.refl _
-    | unit_right a => exact List.Perm.of_eq (List.append_nil _)
+  -- low level certification
+  have hcases :
+      (P? = empty ∧ Q? = singleton (.wait N?)) ∨
+      (P? = singleton (.wait N?) ∧ Q? = empty) := by
+    -- Choose arbitrary raw constructor trees, not flattened-list model values.
+    revert hprocs
+    refine Quotient.inductionOn₂ P? Q? ?_
+    intro P Q h
+    have hB : B (.union P Q) (.singleton (.wait N?)) := Quotient.exact h
 
-  -- An empty/singleton contents list reconstructs the corresponding raw ACU class.
-  -- Both inductions stay inside this certificate; no auxiliary theorem is declared.
-  have empty_case : ∀ a, contents a = [] → B a .empty := by
-    intro a
-    induction a with
-    | empty => intro _; exact B.refl _
-    | singleton a => intro h; cases h
-    | union a b iha ihb =>
-      intro h
-      rcases List.append_eq_nil_iff.mp h with ⟨ha, hb⟩
-      exact B.trans (B.congr (iha ha) (ihb hb)) (B.unit_left _)
+    -- Every generated ACU step preserves contents up to permutation.
+    have preserves : ∀ {a b}, B a b → List.Perm (contents a) (contents b) := by
+      intro a b hab
+      induction hab with
+      | refl a => exact List.Perm.refl _
+      | symm _ ih => exact ih.symm
+      | trans _ _ ih₁ ih₂ => exact ih₁.trans ih₂
+      | congr _ _ ih₁ ih₂ => exact ih₁.append ih₂
+      | assoc a b c => exact List.Perm.of_eq (List.append_assoc _ _ _)
+      | comm a b => exact List.perm_append_comm
+      | unit_left a => exact List.Perm.refl _
+      | unit_right a => exact List.Perm.of_eq (List.append_nil _)
 
-  have singleton_case : ∀ a process, contents a = [process] → B a (.singleton process) := by
-    intro a
-    induction a with
-    | empty => intro process h; cases h
-    | singleton a =>
-      intro process h
-      cases h
-      exact B.refl _
-    | union a b iha ihb =>
-      intro process h
-      rcases List.append_eq_singleton_iff.mp h with ⟨ha, hb⟩ | ⟨ha, hb⟩
-      · exact B.trans (B.congr (empty_case a ha) (ihb process hb)) (B.unit_left _)
-      · exact B.trans (B.congr (iha process ha) (empty_case b hb)) (B.unit_right _)
+    -- An empty/singleton contents list reconstructs the corresponding raw ACU class.
+    -- Both inductions stay inside this certificate; no auxiliary theorem is declared.
+    have empty_case : ∀ a, contents a = [] → B a .empty := by
+      intro a
+      induction a with
+      | empty => intro _; exact B.refl _
+      | singleton a => intro h; cases h
+      | union a b iha ihb =>
+        intro h
+        rcases List.append_eq_nil_iff.mp h with ⟨ha, hb⟩
+        exact B.trans (B.congr (iha ha) (ihb hb)) (B.unit_left _)
 
-  -- The original equation now forces exactly the two supplied assignment families.
-  have hlist : contents ps ++ contents qs = [Mode.wait N_] := (preserves hB).eq_singleton
-  rcases List.append_eq_singleton_iff.mp hlist with ⟨hp, hq⟩ | ⟨hp, hq⟩
-  · have hP : Quotient.mk procSetoid ps = empty := Quotient.sound (empty_case ps hp)
-    have hQ : Quotient.mk procSetoid qs = singleton (.wait N_) :=
-      Quotient.sound (singleton_case qs (.wait N_) hq)
-    exact ⟨unifier1, List.Mem.head [unifier2], ⟨N_, Prod.ext rfl (Prod.ext hP hQ)⟩⟩
-  · have hP : Quotient.mk procSetoid ps = singleton (.wait N_) :=
-      Quotient.sound (singleton_case ps (.wait N_) hp)
-    have hQ : Quotient.mk procSetoid qs = empty := Quotient.sound (empty_case qs hq)
-    exact ⟨unifier2, List.Mem.tail _ (List.Mem.head []),
-      ⟨N_, Prod.ext rfl (Prod.ext hP hQ)⟩⟩
+    have singleton_case : ∀ a process, contents a = [process] → B a (.singleton process) := by
+      intro a
+      induction a with
+      | empty => intro process h; cases h
+      | singleton a =>
+        intro process h
+        cases h
+        exact B.refl _
+      | union a b iha ihb =>
+        intro process h
+        rcases List.append_eq_singleton_iff.mp h with ⟨ha, hb⟩ | ⟨ha, hb⟩
+        · exact B.trans (B.congr (empty_case a ha) (ihb process hb)) (B.unit_left _)
+        · exact B.trans (B.congr (iha process ha) (empty_case b hb)) (B.unit_right _)
+
+    -- unification problem in list representation
+    have hlist : contents P ++ contents Q = [Mode.wait N?] := (preserves hB).eq_singleton
+    -- note the goal represents the proposed answer (two unifiers)
+
+    rcases List.append_eq_singleton_iff.mp hlist with ⟨hp, hq⟩ | ⟨hp, hq⟩
+    · exact Or.inl ⟨Quotient.sound (empty_case P hp),
+        Quotient.sound (singleton_case Q (.wait N?) hq)⟩
+    · exact Or.inr ⟨Quotient.sound (singleton_case P (.wait N?) hp),
+        Quotient.sound (empty_case Q hq)⟩
+
+  -- Back at quotient level: select the supplied unifier and its fresh ticket witness.
+  rcases hcases with ⟨hP, hQ⟩ | ⟨hP, hQ⟩
+  · exact ⟨unifier1, List.Mem.head [unifier2], ⟨N?, Prod.ext rfl (Prod.ext hP hQ)⟩⟩
+  · exact ⟨unifier2, List.Mem.tail _ (List.Mem.head []),
+      ⟨N?, Prod.ext rfl (Prod.ext hP hQ)⟩⟩
 
 end TinyBakery
 
