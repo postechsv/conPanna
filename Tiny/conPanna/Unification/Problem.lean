@@ -14,9 +14,9 @@ There is no constructor encoding, registration, or metaprogramming dependency he
 -- e.g., { X := x, Y := y } : Γ (user provides x, y from their own context)
 -- Γ → α is the type of α-terms with free variables in dom(Γ)
 -- The model's quotient types now absorb B; α and Γ are native Lean types.
-structure Problem (α : Type u) (Γ : Type v) where
-  lhs : Γ → α
-  rhs : Γ → α
+-- One shared binder returns both terms under the same assignment.
+inductive Problem (α : Type u) (Γ : Type v) where
+  | bind (body : Γ → α × α) : Problem α Γ
 
 -- abbrev ProblemSet (α : Type u) (Vars : Type v) := List (Problem α Vars)
 -- this cannot encode many sorted problems; all are α
@@ -27,7 +27,8 @@ variable {α : Type u} {Γ : Type v}
 /- meaning `σ(t1) =[B] σ(t2)` -/
 def Problem.unifies (problem : Problem α Γ) (γ : Γ)
     : Prop :=
-  problem.lhs γ = problem.rhs γ
+  match problem with
+  | .bind body => (body γ).1 = (body γ).2
 
 -- Note: should i separate out substitution for ceritifcation etc?
 inductive Unifier (Γ : Type v) : Type (max v (x + 1)) where

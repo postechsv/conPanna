@@ -1,12 +1,12 @@
 import Tiny.Expresso.core
 import Tiny.conPanna.Unification.Problem
+import Init.Data.List.Perm
 
 /-!
-A single-process Bakery slice for reading the native core at the user level.
-It keeps ticket allocation and service, but omits process bags and ACU.
-This is a semantics demonstration, not a proof of the full Bakery protocol.
-The first examples use ordinary equality; the final example uses commutativity.
-There are no wrappers, tactics, or external calls.
+Two independent examples: Bakery first, then a commutative pair.
+Bakery includes a single-process semantics slice and an ACU process-bag
+unification example, not a proof of the full Bakery protocol.
+There are no custom tactics or external calls.
 -/
 namespace TinyBakery
 
@@ -17,10 +17,56 @@ inductive Mode where
   | wait (ticket : Nat)
   | crit (ticket : Nat)
 
+/-! ## Process-bag model and manual quotient setup
+The user's datatype visibly declares all three constructors. The following
+generated ACU relation and quotient are written manually for now; later they
+should be generated from this declaration and its ACU annotation.
+There is no idempotence or extra equation on process contents.
+-/
+inductive RawProcSet where
+  | empty
+  | singleton (process : Mode)
+  | union (left right : RawProcSet) -- ACU, with empty as unit
+
+-- Manual setup: the LEAST equivalence closed under union and the ACU axioms.
+-- Mode/ticket equality remains ordinary equality; only union has equations.
+inductive B : RawProcSet → RawProcSet → Prop where
+  | refl (a : RawProcSet) : B a a
+  | symm {a b} : B a b → B b a
+  | trans {a b c} : B a b → B b c → B a c
+  | congr {a a' b b'} : B a a' → B b b' → B (.union a b) (.union a' b')
+  | assoc (a b c) : B (.union (.union a b) c) (.union a (.union b c))
+  | comm (a b) : B (.union a b) (.union b a)
+  | unit_left (a) : B (.union .empty a) a
+  | unit_right (a) : B (.union a .empty) a
+
+def procSetoid : Setoid RawProcSet where
+  r := B
+  iseqv := ⟨B.refl, B.symm, B.trans⟩
+
+abbrev ProcSet := Quotient procSetoid
+
+-- Native operations are precisely the user's constructors lifted to the quotient.
+def ProcSet.empty : ProcSet := Quotient.mk procSetoid .empty
+
+def ProcSet.singleton (process : Mode) : ProcSet :=
+  Quotient.mk procSetoid (.singleton process)
+
+def ProcSet.union (left right : ProcSet) : ProcSet :=
+  Quotient.liftOn₂ left right
+    (fun ps qs => Quotient.mk procSetoid (.union ps qs))
+    (fun _ _ _ _ hp hq => Quotient.sound (B.congr hp hq))
+
+-- An interpretation for the proof below, not the model's datatype or equality.
+def RawProcSet.contents : RawProcSet → List Mode
+  | .empty => []
+  | .singleton a => [a]
+  | .union a b => a.contents ++ b.contents
+
 structure Conf where
   next : Nat
   serving : Nat
-  mode : Mode
+  procs : ProcSet
 
 /-! ## Symbolic patterns
 `bind` means existential membership, not a concrete choice of ticket.
@@ -28,13 +74,13 @@ The condition in an atom belongs to that same ticket assignment.
 -/
 
 def initial : Patt Conf :=
-  .bind (fun n : Nat => .atom ⟨n, n, .idle⟩)
+  .bind (fun n : Nat => .atom ⟨n, n, ProcSet.singleton .idle⟩)
 
 def waiting : Patt Conf :=
-  .bind (fun n : Nat => .atom ⟨n + 1, n, .wait n⟩ (n < n + 1))
+  .bind (fun n : Nat => .atom ⟨n + 1, n, ProcSet.singleton (.wait n)⟩ (n < n + 1))
 
 def critical : Patt Conf :=
-  .bind (fun n : Nat => .atom ⟨n + 1, n, .crit n⟩ (n < n + 1))
+  .bind (fun n : Nat => .atom ⟨n + 1, n, ProcSet.singleton (.crit n)⟩ (n < n + 1))
 
 def bakeryInv : Patt Conf :=
   .disj initial (.disj waiting critical)
@@ -47,37 +93,120 @@ The same bound ticket occurs on both sides and in the rule condition.
 -/
 
 def wake : System Conf :=
-  .bind (fun n : Nat => .rule ⟨n, n, .idle⟩ ⟨n + 1, n, .wait n⟩)
+  .bind (fun n : Nat =>
+    .rule ⟨n, n, ProcSet.singleton .idle⟩ ⟨n + 1, n, ProcSet.singleton (.wait n)⟩)
 
 def enter : System Conf :=
   .bind (fun n : Nat =>
-    .rule ⟨n + 1, n, .wait n⟩ ⟨n + 1, n, .crit n⟩ (n < n + 1))
+    .rule ⟨n + 1, n, ProcSet.singleton (.wait n)⟩
+      ⟨n + 1, n, ProcSet.singleton (.crit n)⟩ (n < n + 1))
 
 def exit : System Conf :=
-  .bind (fun n : Nat => .rule ⟨n + 1, n, .crit n⟩ ⟨n + 1, n + 1, .idle⟩)
+  .bind (fun n : Nat =>
+    .rule ⟨n + 1, n, ProcSet.singleton (.crit n)⟩ ⟨n + 1, n + 1, ProcSet.singleton .idle⟩)
 
 def bakerySystem : System Conf :=
   .choice wake (.choice enter exit)
 
-/-! ## Reading membership and transitions
-These equivalences are just the recursive definitions, with no proof search.
--/
+/-! ## ACU unification: provided answers and a native completeness proof -/
+open Unification
 
-example (state : Conf) : waiting.holds Eq state ↔
-    ∃ n : Nat, Conf.mk (n + 1) n (.wait n) = state ∧ n < n + 1 :=
-  Iff.rfl
+open ProcSet
+open RawProcSet (contents)
 
-example : Subsumes Eq waiting bakeryInv :=
-  fun _ hwaiting => Or.inr (Or.inl hwaiting)
+-- The original variables are (n, P, Q); n is a free ticket, P and Q are ACU bags.
+-- ⟨n + 1, n, union P Q⟩ = ⟨n + 1, n, singleton (wait n)⟩
+-- The equation is on native configurations, whose process field is an ACU quotient.
+def problem : Problem Conf (Nat × ProcSet × ProcSet) :=
+  .bind fun (N, P, Q) =>
+    (⟨N + 1, N, union P Q⟩, ⟨N + 1, N, singleton (.wait N)⟩)
 
-/-! ## A completeness claim with two unifiers
-A separate two-process Bakery slice, keeping only idle/wait/critical modes.
-Its pair is commutative, not associative. The quotient makes structural equality
+-- Provided answers, not computed by this proof:
+-- σ₁: n ↦ u, P ↦ empty, Q ↦ singleton (wait u)
+-- σ₂: n ↦ u, P ↦ singleton (wait u), Q ↦ empty
+def unifier1 : Unifier (Nat × ProcSet × ProcSet) :=
+  .bind (fun u : Nat => .subst ⟨u, empty, singleton (.wait u)⟩)
+
+def unifier2 : Unifier (Nat × ProcSet × ProcSet) :=
+  .bind (fun u : Nat => .subst ⟨u, singleton (.wait u), empty⟩)
+
+def solutions : UnifierSet (Nat × ProcSet × ProcSet) := [unifier1, unifier2]
+
+-- Completeness only: every concrete solution is covered by a provided answer.
+-- All reasoning is here, with no separate decomposition/certification theorem.
+example : UnifierSet.Complete problem solutions := by
+  --unfold problem
+  rintro ⟨N_, P_, Q_⟩ h
+  -- Ordinary projection exposes structural equality of the quotient-valued field.
+  have hprocs : union P_ Q_ = singleton (.wait N_) := congrArg Conf.procs h
+  clear h
+  -- Choose arbitrary raw constructor trees, not flattened-list model values.
+  revert hprocs
+  refine Quotient.inductionOn₂ P_ Q_ ?_
+  intro ps qs h
+  have hB : B (.union ps qs) (.singleton (.wait N_)) := Quotient.exact h
+
+  -- Every generated ACU step preserves contents up to permutation.
+  have preserves : ∀ {a b}, B a b → List.Perm (contents a) (contents b) := by
+    intro a b hab
+    induction hab with
+    | refl a => exact List.Perm.refl _
+    | symm _ ih => exact ih.symm
+    | trans _ _ ih₁ ih₂ => exact ih₁.trans ih₂
+    | congr _ _ ih₁ ih₂ => exact ih₁.append ih₂
+    | assoc a b c => exact List.Perm.of_eq (List.append_assoc _ _ _)
+    | comm a b => exact List.perm_append_comm
+    | unit_left a => exact List.Perm.refl _
+    | unit_right a => exact List.Perm.of_eq (List.append_nil _)
+
+  -- An empty/singleton contents list reconstructs the corresponding raw ACU class.
+  -- Both inductions stay inside this certificate; no auxiliary theorem is declared.
+  have empty_case : ∀ a, contents a = [] → B a .empty := by
+    intro a
+    induction a with
+    | empty => intro _; exact B.refl _
+    | singleton a => intro h; cases h
+    | union a b iha ihb =>
+      intro h
+      rcases List.append_eq_nil_iff.mp h with ⟨ha, hb⟩
+      exact B.trans (B.congr (iha ha) (ihb hb)) (B.unit_left _)
+
+  have singleton_case : ∀ a process, contents a = [process] → B a (.singleton process) := by
+    intro a
+    induction a with
+    | empty => intro process h; cases h
+    | singleton a =>
+      intro process h
+      cases h
+      exact B.refl _
+    | union a b iha ihb =>
+      intro process h
+      rcases List.append_eq_singleton_iff.mp h with ⟨ha, hb⟩ | ⟨ha, hb⟩
+      · exact B.trans (B.congr (empty_case a ha) (ihb process hb)) (B.unit_left _)
+      · exact B.trans (B.congr (iha process ha) (empty_case b hb)) (B.unit_right _)
+
+  -- The original equation now forces exactly the two supplied assignment families.
+  have hlist : contents ps ++ contents qs = [Mode.wait N_] := (preserves hB).eq_singleton
+  rcases List.append_eq_singleton_iff.mp hlist with ⟨hp, hq⟩ | ⟨hp, hq⟩
+  · have hP : Quotient.mk procSetoid ps = empty := Quotient.sound (empty_case ps hp)
+    have hQ : Quotient.mk procSetoid qs = singleton (.wait N_) :=
+      Quotient.sound (singleton_case qs (.wait N_) hq)
+    exact ⟨unifier1, List.Mem.head [unifier2], ⟨N_, Prod.ext rfl (Prod.ext hP hQ)⟩⟩
+  · have hP : Quotient.mk procSetoid ps = singleton (.wait N_) :=
+      Quotient.sound (singleton_case ps (.wait N_) hp)
+    have hQ : Quotient.mk procSetoid qs = empty := Quotient.sound (empty_case qs hq)
+    exact ⟨unifier2, List.Mem.tail _ (List.Mem.head []),
+      ⟨N_, Prod.ext rfl (Prod.ext hP hQ)⟩⟩
+
+end TinyBakery
+
+/-! ## A commutative pair: completeness with two unifiers
+The pair is commutative, not associative. The quotient makes structural equality
 ordinary equality, with no constructor encoding or registration in unification.
 -/
 namespace PairUnification
 
-open Unification
+open Expresso Unification
 
 inductive Status where
   | idle | wait | crit
@@ -124,9 +253,8 @@ Here Γ is the anonymous tuple `Status × Status × Status`, in that order.
 
 -- pair X Y =[B] pair idle Z
 -- On PairState, this is now ordinary equality. No context readers are needed.
-def problem : Problem PairState (Status × Status × Status) where
-  lhs := fun (X, Y, _) => pair X Y
-  rhs := fun (_, _, Z) => pair .idle Z
+def problem : Problem PairState (Status × Status × Status) :=
+  .bind fun (X, Y, Z) => (pair X Y, pair .idle Z)
 
 def unifier1 : Unifier (Status × Status × Status) :=
   .bind (fun u : Status => .subst ⟨.idle, u, u⟩)
@@ -153,5 +281,3 @@ example : UnifierSet.Complete problem solutions := by
   | comm => exact ⟨unifier2, List.Mem.tail _ (List.Mem.head []), ⟨X, rfl⟩⟩
 
 end PairUnification
-
-end TinyBakery
