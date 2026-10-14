@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Problem
+import Tiny.conPanna.Unification
 
 /-!
 The certification judgment `⟨α ; E ; D⟩ ⊩ answers`.
@@ -27,18 +27,18 @@ variable {α : Type u} {Γ₀ : Type v} {Γ Γ' : Type w}
 
 /-- `⟨α ; E ; D⟩ ⊩ answers`: every solution described by the state is covered. -/
 def State.Holds (s : State Γ₀ Γ) (answers : UnifierSet.{v, x} Γ₀) : Prop :=
-  ∀ ρ, s.E ρ → s.D ρ → answers.Covers (s.α ρ)
+  ∀ ρ, s.E ρ → s.D ρ → ∃ σ ∈ answers, covers σ (s.α ρ)
 
 @[inherit_doc] infix:50 " ⊩ " => State.Holds
 
 /-- The initial state `⟨id ; E₀ ; ∅⟩` of a problem. -/
 def State.start (problem : Problem α Γ₀) : State Γ₀ Γ₀ where
   α := id
-  E := problem.unifies
+  E := unifiedBy problem
 
 /-- The initial judgment is exactly completeness of the answers. -/
 theorem start_iff (problem : Problem α Γ₀) (answers : UnifierSet.{v, x} Γ₀) :
-    State.start problem ⊩ answers ↔ answers.Complete problem :=
+    State.start problem ⊩ answers ↔ complete problem answers :=
   ⟨fun h γ hγ => h γ hγ trivial, fun h ρ hρ _ => h ρ hρ⟩
 
 variable {answers : UnifierSet.{v, x} Γ₀}
@@ -61,7 +61,7 @@ theorem close {s : State Γ₀ Γ} (h : ∀ ρ, s.E ρ → s.D ρ → False) : s
 /-- A state holds if one answer covers all its solutions, with a witness
 computed from the fresh variables. -/
 theorem cover {s : State Γ₀ Γ} (σ : Unifier.{v, x} Γ₀) (mem : σ ∈ answers)
-    (h : ∀ ρ, s.E ρ → s.D ρ → σ.Covers (s.α ρ)) : s ⊩ answers :=
+    (h : ∀ ρ, s.E ρ → s.D ρ → covers σ (s.α ρ)) : s ⊩ answers :=
   fun ρ hE hD => ⟨σ, mem, h ρ hE hD⟩
 
 end Unification.Certification

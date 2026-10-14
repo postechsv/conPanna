@@ -383,7 +383,7 @@ class Compiler:
         compat = set(d["compatible"]) | {(j, i) for i, j in d["compatible"]}
         cliques = [list(g) for r in range(1, m + 1) for g in combinations(range(m), r)
                    if all((i, j) in compat for i, j in combinations(g, 2))]
-        unfold = "try simp only [State.start, Problem.unifies, problem] at h; "
+        unfold = "try simp only [State.start, unifiedBy, problem] at h; "
         if remaining:
             hE = f"⟨by {unfold}acu_side h.1, h.2, by acu_distinct⟩"
         else:
@@ -428,8 +428,7 @@ class Compiler:
         binders = self.binders[i]
         wit = [self.lean(w[b]) for b in binders]
         self.emit(ind, f"-- cover answer {i} with " + ", ".join(f"{b} := {wit[j]}" for j, b in enumerate(binders)))
-        wtext = tuple_term(wit) if wit else None
-        proof = f"⟨{wtext}, by acu_cover⟩" if wtext else "by acu_cover"
+        proof = f"⟨{tuple_term(wit) if wit else '()'}, by acu_cover⟩"
         self.emit(ind, f"exact cover answer{i} (by simp [answers]) fun {pattern(ctx)} _ _ => {proof}")
 
     # answers ---------------------------------------------------------------
@@ -440,9 +439,8 @@ class Compiler:
             bs = sorted({x for t in a.values() for x in free_vars(t) if x.endswith("!")},
                         key=lambda x: int(x[1:-1]))
             self.binders.append(bs)
-            body = ".subst ⟨" + ", ".join(self.lean(a[v]) for v in order) + "⟩"
-            if bs:
-                body = f".bind fun {bs[0] if len(bs) == 1 else '(' + ', '.join(bs) + ')'} => {body}"
+            binder = "()" if not bs else bs[0] if len(bs) == 1 else "(" + ", ".join(bs) + ")"
+            body = f".bind fun {binder} => ⟨" + ", ".join(self.lean(a[v]) for v in order) + "⟩"
             self.out.append(f"def answer{i} : Unifier ({ctx_type}) :=\n  {body}")
             names.append(f"answer{i}")
         self.out.append(f"def answers : UnifierSet ({ctx_type}) :=\n  [{', '.join(names)}]")
@@ -464,7 +462,7 @@ def main():
     c.out.append(f"/-! ## Generated from {deriv_path.name} by producer/tools/compile.py -/\n")
     c.answers(answers)
     c.out.append("")
-    c.out.append("theorem complete : UnifierSet.Complete problem answers := by")
+    c.out.append("theorem complete : Unification.complete problem answers := by")
     c.emit(1, "rw [← start_iff]")
     ctx = list(cfg["vars"])
     eqs = root.judgment[1]

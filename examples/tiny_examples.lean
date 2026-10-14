@@ -1,6 +1,6 @@
 import Tiny.Expresso.core
 import Tiny.Expresso.ACU
-import Tiny.conPanna.Unification.Problem
+import Tiny.conPanna.Unification
 import Tiny.conPanna.Unification.Certification.Calculus
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
@@ -91,15 +91,15 @@ def problem : Problem Conf (Nat × ProcSet × ProcSet) :=
 -- σ₁: N? ↦ U1!, P? ↦ ∅,          Q? ↦ {wait U1!}
 -- σ₂: N? ↦ U1!, P? ↦ {wait U1!}, Q? ↦ ∅
 def unifier1 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun U1! => .subst ⟨U1!, ∅, {.wait U1!}⟩
+  .bind fun U1! => ⟨U1!, ∅, {.wait U1!}⟩
 
 def unifier2 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun U1! => .subst ⟨U1!, {.wait U1!}, ∅⟩
+  .bind fun U1! => ⟨U1!, {.wait U1!}, ∅⟩
 
 def solutions : UnifierSet (Nat × ProcSet × ProcSet) := [unifier1, unifier2]
 
 -- Completeness only: every concrete solution is covered by a provided answer.
-example : UnifierSet.Complete problem solutions := by
+example : complete problem solutions := by
   rw [← start_iff]
   -- ⟨id ; ⟨N?+1, N?, P? + Q?⟩ = ⟨N?+1, N?, {wait N?}⟩ ; ∅⟩
   -- DECOMP: `Conf` is free, so its process fields are equal.
@@ -142,14 +142,14 @@ def problem2 : Problem ProcSet (Nat × ProcSet × ProcSet × ProcSet) :=
   .bind fun (N?, P?, Q?, R?) => (P? + Q?, {.wait N?} + R?)
 
 def unifier2_1 : Unifier (Nat × ProcSet × ProcSet × ProcSet) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U1!, U2!, {Mode.wait U1!} + U3!, U2! + U3!⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U1!, U2!, {Mode.wait U1!} + U3!, U2! + U3!⟩
 
 def unifier2_2 : Unifier (Nat × ProcSet × ProcSet × ProcSet) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U1!, {Mode.wait U1!} + U2!, U3!, U2! + U3!⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U1!, {Mode.wait U1!} + U2!, U3!, U2! + U3!⟩
 
 def solutions2 : UnifierSet (Nat × ProcSet × ProcSet × ProcSet) := [unifier2_1, unifier2_2]
 
-example : UnifierSet.Complete problem2 solutions2 := by
+example : complete problem2 solutions2 := by
   rw [← start_iff]
   -- ⟨id ; P? + Q? = {wait N?} + R? ; ∅⟩
   -- SOLVE: one alien class wait N?; per element p + q = r + 1 at wait N?, p + q = r elsewhere.

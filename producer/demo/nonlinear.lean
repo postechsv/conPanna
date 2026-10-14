@@ -36,25 +36,25 @@ def problem : Problem Bag (Bag × Bag × Bag) :=
 /-! ## Generated from nonlinear.deriv by producer/tools/compile.py -/
 
 def answer0 : Unifier (Bag × Bag × Bag) :=
-  .subst ⟨∅, ∅, ∅⟩
+  .bind fun () => ⟨∅, ∅, ∅⟩
 def answer1 : Unifier (Bag × Bag × Bag) :=
-  .bind fun U1! => .subst ⟨U1! + U1!, ∅, U1!⟩
+  .bind fun U1! => ⟨U1! + U1!, ∅, U1!⟩
 def answer2 : Unifier (Bag × Bag × Bag) :=
-  .bind fun U1! => .subst ⟨U1!, U1!, U1!⟩
+  .bind fun U1! => ⟨U1!, U1!, U1!⟩
 def answer3 : Unifier (Bag × Bag × Bag) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1! + U2! + U2!, U1!, U1! + U2!⟩
+  .bind fun (U1!, U2!) => ⟨U1! + U2! + U2!, U1!, U1! + U2!⟩
 def answer4 : Unifier (Bag × Bag × Bag) :=
-  .bind fun U1! => .subst ⟨∅, U1! + U1!, U1!⟩
+  .bind fun U1! => ⟨∅, U1! + U1!, U1!⟩
 def answer5 : Unifier (Bag × Bag × Bag) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1! + U1!, U2! + U2!, U1! + U2!⟩
+  .bind fun (U1!, U2!) => ⟨U1! + U1!, U2! + U2!, U1! + U2!⟩
 def answer6 : Unifier (Bag × Bag × Bag) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1!, U1! + U2! + U2!, U1! + U2!⟩
+  .bind fun (U1!, U2!) => ⟨U1!, U1! + U2! + U2!, U1! + U2!⟩
 def answer7 : Unifier (Bag × Bag × Bag) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U1! + U1! + U2!, U2! + U3! + U3!, U1! + U2! + U3!⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U1! + U1! + U2!, U2! + U3! + U3!, U1! + U2! + U3!⟩
 def answers : UnifierSet (Bag × Bag × Bag) :=
   [answer0, answer1, answer2, answer3, answer4, answer5, answer6, answer7]
 
-theorem complete : UnifierSet.Complete problem answers := by
+theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | X? + Y? = Z? + Z? | -
   -- solve X? + Y? = Z? + Z?
@@ -63,7 +63,7 @@ theorem complete : UnifierSet.Complete problem answers := by
       (a := fun _ => ![]) (L := ![1, 1, 0]) (R := ![0, 0, 2]) (La := ![]) (Ra := ![])
       (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
       (P := ![]) (B := ![![2, 0, 1], ![1, 1, 1], ![0, 2, 1]])
-      (fun (X?, Y?, Z?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+      (fun (X?, Y?, Z?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; subst hπ

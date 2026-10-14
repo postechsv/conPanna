@@ -42,7 +42,7 @@ def problem : Problem Conf (Nat × ProcSet × Nat × ProcSet) :=
 def answers : UnifierSet (Nat × ProcSet × Nat × ProcSet) :=
   []
 
-theorem complete : UnifierSet.Complete problem answers := by
+theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (N? + 1) N? P? = Conf.mk 0 M? Q? | -
   -- decomp Conf.mk (N? + 1) N? P? = Conf.mk 0 M? Q?

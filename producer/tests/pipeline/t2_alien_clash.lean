@@ -44,13 +44,13 @@ def problem : Problem ProcSet (Nat × ProcSet × ProcSet) :=
 /-! ## Generated from t2_alien_clash.deriv by producer/tools/compile.py -/
 
 def answer0 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun U1! => .subst ⟨U1!, {Mode.idle}, {Mode.wait U1!}⟩
+  .bind fun U1! => ⟨U1!, {Mode.idle}, {Mode.wait U1!}⟩
 def answer1 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1!, {Mode.idle} + U2!, U2! + {Mode.wait U1!}⟩
+  .bind fun (U1!, U2!) => ⟨U1!, {Mode.idle} + U2!, U2! + {Mode.wait U1!}⟩
 def answers : UnifierSet (Nat × ProcSet × ProcSet) :=
   [answer0, answer1]
 
-theorem complete : UnifierSet.Complete problem answers := by
+theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | P? + {Mode.wait N?} = Q? + {Mode.idle} | -
   -- solve P? + {Mode.wait N?} = Q? + {Mode.idle}
@@ -59,7 +59,7 @@ theorem complete : UnifierSet.Complete problem answers := by
       (a := fun N? => ![Mode.wait N?, Mode.idle]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0]) (Ra := ![0, 1])
       (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
       (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-      (fun (N?, P?, Q?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+      (fun (N?, P?, Q?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; subst hπ

@@ -24,16 +24,16 @@ def problem : Problem Bag (Bag × Bag × Nat × Nat) :=
 
 -- Maude's four answers, verbatim up to naming.
 def answer1 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (U1!, U2!) => .subst ⟨{Elem.w U2!}, {Elem.w U1!}, U1!, U2!⟩
+  .bind fun (U1!, U2!) => ⟨{Elem.w U2!}, {Elem.w U1!}, U1!, U2!⟩
 def answer2 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U3! + {Elem.w U2!}, U3! + {Elem.w U1!}, U1!, U2!⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U3! + {Elem.w U2!}, U3! + {Elem.w U1!}, U1!, U2!⟩
 def answer3 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun U1! => .subst ⟨∅, ∅, U1!, U1!⟩
+  .bind fun U1! => ⟨∅, ∅, U1!, U1!⟩
 def answer4 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1!, U1!, U2!, U2!⟩
+  .bind fun (U1!, U2!) => ⟨U1!, U1!, U2!, U2!⟩
 def answers : UnifierSet (Bag × Bag × Nat × Nat) := [answer1, answer2, answer3, answer4]
 
-example : UnifierSet.Complete problem answers := by
+example : complete problem answers := by
   rw [← start_iff]
   -- ⟨id ; X? + {w N?} = Y? + {w M?} ; ∅⟩
   -- IDENTIFY the aliens w N? and w M?.
@@ -118,17 +118,17 @@ def problem : Problem (ACU El) (ACU El × ACU El × ACU El) :=
 
 -- Maude's most general answer: variables U1! U2! U3!, one per basis vector.
 def answer8 : Unifier (ACU El × ACU El × ACU El) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U1! + U1! + U2!, U2! + U3! + U3!, U1! + U2! + U3!⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U1! + U1! + U2!, U2! + U3! + U3!, U1! + U2! + U3!⟩
 
 -- Maude's eight answers; the first seven are special cases of answer 8.
 def answers : UnifierSet (ACU El × ACU El × ACU El) :=
-  [ .subst ⟨∅, ∅, ∅⟩,
-    .bind fun U1! => .subst ⟨U1! + U1!, ∅, U1!⟩,
-    .bind fun U1! => .subst ⟨U1!, U1!, U1!⟩,
-    .bind fun (U1!, U2!) => .subst ⟨U1! + U2! + U2!, U1!, U1! + U2!⟩,
-    .bind fun U1! => .subst ⟨∅, U1! + U1!, U1!⟩,
-    .bind fun (U1!, U2!) => .subst ⟨U1! + U1!, U2! + U2!, U1! + U2!⟩,
-    .bind fun (U1!, U2!) => .subst ⟨U1!, U1! + U2! + U2!, U1! + U2!⟩,
+  [ .bind fun () => ⟨∅, ∅, ∅⟩,
+    .bind fun U1! => ⟨U1! + U1!, ∅, U1!⟩,
+    .bind fun U1! => ⟨U1!, U1!, U1!⟩,
+    .bind fun (U1!, U2!) => ⟨U1! + U2! + U2!, U1!, U1! + U2!⟩,
+    .bind fun U1! => ⟨∅, U1! + U1!, U1!⟩,
+    .bind fun (U1!, U2!) => ⟨U1! + U1!, U2! + U2!, U1! + U2!⟩,
+    .bind fun (U1!, U2!) => ⟨U1!, U1! + U2! + U2!, U1! + U2!⟩,
     answer8 ]
 
 -- The basis vectors, read off answer 8.
@@ -137,7 +137,7 @@ def basis : Fin 3 → Fin 3 → ℕ
   | 1 => ![1, 1, 1]
   | 2 => ![0, 2, 1]
 
-example : UnifierSet.Complete (problem (El := El)) answers := by
+example : complete (problem (El := El)) answers := by
   rw [← start_iff]
   -- ⟨id ; X? + Y? = Z? + Z? ; ∅⟩
   -- SOLVE: no aliens; per element x + y = 2z.
@@ -177,6 +177,6 @@ example : UnifierSet.Complete (problem (El := El)) answers := by
         obtain ⟨Z1, Z2, Z3, rfl⟩ : ∃ a b c, Z = ![a, b, c] :=
           ⟨Z 0, Z 1, Z 2, funext fun i => by fin_cases i <;> rfl⟩
         simp [State.start, theta, sum, copies, basis, ACU.plus_unit, ACU.unit_plus]
-        refine Prod.ext ?_ (Prod.ext ?_ ?_) <;> ac_rfl⟩
+        refine ⟨?_, ?_⟩ <;> ac_rfl⟩
 
 end Nonlinear

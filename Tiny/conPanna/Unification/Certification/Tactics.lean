@@ -16,7 +16,7 @@ syntax "acu_free" (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
 macro_rules
   | `(tactic| acu_free) => `(tactic| acu_free [])
   | `(tactic| acu_free [$xs,*]) => `(tactic| (
-      try simp only [State.start, Problem.unifies, theta, sum, copies, Function.comp_apply,
+      try simp only [State.start, unifiedBy, theta, sum, copies, Function.comp_apply,
         ACU.plus_unit, ACU.unit_plus, $xs,*] at *
       iterate 2 (
         try casesm* _ ∧ _

@@ -55,21 +55,21 @@ def problem : Problem Conf Γ₀ :=
 /-! ## Generated from enter.deriv by producer/tools/compile.py -/
 
 def answer0 : Unifier (Γ₀) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1!, {Mode.idle} + {Mode.wait U1!} + {Mode.wait U2!}, U1!, U2!, {Mode.wait U1!}⟩
+  .bind fun (U1!, U2!) => ⟨U1!, {Mode.idle} + {Mode.wait U1!} + {Mode.wait U2!}, U1!, U2!, {Mode.wait U1!}⟩
 def answer1 : Unifier (Γ₀) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U1!, {Mode.idle} + U3! + {Mode.wait U1!} + {Mode.wait U2!}, U1!, U2!, U3! + {Mode.wait U1!}⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U1!, {Mode.idle} + U3! + {Mode.wait U1!} + {Mode.wait U2!}, U1!, U2!, U3! + {Mode.wait U1!}⟩
 def answer2 : Unifier (Γ₀) :=
-  .bind fun (U1!, U2!) => .subst ⟨U1!, {Mode.idle} + {Mode.wait U2!}, U1!, U2!, ∅⟩
+  .bind fun (U1!, U2!) => ⟨U1!, {Mode.idle} + {Mode.wait U2!}, U1!, U2!, ∅⟩
 def answer3 : Unifier (Γ₀) :=
-  .bind fun (U1!, U2!, U3!) => .subst ⟨U1!, {Mode.idle} + U2! + {Mode.wait U3!}, U1!, U3!, U2!⟩
+  .bind fun (U1!, U2!, U3!) => ⟨U1!, {Mode.idle} + U2! + {Mode.wait U3!}, U1!, U3!, U2!⟩
 def answer4 : Unifier (Γ₀) :=
-  .bind fun U1! => .subst ⟨U1!, {Mode.idle} + {Mode.wait U1!}, U1!, U1!, ∅⟩
+  .bind fun U1! => ⟨U1!, {Mode.idle} + {Mode.wait U1!}, U1!, U1!, ∅⟩
 def answer5 : Unifier (Γ₀) :=
-  .bind fun (U1!, U2!) => .subst ⟨U2!, {Mode.idle} + U1! + {Mode.wait U2!}, U2!, U2!, U1!⟩
+  .bind fun (U1!, U2!) => ⟨U2!, {Mode.idle} + U1! + {Mode.wait U2!}, U2!, U2!, U1!⟩
 def answers : UnifierSet (Γ₀) :=
   [answer0, answer1, answer2, answer3, answer4, answer5]
 
-theorem complete : UnifierSet.Complete problem answers := by
+theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q?) | -
   -- decomp Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q?)
@@ -95,7 +95,7 @@ theorem complete : UnifierSet.Complete problem answers := by
       (a := fun (K?, M?) => ![Mode.wait K?, Mode.idle, Mode.wait M?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0, 0]) (Ra := ![1, 1, 1])
       (E' := fun (_, _, _, _) => True) (cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0))
       (P := ![[![0, 0]], [![1, 0]], [![1, 0]]]) (B := ![![1, 1]])
-      (fun (K?, P?, M?, Q?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+      (fun (K?, P?, M?, Q?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0], [1], [2], [0, 2]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; subst hπ

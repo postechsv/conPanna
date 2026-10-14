@@ -48,13 +48,13 @@ def problem : Problem Conf (Nat × ProcSet × ProcSet) :=
 /-! ## Generated from l137.deriv by producer/tools/compile.py -/
 
 def answer0 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun U1! => .subst ⟨U1!, ∅, {Mode.wait U1!}⟩
+  .bind fun U1! => ⟨U1!, ∅, {Mode.wait U1!}⟩
 def answer1 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun U1! => .subst ⟨U1!, {Mode.wait U1!}, ∅⟩
+  .bind fun U1! => ⟨U1!, {Mode.wait U1!}, ∅⟩
 def answers : UnifierSet (Nat × ProcSet × ProcSet) :=
   [answer0, answer1]
 
-theorem complete : UnifierSet.Complete problem answers := by
+theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (N? + 1) N? (P? + Q?) = Conf.mk (N? + 1) N? {Mode.wait N?} | -
   -- decomp Conf.mk (N? + 1) N? (P? + Q?) = Conf.mk (N? + 1) N? {Mode.wait N?}
@@ -75,7 +75,7 @@ theorem complete : UnifierSet.Complete problem answers := by
       (a := fun N? => ![Mode.wait N?]) (L := ![1, 1]) (R := ![0, 0]) (La := ![0]) (Ra := ![1])
       (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
       (P := ![[![1, 0], ![0, 1]]]) (B := ![])
-      (fun (N?, P?, Q?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+      (fun (N?, P?, Q?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; rcases hπ with rfl | rfl

@@ -103,7 +103,7 @@ theorem rename {Γ' : Type w'} {s : State Γ₀ Γ} (f : Γ' → Γ) (g : Γ →
   intro ρ hE hD
   have h := next (g ρ) (by show s.E (f (g ρ)); rw [hfg]; exact hE)
     (by show s.D (f (g ρ)); rw [hfg]; exact hD)
-  show answers.Covers (s.α ρ)
+  show ∃ σ ∈ answers, covers σ (s.α ρ)
   have : s.α (f (g ρ)) = s.α ρ := by rw [hfg]
   exact this ▸ h
 

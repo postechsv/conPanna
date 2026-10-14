@@ -3,7 +3,7 @@
 Given a user model, a unification problem and the answers of a prior Maude
 `unify`, the producer builds a derivation in the calculus of the paper draft
 (https://claude.ai/artifact/NPzPT378gRTqQyyXn7QRXV). A compiler turns the
-derivation into a Lean proof of `UnifierSet.Complete`. Nothing here is trusted:
+derivation into a Lean proof of `Unification.complete`. Nothing here is trusted:
 Lean checks the result.
 
 | Directory | Contents |

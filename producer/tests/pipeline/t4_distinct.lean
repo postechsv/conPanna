@@ -34,17 +34,17 @@ def problem : Problem (Bag × Nat) (Bag × Bag × Nat × Nat) :=
 /-! ## Generated from t4_distinct.deriv by producer/tools/compile.py -/
 
 def answer0 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun U1! => .subst ⟨{Elem.w U1!}, {Elem.w U1!}, U1!, U1!⟩
+  .bind fun U1! => ⟨{Elem.w U1!}, {Elem.w U1!}, U1!, U1!⟩
 def answer1 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (U1!, U2!) => .subst ⟨U2! + {Elem.w U1!}, U2! + {Elem.w U1!}, U1!, U1!⟩
+  .bind fun (U1!, U2!) => ⟨U2! + {Elem.w U1!}, U2! + {Elem.w U1!}, U1!, U1!⟩
 def answer2 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun U1! => .subst ⟨∅, ∅, U1!, U1!⟩
+  .bind fun U1! => ⟨∅, ∅, U1!, U1!⟩
 def answer3 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (U1!, U2!) => .subst ⟨U2!, U2!, U1!, U1!⟩
+  .bind fun (U1!, U2!) => ⟨U2!, U2!, U1!, U1!⟩
 def answers : UnifierSet (Bag × Bag × Nat × Nat) :=
   [answer0, answer1, answer2, answer3]
 
-theorem complete : UnifierSet.Complete problem answers := by
+theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- decomp of the tuple equation into the system
   refine decomp (fun (X?, Y?, N?, M?) => X? + {Elem.w N?} = Y? + {Elem.w M?} ∧ N? = M?)
@@ -69,7 +69,7 @@ theorem complete : UnifierSet.Complete problem answers := by
         (a := fun N? => ![Elem.w N?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1]) (Ra := ![1])
         (E' := fun (_, _, N?) => N? = N?) (cp := fun _ _ => false)
         (P := ![[![0, 0]]]) (B := ![![1, 1]])
-        (fun (X?, Y?, N?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h.1, h.2, by acu_distinct⟩)
+        (fun (X?, Y?, N?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, h.2, by acu_distinct⟩)
         (by decide) (by decide) (by decide)
         (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
@@ -92,7 +92,7 @@ theorem complete : UnifierSet.Complete problem answers := by
         (a := fun (N?, M?) => ![Elem.w N?, Elem.w M?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0]) (Ra := ![0, 1])
         (E' := fun (_, _, N?, M?) => N? = M?) (cp := fun _ _ => false)
         (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-        (fun (X?, Y?, N?, M?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h.1, h.2, by acu_distinct⟩)
+        (fun (X?, Y?, N?, M?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, h.2, by acu_distinct⟩)
         (by decide) (by decide) (by decide)
         (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
