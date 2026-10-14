@@ -5,6 +5,7 @@ import Mathlib.Algebra.BigOperators.Group.Finset.Piecewise
 import Mathlib.Data.List.Sublists
 import Mathlib.Algebra.BigOperators.Fin
 import Mathlib.Algebra.Ring.Basic
+import Mathlib.Data.Fin.VecNotation
 
 /-!
 The data of SOLVE and its validity, proved once.
@@ -49,7 +50,7 @@ def Below {n : ℕ} (p v : Fin n → ℕ) : Prop := ∀ i, p i ≤ v i
 /-- All choices of one particular solution per alien class. -/
 def choices {n : ℕ} : {m : ℕ} → (Fin m → List (Fin n → ℕ)) → List (Fin m → Fin n → ℕ)
   | 0, _ => [Fin.elim0]
-  | _ + 1, P => (P 0).flatMap fun p => (choices (fun c => P c.succ)).map fun π => Fin.cases p π
+  | _ + 1, P => (P 0).flatMap fun p => (choices (fun c => P c.succ)).map fun π => Matrix.vecCons p π
 
 /-- The substitution `θ_π`: `X i := Σ_c π c i • {a c} + Σ_j B j i • U j`. -/
 def theta {n m k : ℕ} (a : Fin m → El) (π : Fin m → Fin n → ℕ)
@@ -309,6 +310,42 @@ theorem solve_decomp (X : Fin n → ACU El) (a : Fin m → El) (L R : Fin n → 
   show x i = _
   simp only [← Multiset.nsmul_singleton]
   exact (add_tsub_cancel_of_le (hQx i)).symm
+
+theorem mem_of_choices {P : Fin m → List (Fin n → ℕ)} {π : Fin m → Fin n → ℕ}
+    (h : π ∈ choices P) : ∀ c, π c ∈ P c := by
+  induction m with
+  | zero => intro c; exact c.elim0
+  | succ m ih =>
+    simp only [choices, List.mem_flatMap, List.mem_map] at h
+    obtain ⟨p, hp, π', hπ', rfl⟩ := h
+    intro c
+    cases c using Fin.cases with
+    | zero => simpa using hp
+    | succ c => simpa using ih hπ' c
+
+/-- S2 stated over the finite list of choices: the form a certificate proves,
+since it unfolds to a closed Presburger formula. -/
+theorem S2_of_choices (cp : Fin m → Fin m → Bool) (L R : Fin n → ℕ) (La Ra : Fin m → ℕ)
+    (P : Fin m → List (Fin n → ℕ))
+    (h : ∀ G ∈ cliques cp, ∀ v, dot L v + (G.map La).sum = dot R v + (G.map Ra).sum →
+      ∃ π ∈ choices P, Below (fun i => (G.map fun c => π c i).sum) v) :
+    ∀ G ∈ cliques cp, ∀ v, dot L v + (G.map La).sum = dot R v + (G.map Ra).sum →
+      ∃ π : Fin m → Fin n → ℕ, (∀ c ∈ G, π c ∈ P c) ∧
+        Below (fun i => (G.map fun c => π c i).sum) v := by
+  intro G hG v hv
+  obtain ⟨π, hπ, hb⟩ := h G hG v hv
+  exact ⟨π, fun c _ => mem_of_choices hπ c, hb⟩
+
+/-- S2 over an explicit list of cliques and the finite list of choices: the form
+a certificate states, which unfolds to one closed Presburger formula per clique. -/
+theorem S2_of_list (cp : Fin m → Fin m → Bool) (L R : Fin n → ℕ) (La Ra : Fin m → ℕ)
+    (P : Fin m → List (Fin n → ℕ)) (Gs : List (List (Fin m))) (hGs : ∀ G ∈ cliques cp, G ∈ Gs)
+    (h : ∀ G ∈ Gs, ∀ v, dot L v + (G.map La).sum = dot R v + (G.map Ra).sum →
+      ∃ π ∈ choices P, Below (fun i => (G.map fun c => π c i).sum) v) :
+    ∀ G ∈ cliques cp, ∀ v, dot L v + (G.map La).sum = dot R v + (G.map Ra).sum →
+      ∃ π : Fin m → Fin n → ℕ, (∀ c ∈ G, π c ∈ P c) ∧
+        Below (fun i => (G.map fun c => π c i).sum) v :=
+  S2_of_choices cp L R La Ra P fun G hG => h G (hGs G hG)
 
 /-- S2 for an all-incompatible relation reduces to one class at a time. -/
 theorem S2_single (L R : Fin n → ℕ) (La Ra : Fin m → ℕ) (P : Fin m → List (Fin n → ℕ))

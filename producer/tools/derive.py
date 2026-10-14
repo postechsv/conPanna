@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the Maude producer on a request and write a readable derivation.
 
-  python3 producer/derive.py producer/demo/l137.maude      # writes producer/demo/l137.deriv
+  python3 producer/tools/derive.py producer/demo/l137.maude   # writes producer/demo/l137.deriv
 
 A request is a Maude file whose last command is  red certify(...) .  (see
 producer/demo/*.maude). The derivation is the rendered result of that command.
@@ -15,7 +15,7 @@ MAUDE = "maude"
 
 def run_maude(request: pathlib.Path) -> str:
     """Return the string result of the request's  red certify(...)  command."""
-    script = f"load {HERE / 'show.maude'}\nload {request.resolve()}\nquit\n"
+    script = f"load {HERE.parent / 'lib' / 'show.maude'}\nload {request.resolve()}\nquit\n"
     out = subprocess.run([MAUDE, "-no-banner", "-no-wrap"], input=script.encode(),
                          capture_output=True, check=True).stdout.decode("utf-8")
     warnings = re.findall(r"Warning.*", out)
@@ -34,6 +34,8 @@ def run_maude(request: pathlib.Path) -> str:
 def main() -> None:
     for arg in sys.argv[1:]:
         request = pathlib.Path(arg)
+        if "certify(" not in request.read_text():
+            continue  # not a request (e.g. a models file)
         text = run_maude(request)
         target = request.with_suffix(".deriv")
         target.write_text(text)

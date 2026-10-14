@@ -1,0 +1,8 @@
+***( Bakery transition: rule ENTER's left side against a three-process state
+     < s K, K, wait(K) P > =? < s N, N, wait(N) idle wait(M) Q > )
+load models.maude
+select SHOW .
+red certify('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('K:Num, 'P:ProcSet, 'N:Num, 'M:Num, 'Q:ProcSet),
+        '<_`,_`,_>['s['K:Num], 'K:Num, '__['wait['K:Num], 'P:ProcSet]],
+        '<_`,_`,_>['s['N:Num], 'N:Num, '__['wait['N:Num], 'idle.Mode, 'wait['M:Num], 'Q:ProcSet]]) .

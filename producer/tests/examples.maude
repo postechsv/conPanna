@@ -1,9 +1,9 @@
 ***(
-  Run:  maude -no-banner producer/run.maude
+  Run (from producer/tests):  maude -no-banner examples.maude
   Each `red run(...)` prints the answers of the prior unify, then the tree.
   run(module, bag(bag sort, union op, unit), tuple op, original variables, lhs, rhs)
 )
-load producer.maude
+load ../lib/producer.maude
 load models.maude
 
 select PRODUCER .

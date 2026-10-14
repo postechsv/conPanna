@@ -1,0 +1,6 @@
+***( Paper §6.2, nonlinear:  X Y =? Z Z )
+load models.maude
+select SHOW .
+red certify('NONLINEAR, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'Z:Bag),
+        '__['X:Bag, 'Y:Bag], '__['Z:Bag, 'Z:Bag]) .

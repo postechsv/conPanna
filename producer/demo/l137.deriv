@@ -1,0 +1,21 @@
+problem "<_,_,_>"(s(N?), N?, P? + Q?) = "<_,_,_>"(s(N?), N?, {wait(N?)})
+answers
+  0: N? := U1!, P? := ∅, Q? := {wait(U1!)}
+  1: N? := U1!, P? := {wait(U1!)}, Q? := ∅
+derivation
+  ⊢ - | "<_,_,_>"(s(N?), N?, P? + Q?) = "<_,_,_>"(s(N?), N?, {wait(N?)}) | -
+  decomp "<_,_,_>"(s(N?), N?, P? + Q?) = "<_,_,_>"(s(N?), N?, {wait(N?)})  ==>  s(N?) = s(N?); N? = N?; P? + Q? = {wait(N?)}
+  ⊢ - | s(N?) = s(N?); N? = N?; P? + Q? = {wait(N?)} | -
+  delete s(N?) = s(N?)
+  ⊢ - | N? = N?; P? + Q? = {wait(N?)} | -
+  delete N? = N?
+  ⊢ - | P? + Q? = {wait(N?)} | -
+  solve P? + Q? = {wait(N?)}
+    vars P? Q? | aliens wait(N?) | L (1,1) R (0,0) La (0) Ra (1)
+    compatible - | P [(1,0) (0,1)] | B []
+    branch [(1,0)]: P? := {wait(N?)}, Q? := ∅
+      ⊢ P? := {wait(N?)}, Q? := ∅ | - | -
+      cover answer 1 with U1! := N?
+    branch [(0,1)]: P? := ∅, Q? := {wait(N?)}
+      ⊢ P? := ∅, Q? := {wait(N?)} | - | -
+      cover answer 0 with U1! := N?

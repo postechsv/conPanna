@@ -4,9 +4,9 @@
         wait(N), idle and k further waiting processes wait(M1)..wait(Mk).
   S2-n-m: the linear equation  X1 .. Xn =? Y1 .. Ym  (Hilbert basis has n*m vectors,
         so Maude returns 2^(n*m) answers before deduplication by generality).
-  Run:  maude -no-banner scale.maude
+  Run (from producer/tests):  maude -no-banner scale.maude
 )
-load producer.maude
+load ../lib/producer.maude
 load models.maude
 
 fmod BAKERY-SCALE is

@@ -1,0 +1,6 @@
+***( Bakery, unknown bags on both sides:  P Q =? wait(N) R )
+load models.maude
+select SHOW .
+red certify('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'Q:ProcSet, 'R:ProcSet),
+        '__['P:ProcSet, 'Q:ProcSet], '__['wait['N:Num], 'R:ProcSet]) .

@@ -88,14 +88,14 @@ def problem : Problem Conf (Nat × ProcSet × ProcSet) :=
   .bind fun (N?, P?, Q?) =>
     (⟨N? + 1, N?, P? + Q?⟩, ⟨N? + 1, N?, {.wait N?}⟩)
 
--- Provided answers, not computed by this proof; each binds a fresh N!:
--- σ₁: N? ↦ N!, P? ↦ ∅,         Q? ↦ {wait N!}
--- σ₂: N? ↦ N!, P? ↦ {wait N!}, Q? ↦ ∅
+-- Provided answers, not computed by this proof; each binds a variable U1!:
+-- σ₁: N? ↦ U1!, P? ↦ ∅,          Q? ↦ {wait U1!}
+-- σ₂: N? ↦ U1!, P? ↦ {wait U1!}, Q? ↦ ∅
 def unifier1 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun N! => .subst ⟨N!, ∅, {.wait N!}⟩
+  .bind fun U1! => .subst ⟨U1!, ∅, {.wait U1!}⟩
 
 def unifier2 : Unifier (Nat × ProcSet × ProcSet) :=
-  .bind fun N! => .subst ⟨N!, {.wait N!}, ∅⟩
+  .bind fun U1! => .subst ⟨U1!, {.wait U1!}, ∅⟩
 
 def solutions : UnifierSet (Nat × ProcSet × ProcSet) := [unifier1, unifier2]
 
@@ -126,27 +126,27 @@ example : UnifierSet.Complete problem solutions := by
   case next =>
     intro π hπ; simp [choices] at hπ
     rcases hπ with rfl | rfl
-    -- leaf ⟨P? ↦ {wait N?}, Q? ↦ ∅ ; ∅ ; ∅⟩: COVER with unifier2, witness N! := N?.
+    -- leaf ⟨P? ↦ {wait N?}, Q? ↦ ∅ ; ∅ ; ∅⟩: COVER with unifier2, U1! := N?.
     · exact cover unifier2 (.tail _ (.head _)) fun (N?, _) _ _ =>
         ⟨N?, by simp [theta, sum, copies, ACU.plus_unit]; rfl⟩
-    -- leaf ⟨P? ↦ ∅, Q? ↦ {wait N?} ; ∅ ; ∅⟩: COVER with unifier1, witness N! := N?.
+    -- leaf ⟨P? ↦ ∅, Q? ↦ {wait N?} ; ∅ ; ∅⟩: COVER with unifier1, U1! := N?.
     · exact cover unifier1 (.head _) fun (N?, _) _ _ =>
         ⟨N?, by simp [theta, sum, copies, ACU.plus_unit]; rfl⟩
 
 /-! ### Unknown bags on both sides
 `P? + Q? = {wait N?} + R?`, original variables (N?, P?, Q?, R?).
-Provided answers, both over the same fresh context (N!, B!, D!):
-  σ₁: N? ↦ N!,  P? ↦ B!,              Q? ↦ {wait N!} + D!,  R? ↦ B! + D!
-  σ₂: N? ↦ N!,  P? ↦ {wait N!} + B!,  Q? ↦ D!,              R? ↦ B! + D!
+Provided answers, both over the variables (U1!, U2!, U3!):
+  σ₁: N? ↦ U1!,  P? ↦ U2!,               Q? ↦ {wait U1!} + U3!,  R? ↦ U2! + U3!
+  σ₂: N? ↦ U1!,  P? ↦ {wait U1!} + U2!,  Q? ↦ U3!,               R? ↦ U2! + U3!
 -/
 def problem2 : Problem ProcSet (Nat × ProcSet × ProcSet × ProcSet) :=
   .bind fun (N?, P?, Q?, R?) => (P? + Q?, {.wait N?} + R?)
 
 def unifier2_1 : Unifier (Nat × ProcSet × ProcSet × ProcSet) :=
-  .bind fun (N!, B!, D!) => .subst ⟨N!, B!, {Mode.wait N!} + D!, B! + D!⟩
+  .bind fun (U1!, U2!, U3!) => .subst ⟨U1!, U2!, {Mode.wait U1!} + U3!, U2! + U3!⟩
 
 def unifier2_2 : Unifier (Nat × ProcSet × ProcSet × ProcSet) :=
-  .bind fun (N!, B!, D!) => .subst ⟨N!, {Mode.wait N!} + B!, D!, B! + D!⟩
+  .bind fun (U1!, U2!, U3!) => .subst ⟨U1!, {Mode.wait U1!} + U2!, U3!, U2! + U3!⟩
 
 def solutions2 : UnifierSet (Nat × ProcSet × ProcSet × ProcSet) := [unifier2_1, unifier2_2]
 
@@ -154,7 +154,7 @@ example : UnifierSet.Complete problem2 solutions2 := by
   rw [← start_iff]
   -- ⟨id ; P? + Q? = {wait N?} + R? ; ∅⟩
   -- SOLVE: one alien class wait N?; per element p + q = r + 1 at wait N?, p + q = r elsewhere.
-  --   P = {(1,0,0), (0,1,0)},  B = {(1,0,1), (0,1,1)}  (fresh B!, D!).
+  --   P = {(1,0,0), (0,1,0)},  B = {(1,0,1), (0,1,1)}  (fresh Z1, Z2).
   refine solve (V := fun (_, P?, Q?, R?) => ![P?, Q?, R?]) (rest := fun (N?, _, _, _) => N?)
     (glue := fun N? V => (N?, V 0, V 1, V 2)) (hglue := fun _ => rfl)
     (a := fun N? => ![Mode.wait N?]) (L := ![1, 1, 0]) (R := ![0, 0, 1]) (La := ![0]) (Ra := ![1])
@@ -184,18 +184,18 @@ example : UnifierSet.Complete problem2 solutions2 := by
   case next =>
     intro π hπ; simp [choices] at hπ
     rcases hπ with rfl | rfl
-    -- leaf ⟨P? ↦ {wait N?} + B!, Q? ↦ D!, R? ↦ B! + D! ; ∅ ; ∅⟩
-    -- COVER with unifier2_2, witness (N?, B!, D!).
-    · exact cover unifier2_2 (.tail _ (.head _)) fun (N?, U!) _ _ =>
-        ⟨(N?, U! 0, U! 1), by
-          obtain ⟨B!, D!, rfl⟩ : ∃ b d, U! = ![b, d] := ⟨U! 0, U! 1, funext fun i => by fin_cases i <;> rfl⟩
+    -- leaf ⟨P? ↦ {wait N?} + Z1, Q? ↦ Z2, R? ↦ Z1 + Z2 ; ∅ ; ∅⟩
+    -- COVER with unifier2_2: U1! := N?, U2! := Z1, U3! := Z2.
+    · exact cover unifier2_2 (.tail _ (.head _)) fun (N?, Z) _ _ =>
+        ⟨(N?, Z 0, Z 1), by
+          obtain ⟨Z1, Z2, rfl⟩ : ∃ b d, Z = ![b, d] := ⟨Z 0, Z 1, funext fun i => by fin_cases i <;> rfl⟩
           simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]
           refine Prod.ext rfl (Prod.ext ?_ (Prod.ext ?_ ?_)) <;> ac_rfl⟩
-    -- leaf ⟨P? ↦ B!, Q? ↦ {wait N?} + D!, R? ↦ B! + D! ; ∅ ; ∅⟩
-    -- COVER with unifier2_1, witness (N?, B!, D!).
-    · exact cover unifier2_1 (.head _) fun (N?, U!) _ _ =>
-        ⟨(N?, U! 0, U! 1), by
-          obtain ⟨B!, D!, rfl⟩ : ∃ b d, U! = ![b, d] := ⟨U! 0, U! 1, funext fun i => by fin_cases i <;> rfl⟩
+    -- leaf ⟨P? ↦ Z1, Q? ↦ {wait N?} + Z2, R? ↦ Z1 + Z2 ; ∅ ; ∅⟩
+    -- COVER with unifier2_1: U1! := N?, U2! := Z1, U3! := Z2.
+    · exact cover unifier2_1 (.head _) fun (N?, Z) _ _ =>
+        ⟨(N?, Z 0, Z 1), by
+          obtain ⟨Z1, Z2, rfl⟩ : ∃ b d, Z = ![b, d] := ⟨Z 0, Z 1, funext fun i => by fin_cases i <;> rfl⟩
           simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]
           refine Prod.ext rfl (Prod.ext ?_ (Prod.ext ?_ ?_)) <;> ac_rfl⟩
 

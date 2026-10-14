@@ -4,8 +4,8 @@ import Mathlib.Tactic.FinCases
 
 /-!
 The worked examples of the paper draft (§6), as Lean certificates.
-Each step names the paper rule it applies. Original variables end in `?`,
-fresh variables in `!`. A judgment `⟨α ; E ; D⟩ ⊩ answers` is shown in comments.
+Each step names the paper rule it applies. Original variables end in `?`, the answers'
+own (existential) variables are `U1!`, `U2!`, ..., and SOLVE's fresh variables are `Z`. A judgment `⟨α ; E ; D⟩ ⊩ answers` is shown in comments.
 -/
 
 open Unification Certification
@@ -24,13 +24,13 @@ def problem : Problem Bag (Bag × Bag × Nat × Nat) :=
 
 -- Maude's four answers, verbatim up to naming.
 def answer1 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (N!, M!) => .subst ⟨{Elem.w M!}, {Elem.w N!}, N!, M!⟩
+  .bind fun (U1!, U2!) => .subst ⟨{Elem.w U2!}, {Elem.w U1!}, U1!, U2!⟩
 def answer2 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (N!, M!, U!) => .subst ⟨U! + {Elem.w M!}, U! + {Elem.w N!}, N!, M!⟩
+  .bind fun (U1!, U2!, U3!) => .subst ⟨U3! + {Elem.w U2!}, U3! + {Elem.w U1!}, U1!, U2!⟩
 def answer3 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun N! => .subst ⟨∅, ∅, N!, N!⟩
+  .bind fun U1! => .subst ⟨∅, ∅, U1!, U1!⟩
 def answer4 : Unifier (Bag × Bag × Nat × Nat) :=
-  .bind fun (U!, N!) => .subst ⟨U!, U!, N!, N!⟩
+  .bind fun (U1!, U2!) => .subst ⟨U1!, U1!, U2!, U2!⟩
 def answers : UnifierSet (Bag × Bag × Nat × Nat) := [answer1, answer2, answer3, answer4]
 
 example : UnifierSet.Complete problem answers := by
@@ -67,11 +67,11 @@ example : UnifierSet.Complete problem answers := by
       intro v h hv; refine ⟨0, fun i => ?_⟩
       simp [dot, List.ofFn_succ, Fin.exists_fin_two] at h hv; fin_cases i <;> simp <;> omega
     case next =>
-      -- leaf ⟨X? ↦ U!, Y? ↦ U!, M? ↦ N? ; ∅ ; ∅⟩
+      -- leaf ⟨X? ↦ Z1, Y? ↦ Z1, M? ↦ N? ; ∅ ; ∅⟩
       intro π hπ; simp [choices] at hπ; subst hπ
-      -- COVER with answer 4, witness (U!, N?).
-      exact cover answer4 (.tail _ (.tail _ (.tail _ (.head _)))) fun (N?, U!) _ _ =>
-        ⟨(U! 0, N?), by simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; rfl⟩
+      -- COVER with answer 4: U1! := Z1, U2! := N?.
+      exact cover answer4 (.tail _ (.tail _ (.tail _ (.head _)))) fun (N?, Z) _ _ =>
+        ⟨(Z 0, N?), by simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; rfl⟩
   case ne =>
     -- ⟨id ; X? + {w N?} = Y? + {w M?} ; w N? ≠ w M?⟩
     -- SOLVE: two alien classes a₁ = w N?, a₂ = w M?.
@@ -99,11 +99,11 @@ example : UnifierSet.Complete problem answers := by
       intro v h hv; refine ⟨0, fun i => ?_⟩
       simp [dot, List.ofFn_succ, Fin.exists_fin_two] at h hv; fin_cases i <;> simp <;> omega
     case next =>
-      -- leaf ⟨X? ↦ {w M?} + U!, Y? ↦ {w N?} + U! ; ∅ ; w N? ≠ w M?⟩
+      -- leaf ⟨X? ↦ Z1 + {w M?}, Y? ↦ Z1 + {w N?} ; ∅ ; w N? ≠ w M?⟩
       intro π hπ; simp [choices] at hπ; subst hπ
-      -- COVER with answer 2, witness (N?, M?, U!).
-      exact cover answer2 (.tail _ (.head _)) fun ((N?, M?), U!) _ _ =>
-        ⟨(N?, M?, U! 0), by simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; ac_rfl⟩
+      -- COVER with answer 2: U1! := N?, U2! := M?, U3! := Z1.
+      exact cover answer2 (.tail _ (.head _)) fun ((N?, M?), Z) _ _ =>
+        ⟨(N?, M?, Z 0), by simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; ac_rfl⟩
 
 end Mixed
 
@@ -116,7 +116,7 @@ variable {El : Type}
 def problem : Problem (ACU El) (ACU El × ACU El × ACU El) :=
   .bind fun (X?, Y?, Z?) => (X? + Y?, Z? + Z?)
 
--- Maude's most general answer: fresh U1! U2! U3!, one per basis vector.
+-- Maude's most general answer: variables U1! U2! U3!, one per basis vector.
 def answer8 : Unifier (ACU El × ACU El × ACU El) :=
   .bind fun (U1!, U2!, U3!) => .subst ⟨U1! + U1! + U2!, U2! + U3! + U3!, U1! + U2! + U3!⟩
 
@@ -141,7 +141,8 @@ example : UnifierSet.Complete (problem (El := El)) answers := by
   rw [← start_iff]
   -- ⟨id ; X? + Y? = Z? + Z? ; ∅⟩
   -- SOLVE: no aliens; per element x + y = 2z.
-  --   B = {(2,0,1), (1,1,1), (0,2,1)}, the multiplicities of U1! U2! U3! in answer 8.
+  --   B = {(2,0,1), (1,1,1), (0,2,1)}, the multiplicities of U1! U2! U3! in answer 8;
+  --   each basis vector gets a fresh Z.
   refine solve (V := fun (X?, Y?, Z?) => ![X?, Y?, Z?]) (rest := fun _ => ())
     (glue := fun _ V => (V 0, V 1, V 2)) (hglue := fun _ => rfl)
     (a := fun _ => Fin.elim0) (L := ![1, 1, 0]) (R := ![0, 0, 2]) (La := Fin.elim0) (Ra := Fin.elim0)
@@ -168,13 +169,13 @@ example : UnifierSet.Complete (problem (El := El)) answers := by
     · exact ⟨1, fun i => by fin_cases i <;> simp [basis] <;> omega⟩
     · exact ⟨2, fun i => by fin_cases i <;> simp [basis] <;> omega⟩
   case next =>
-    -- leaf ⟨X? ↦ U1!+U1!+U2!, Y? ↦ U2!+U3!+U3!, Z? ↦ U1!+U2!+U3! ; ∅ ; ∅⟩
+    -- leaf ⟨X? ↦ Z1+Z1+Z2, Y? ↦ Z2+Z3+Z3, Z? ↦ Z1+Z2+Z3 ; ∅ ; ∅⟩
     intro π hπ; simp [choices] at hπ; subst hπ
-    -- COVER with answer 8, witness (U1!, U2!, U3!).
-    exact cover answer8 (by simp [answers]) fun (_, U!) _ _ =>
-      ⟨(U! 0, U! 1, U! 2), by
-        obtain ⟨U1!, U2!, U3!, rfl⟩ : ∃ a b c, U! = ![a, b, c] :=
-          ⟨U! 0, U! 1, U! 2, funext fun i => by fin_cases i <;> rfl⟩
+    -- COVER with answer 8: U1! := Z1, U2! := Z2, U3! := Z3.
+    exact cover answer8 (by simp [answers]) fun (_, Z) _ _ =>
+      ⟨(Z 0, Z 1, Z 2), by
+        obtain ⟨Z1, Z2, Z3, rfl⟩ : ∃ a b c, Z = ![a, b, c] :=
+          ⟨Z 0, Z 1, Z 2, funext fun i => by fin_cases i <;> rfl⟩
         simp [State.start, theta, sum, copies, basis, ACU.plus_unit, ACU.unit_plus]
         refine Prod.ext ?_ (Prod.ext ?_ ?_) <;> ac_rfl⟩
 

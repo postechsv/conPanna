@@ -1,0 +1,21 @@
+problem P? + Q? = {wait(N?)} + R?
+answers
+  0: N? := U1!, P? := ∅, Q? := {wait(U1!)}, R? := ∅
+  1: N? := U2!, P? := ∅, Q? := U1! + {wait(U2!)}, R? := U1!
+  2: N? := U2!, P? := U1!, Q? := {wait(U2!)}, R? := U1!
+  3: N? := U2!, P? := U1!, Q? := U3! + {wait(U2!)}, R? := U1! + U3!
+  4: N? := U1!, P? := {wait(U1!)}, Q? := ∅, R? := ∅
+  5: N? := U2!, P? := {wait(U2!)}, Q? := U1!, R? := U1!
+  6: N? := U2!, P? := U1! + {wait(U2!)}, Q? := ∅, R? := U1!
+  7: N? := U2!, P? := U3! + {wait(U2!)}, Q? := U1!, R? := U1! + U3!
+derivation
+  ⊢ - | P? + Q? = {wait(N?)} + R? | -
+  solve P? + Q? = {wait(N?)} + R?
+    vars P? Q? R? | aliens wait(N?) | L (1,1,0) R (0,0,1) La (0) Ra (1)
+    compatible - | P [(1,0,0) (0,1,0)] | B [(1,0,1) (0,1,1)]
+    branch [(1,0,0)]: P? := Z1 + {wait(N?)}, Q? := Z2, R? := Z1 + Z2
+      ⊢ P? := Z1 + {wait(N?)}, Q? := Z2, R? := Z1 + Z2 | - | -
+      cover answer 7 with U1! := Z2, U2! := N?, U3! := Z1
+    branch [(0,1,0)]: P? := Z1, Q? := Z2 + {wait(N?)}, R? := Z1 + Z2
+      ⊢ P? := Z1, Q? := Z2 + {wait(N?)}, R? := Z1 + Z2 | - | -
+      cover answer 3 with U1! := Z1, U2! := N?, U3! := Z2

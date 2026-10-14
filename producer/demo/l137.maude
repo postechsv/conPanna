@@ -1,0 +1,7 @@
+***( Bakery, the L137 example:  < s N, N, P Q > =? < s N, N, wait(N) > )
+load models.maude
+select SHOW .
+red certify('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'Q:ProcSet),
+        '<_`,_`,_>['s['N:Num], 'N:Num, '__['P:ProcSet, 'Q:ProcSet]],
+        '<_`,_`,_>['s['N:Num], 'N:Num, 'wait['N:Num]]) .

@@ -1,0 +1,18 @@
+problem X? + Y? = Z? + Z?
+answers
+  0: X? := ∅, Y? := ∅, Z? := ∅
+  1: X? := U1! + U1!, Y? := ∅, Z? := U1!
+  2: X? := U1!, Y? := U1!, Z? := U1!
+  3: X? := U1! + U2! + U2!, Y? := U1!, Z? := U1! + U2!
+  4: X? := ∅, Y? := U1! + U1!, Z? := U1!
+  5: X? := U1! + U1!, Y? := U2! + U2!, Z? := U1! + U2!
+  6: X? := U1!, Y? := U1! + U2! + U2!, Z? := U1! + U2!
+  7: X? := U1! + U1! + U2!, Y? := U2! + U3! + U3!, Z? := U1! + U2! + U3!
+derivation
+  ⊢ - | X? + Y? = Z? + Z? | -
+  solve X? + Y? = Z? + Z?
+    vars X? Y? Z? | aliens - | L (1,1,0) R (0,0,2) La () Ra ()
+    compatible - | P - | B [(2,0,1) (1,1,1) (0,2,1)]
+    branch []: X? := Z1 + Z1 + Z2, Y? := Z2 + Z3 + Z3, Z? := Z1 + Z2 + Z3
+      ⊢ X? := Z1 + Z1 + Z2, Y? := Z2 + Z3 + Z3, Z? := Z1 + Z2 + Z3 | - | -
+      cover answer 7 with U1! := Z1, U2! := Z2, U3! := Z3

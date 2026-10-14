@@ -1,9 +1,9 @@
 ***(
-  Tests exercising every rule.  Run:  maude -no-banner tests.maude
+  Tests exercising every rule.  Run (from producer/tests):  maude -no-banner rules.maude
   Expected outcome in each comment; `stuck(...)` in an output means the
   strategy found no rule or no covering answer.
 )
-load producer.maude
+load ../lib/producer.maude
 load models.maude
 
 select PRODUCER .

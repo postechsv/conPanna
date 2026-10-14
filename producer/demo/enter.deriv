@@ -1,0 +1,24 @@
+problem "<_,_,_>"(s(K?), K?, {wait(K?)} + P?) = "<_,_,_>"(s(N?), N?, {wait(N?)} + {idle} + {wait(M?)} + Q?)
+answers
+  0: K? := U1!, M? := U2!, N? := U1!, P? := {idle} + {wait(U1!)} + {wait(U2!)}, Q? := {wait(U1!)}
+  1: K? := U1!, M? := U2!, N? := U1!, P? := {idle} + U3! + {wait(U1!)} + {wait(U2!)}, Q? := U3! + {wait(U1!)}
+  2: K? := U1!, M? := U2!, N? := U1!, P? := {idle} + {wait(U2!)}, Q? := ∅
+  3: K? := U1!, M? := U3!, N? := U1!, P? := {idle} + U2! + {wait(U3!)}, Q? := U2!
+  4: K? := U1!, M? := U1!, N? := U1!, P? := {idle} + {wait(U1!)}, Q? := ∅
+  5: K? := U2!, M? := U2!, N? := U2!, P? := {idle} + U1! + {wait(U2!)}, Q? := U1!
+derivation
+  ⊢ - | "<_,_,_>"(s(K?), K?, {wait(K?)} + P?) = "<_,_,_>"(s(N?), N?, {wait(N?)} + {idle} + {wait(M?)} + Q?) | -
+  decomp "<_,_,_>"(s(K?), K?, {wait(K?)} + P?) = "<_,_,_>"(s(N?), N?, {wait(N?)} + {idle} + {wait(M?)} + Q?)  ==>  s(K?) = s(N?); K? = N?; {wait(K?)} + P? = {wait(N?)} + {idle} + {wait(M?)} + Q?
+  ⊢ - | s(K?) = s(N?); K? = N?; {wait(K?)} + P? = {wait(N?)} + {idle} + {wait(M?)} + Q? | -
+  decomp s(K?) = s(N?)  ==>  K? = N?
+  ⊢ - | K? = N?; K? = N?; {wait(K?)} + P? = {wait(N?)} + {idle} + {wait(M?)} + Q? | -
+  elim N? := K?
+  ⊢ N? := K? | K? = K?; P? + {wait(K?)} = {idle} + Q? + {wait(M?)} + {wait(K?)} | -
+  delete K? = K?
+  ⊢ N? := K? | P? + {wait(K?)} = {idle} + Q? + {wait(M?)} + {wait(K?)} | -
+  solve P? + {wait(K?)} = {idle} + Q? + {wait(M?)} + {wait(K?)}
+    vars P? Q? | aliens wait(K?) idle wait(M?) | L (1,0) R (0,1) La (1,0,0) Ra (1,1,1)
+    compatible 0~2 | P [(0,0)] [(1,0)] [(1,0)] | B [(1,1)]
+    branch [(0,0) (1,0) (1,0)]: P? := {idle} + Z1 + {wait(M?)}, Q? := Z1
+      ⊢ N? := K?, P? := {idle} + Z1 + {wait(M?)}, Q? := Z1 | - | -
+      cover answer 3 with U1! := K?, U2! := Z1, U3! := M?

@@ -1,0 +1,344 @@
+<title>Answer-Guided ACU Certification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Sans:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg-full.js"></script>
+<style>
+/* Layout: one reading column like a preprint, section numbers hung in the left margin on wide screens. */
+:root {
+  --paper: #fbfcfd;
+  --ink: #1b2330;
+  --muted: #586274;
+  --rule: #d9dee6;
+  --accent: #23518c;
+  --tint: #eef2f8;
+  --warn: #8a5a00;
+  --warn-tint: #fbf3e2;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12161d; --ink: #e3e7ee; --muted: #9aa4b5; --rule: #2b3340;
+    --accent: #8fb4e6; --tint: #1a212c; --warn: #e2b866; --warn-tint: #2a2416;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12161d; --ink: #e3e7ee; --muted: #9aa4b5; --rule: #2b3340;
+  --accent: #8fb4e6; --tint: #1a212c; --warn: #e2b866; --warn-tint: #2a2416;
+  color-scheme: dark;
+}
+html { background: var(--paper); }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--serif); font-size: 1.075rem; line-height: 1.62;
+  padding-inline: 16px; padding-block: 2.5rem 5rem;
+}
+main { max-width: 42rem; margin-inline: auto; }
+header.front { display: grid; gap: .6rem; padding-bottom: 1.6rem; border-bottom: 1px solid var(--rule); }
+.kicker { font-family: var(--sans); font-size: .74rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1 { font-size: clamp(1.7rem, 4.4vw, 2.35rem); line-height: 1.18; margin: 0; font-weight: 700; text-wrap: balance; }
+.byline { color: var(--muted); font-style: italic; margin: 0; }
+.abstract { margin-top: 1.4rem; padding: 1rem 1.2rem; background: var(--tint); border-radius: 4px; }
+.abstract h2 { font-family: var(--sans); font-size: .74rem; letter-spacing: .09em; text-transform: uppercase; margin: 0 0 .4rem; color: var(--muted); }
+.abstract p { margin: 0; }
+section { position: relative; margin-top: 2.6rem; }
+h2 { font-size: 1.42rem; margin: 0 0 .7rem; line-height: 1.25; text-wrap: balance; }
+h3 { font-size: 1.1rem; margin: 1.6rem 0 .5rem; }
+h2 .num, h3 .num { font-family: var(--sans); color: var(--accent); font-weight: 600; margin-right: .5rem; font-size: .9em; }
+p { margin: .7rem 0; }
+a { color: var(--accent); }
+.env { margin: 1.1rem 0; padding: .1rem 0 .1rem 1rem; border-left: 2px solid var(--accent); }
+.env .label { font-family: var(--sans); font-weight: 600; font-size: .86rem; color: var(--accent); letter-spacing: .02em; }
+.env.proof { border-left-color: var(--rule); }
+.env.proof .label { color: var(--muted); }
+.status { display: inline-block; font-family: var(--sans); font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: .1rem .45rem; border-radius: 3px; margin-left: .4rem; vertical-align: .1em; }
+.status.done { background: var(--tint); color: var(--accent); }
+.status.open { background: var(--warn-tint); color: var(--warn); }
+.note { margin: 1.2rem 0; padding: .8rem 1rem; background: var(--warn-tint); border-radius: 4px; font-size: .97rem; }
+.note b { font-family: var(--sans); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--warn); }
+.rules { display: grid; gap: .2rem; margin: 1rem 0; }
+.rule { overflow-x: auto; padding: .2rem 0; }
+.display { overflow-x: auto; }
+pre { font-family: var(--mono); font-size: .86rem; line-height: 1.5; background: var(--tint); padding: .9rem 1rem; border-radius: 4px; overflow-x: auto; margin: 1rem 0; }
+code { font-family: var(--mono); font-size: .88em; }
+.tablewrap { overflow-x: auto; margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--sans); font-size: .76rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
+dl.gloss { display: grid; grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr); gap: .55rem 1rem; }
+dl.gloss dt { font-weight: 600; }
+dl.gloss dd { margin: 0; }
+ol.refs { padding-left: 1.4rem; font-size: .95rem; }
+ol.refs li { margin: .35rem 0; }
+.todo { color: var(--warn); font-family: var(--sans); font-size: .8rem; font-weight: 600; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem; }
+@media (min-width: 62rem) {
+  h2 .num { position: absolute; left: -3rem; width: 2.4rem; text-align: right; margin: 0; }
+}
+@media (max-width: 34rem) {
+  dl.gloss { grid-template-columns: minmax(0, 1fr); gap: .15rem; }
+  dl.gloss dd { margin-bottom: .6rem; }
+}
+</style>
+
+<main>
+<header class="front">
+  <span class="kicker">Working draft · 14 October 2026</span>
+  <h1>Answer-Guided Certification of Complete Sets of ACU Unifiers</h1>
+  <p class="byline">Authors to be added. Draft prepared from the conPanna project notes.</p>
+  <div class="abstract">
+    <h2>Abstract</h2>
+    <p>Rewriting tools such as Maude compute finite complete sets of unifiers modulo associativity, commutativity and unit (ACU). A proof assistant that uses such a set must trust that it is complete: that every solution is an instance of some returned answer. We give a small calculus whose derivations prove completeness of a <em>given</em> answer set in Lean. The calculus never recomputes unifiers. Its single ACU rule takes its arithmetic data (minimal particular solutions and a Hilbert basis) from the answers themselves, and checks it with closed Presburger side conditions. Each leaf of a derivation is one unifier, closed by naming the answer that covers it. We prove the rules sound once, as generic theorems over a quotient representation of bags, and sketch why a derivation always exists when the answer set is complete. A Lean prototype certifies linear, nonlinear and mixed free/ACU problems against Maude's verbatim output.</p>
+  </div>
+</header>
+
+<section id="intro">
+<h2><span class="num">1</span>Introduction</h2>
+<p>Unification modulo ACU, the theory of a commutative monoid, appears whenever system states are modelled as multisets: process bags, message soups, object configurations. Maude computes finite complete sets of ACU unifiers, and symbolic analyses such as narrowing and symbolic reachability rely on them. If such an analysis is to be checked in a proof assistant, the completeness of each unifier set becomes a proof obligation.</p>
+<p>Completeness is a ∀∃ statement. For every solution $\gamma$ of the problem, there is an answer $\sigma$ and a witness $\beta$ with $\gamma = \beta\circ\sigma$. Two obvious routes are unattractive. Verifying an ACU unification algorithm inside the assistant means formalizing Diophantine solving and the combination of theories. Replaying the algorithm as a proof search duplicates exactly the work the external tool has already done.</p>
+<p>We take a third route. The external tool already holds the answers, and the answers contain the hard data. A minimal complete set of ACU unifiers is built from the minimal solutions of a linear Diophantine system, and those solutions are visible in the answers as multiplicities of their variables. Our calculus reads them back, lets the proof assistant check a few closed arithmetic facts about them, and uses a generic theorem to turn those facts into a case split of the solution space. What remains at each leaf is a single unifier, and the given answer set covers it by assumption.</p>
+<p><b>Contributions.</b></p>
+<ol>
+  <li>A judgment $\langle\alpha;E;D\rangle \Vdash \Sigma$ and a calculus for free constructors plus ACU bags (§3). It has one ACU rule, <span style="font-variant:small-caps">Solve</span>, whose data comes from the answers.</li>
+  <li>Soundness: each rule is one generic theorem, so every derivation proves completeness (§4).</li>
+  <li>Search completeness (§5), stated for any rule set meeting four local obligations: if the answer set is complete, a derivation exists. Leaves are unifiers, so the standard syntactic notion of completeness supplies every leaf's witness.</li>
+  <li>A shallow Lean encoding in which bag sorts are quotient types isomorphic to multisets, side conditions are discharged by <code>omega</code>, and leaves by <code>ac_rfl</code>. It is evaluated against Maude's output (§7).</li>
+</ol>
+</section>
+
+<section id="prelim">
+<h2><span class="num">2</span>Preliminaries</h2>
+
+<h3><span class="num">2.1</span>Sorts, bags and stratification</h3>
+<p>A signature has <em>free sorts</em>, given by ordinary constructors with no equations, and <em>bag sorts</em> $\mathsf{Bag}(S)$ for an element sort $S$. A bag term is built from $\varnothing$, singletons $\{t\}$ with $t : S$, and the binary union $\cup$. Union is associative and commutative with unit $\varnothing$. We write $k\cdot T$ for the union of $k$ copies of $T$.</p>
+<p>In a singleton $\{t\}$ the term $t$ is an <em>alien</em>: it is not built from $\cup$, so the bag theory treats it as an opaque atom. The term follows the literature on combining unification algorithms. In $X \cup \{\mathsf{wait}(N)\}$ the alien is $\mathsf{wait}(N)$.</p>
+<div class="env"><span class="label">Definition 1 (stratified).</span> A signature is <em>stratified</em> if no sort reaches itself through $\mathsf{Bag}$. Equivalently, the sorts can be ranked so that every alien has a strictly lower rank than its bag.</div>
+<p>Process bags over a free state type are stratified. A tree whose node holds a bag of trees is not; we exclude it (§9).</p>
+
+<h3><span class="num">2.2</span>Solutions, unifiers and completeness</h3>
+<p>A problem $E_0$ is a finite set of equations $s \stackrel{?}{=} t$ over <em>original variables</em> $X_1,\dots,X_n$. We distinguish two notions:</p>
+<ul>
+  <li>A <em>solution</em> is a valuation $\gamma$ of the original variables in the intended model (bags as finite multisets, free sorts as their inductive types) such that $\gamma(s)=\gamma(t)$ for every equation. It is semantic.</li>
+  <li>A <em>unifier</em> is a substitution $\theta$ by terms, which may contain variables, such that $\theta(s) =_{ACU} \theta(t)$ as terms. It is syntactic.</li>
+</ul>
+<p>An answer $\sigma$ <em>covers</em> $\gamma$ if $\gamma = \beta\circ\sigma$ for some valuation $\beta$ of $\sigma$'s own variables, the <em>witness</em>. The answer's variables are thus existentially quantified. The same wording applies to unifiers, with $\beta$ a substitution.</p>
+<div class="env"><span class="label">Definition 2 (completeness).</span> A finite answer set $\Sigma$ is <em>complete</em> for $E_0$ if every solution is covered by some $\sigma\in\Sigma$. It is <em>syntactically complete</em> if every unifier is covered, up to $=_{ACU}$, by some $\sigma\in\Sigma$.</div>
+<p>Semantic completeness is the statement we prove in Lean. Syntactic completeness is what a unification algorithm guarantees, and it is the hypothesis of our search-completeness argument. <em>Answer soundness</em>, that each $\sigma$ is a unifier, is a separate and easy check, made answer by answer.</p>
+<p><b>Notation.</b> In examples, original variables are written $X?$, the answers' own (existential) variables $U!$, and the fresh variables introduced by a derivation $Z$.</p>
+
+<h3><span class="num">2.3</span>Counting, particular solutions and Hilbert bases</h3>
+<p>Fix bag variables $V_1,\dots,V_n$ of one bag sort and an element $e$. The <em>count vector</em> of $e$ is $v\in\mathbb N^n$, where $v_i$ is the number of copies of $e$ in $V_i$.</p>
+<div class="env"><span class="label">Example 1 (count vectors).</span> Let $X=\{a,a,b\}$ and $Y=\{b\}$. The count vector of $a$ is $(2,0)$, that of $b$ is $(1,1)$, and every other element has $(0,0)$. A pair of bags is the same thing as one count vector per element, with only finitely many nonzero.</div>
+<p>Bag equations become linear equations over count vectors: union adds counts, $k\cdot X$ multiplies them by $k$, and $\{t\}$ contributes $1$ at the value of $t$ and $0$ elsewhere. Suppose the aliens of the system are pairwise distinct. Then at each element the system reads</p>
+<div class="display">$$A\,v = d_c \ \text{ if } e = a_c, \qquad A\,v = 0 \ \text{ otherwise.}$$</div>
+<p>Here $A\in\mathbb Z^{r\times n}$ collects the variable coefficients (left side minus right side) and $d_c$ is the net count of alien $a_c$ (right side minus left side).</p>
+<div class="env"><span class="label">Example 2 (from bags to arithmetic).</span> The equation $X \cup X \stackrel{?}{=} Y \cup \{a\}$ has $A = (2,\ {-1})$. At the element $a$ the count vector $(x,y)$ must satisfy $2x = y + 1$; at every other element it must satisfy $2x = y$. For instance $X=\{a,b\}$, $Y=\{a,b,b\}$ is a solution: at $a$, $(1,1)$ gives $2=1+1$; at $b$, $(1,2)$ gives $2=2$.</div>
+<p>Write $\le$ for the component-wise order on $\mathbb N^n$.</p>
+<div class="env"><span class="label">Definition 3.</span> A <em>particular solution</em> of $A v = d$ is any of its solutions. It is <em>minimal</em> if no other solution lies strictly below it. The <em>Hilbert basis</em> of $A v = 0$ is the set of its minimal nonzero solutions; it is finite.</div>
+<div class="env"><span class="label">Example 3 (one particular solution, one basis vector).</span> For $2x = y+1$ the solutions are $(1,1), (2,3), (3,5), \dots$; the only minimal one is $p=(1,1)$. For $2x = y$ the solutions are $(0,0), (1,2), (2,4),\dots$, and the Hilbert basis is $\{(1,2)\}$. Every solution at $a$ is $(1,1) + k\,(1,2)$, and every solution elsewhere is $k\,(1,2)$. Read back as bags, with a bag $U!$ collecting the $k$'s:
+$$X \mapsto \{a\}\cup U!,\qquad Y\mapsto \{a\}\cup U!\cup U! .$$
+This is Maude's most general answer. The multiplicities of $U!$ in the two bindings are the basis vector $(1,2)$, and the multiplicities of $a$ are the particular solution $(1,1)$.</div>
+<div class="env"><span class="label">Example 4 (several basis vectors).</span> For $X\cup Y \stackrel{?}{=} Z \cup Z$ each element gives $x + y = 2z$. The Hilbert basis has three vectors, $(2,0,1)$, $(1,1,1)$ and $(0,2,1)$, one answer variable each:
+$$X\mapsto U_1!\cup U_1!\cup U_2!,\qquad Y\mapsto U_2!\cup U_3!\cup U_3!,\qquad Z\mapsto U_1!\cup U_2!\cup U_3! .$$
+Decompositions need not be unique: $(2,2,2) = (2,0,1)+(0,2,1) = 2\cdot(1,1,1)$. Our rule never needs uniqueness.</div>
+<p>Every solution of $Av = 0$ is a sum of Hilbert basis vectors with multiplicities in $\mathbb N$. Every solution of $A v = d$ lies above some minimal particular solution. Our rule uses only the following weaker <em>domination</em> properties, which are closed formulas of Presburger arithmetic:</p>
+<div class="display">$$\textsf{(S2)}\ \ \forall v.\ Av=d_c \Rightarrow \bigvee_{p\in P_c} p\le v \qquad\qquad \textsf{(S3)}\ \ \forall v.\ Av=0 \wedge v\neq 0 \Rightarrow \bigvee_{b\in B} b\le v$$</div>
+<div class="env"><span class="label">Example 5 (domination drives a decomposition).</span> Take $x+y=2z$ and the solution $v=(3,1,2)$. By (S3) some basis vector lies below it, here $(2,0,1)$. Subtracting it leaves $(1,1,1)$, again a solution, since both vectors solve a homogeneous system. Next $(1,1,1)$ lies below itself, and subtracting it leaves $0$. So $v = (2,0,1)+(1,1,1)$. Peeling one basis vector at a time is exactly how the soundness proof of §4 builds the fresh bags.</div>
+<div class="env"><span class="label">Example 6 (what the checks reject).</span> Drop $(1,1,1)$ from the basis of Example 4. Then (S3) fails at $v=(1,1,1)$, because neither $(2,0,1)$ nor $(0,2,1)$ lies below it, and <code>omega</code> refuses the formula. Conversely, for $X\cup X\stackrel{?}{=}Y\cup Y\cup\{a\}$ the system at $a$ is $2x = 2y+1$. It has no solution, so $P=\varnothing$ is accepted: (S2) reduces to the parity fact that $2x\neq 2y+1$.</div>
+</section>
+
+<section id="calculus">
+<h2><span class="num">3</span>The Calculus</h2>
+
+<h3><span class="num">3.1</span>Judgment</h3>
+<p>A state is a triple $\langle\alpha;E;D\rangle$ over a context of variables:</p>
+<ul>
+  <li>$\alpha$ maps each original variable to a term;</li>
+  <li>$E$ is a set of pending equations;</li>
+  <li>$D$ is a set of disequations between aliens.</li>
+</ul>
+<div class="env"><span class="label">Definition 4 (validity).</span> $\langle\alpha;E;D\rangle\Vdash\Sigma$ holds if for every valuation $\rho$ of the context variables with $\rho\models E$ and $\rho\models D$, the solution $\rho\circ\alpha$ is covered by $\Sigma$.</div>
+<p>The initial state is $\langle\mathrm{id};E_0;\varnothing\rangle$, and its validity is exactly completeness of $\Sigma$. The context variables are universally quantified: initially the original variables $X?$, later also the fresh variables $Z$ introduced by <span style="font-variant:small-caps">Solve</span>. The answers' own variables $U!$ never enter a state; they are instantiated only by <span style="font-variant:small-caps">Cover</span>'s witness.</p>
+
+<h3><span class="num">3.2</span>Free rules and identification</h3>
+<p>Rules are read bottom-up. A rule without premises closes its branch.</p>
+<div class="rules">
+<div class="rule">$$\frac{\langle\alpha;E;D\rangle\Vdash\Sigma}{\langle\alpha;E,\ t\stackrel{?}{=}t;D\rangle\Vdash\Sigma}\ \textsf{Delete}
+\qquad
+\frac{\langle\alpha;E,\ \vec s\stackrel{?}{=}\vec t;D\rangle\Vdash\Sigma}{\langle\alpha;E,\ f(\vec s)\stackrel{?}{=}f(\vec t);D\rangle\Vdash\Sigma}\ \textsf{Decomp}$$</div>
+<div class="rule">$$\frac{}{\langle\alpha;E,\ f(\vec s)\stackrel{?}{=}g(\vec t);D\rangle\Vdash\Sigma}\ \textsf{Clash}\ (f\ne g)
+\qquad
+\frac{}{\langle\alpha;E,\ V\stackrel{?}{=}t;D\rangle\Vdash\Sigma}\ \textsf{Occurs}\ (V \sqsubset t)$$</div>
+<div class="rule">$$\frac{\langle\alpha[V{:=}t];\ E[V{:=}t];\ D[V{:=}t]\rangle\Vdash\Sigma}{\langle\alpha;E,\ V\stackrel{?}{=}t;D\rangle\Vdash\Sigma}\ \textsf{Elim}\ (V\notin t)$$</div>
+<div class="rule">$$\frac{\langle\alpha;E,\ s\stackrel{?}{=}t;D\rangle\Vdash\Sigma \qquad \langle\alpha;E;D,\ s\neq t\rangle\Vdash\Sigma}{\langle\alpha;E;D\rangle\Vdash\Sigma}\ \textsf{Identify}
+\qquad
+\frac{}{\langle\alpha;E;D,\ s\neq t\rangle\Vdash\Sigma}\ \textsf{Distinct}\ (s=_{ACU}t)$$</div>
+</div>
+<p>In <span style="font-variant:small-caps">Decomp</span> and <span style="font-variant:small-caps">Clash</span>, $f$ and $g$ are free constructors. In <span style="font-variant:small-caps">Occurs</span>, $V\sqsubset t$ means that $V$ occurs strictly inside $t$ along free constructors. By stratification, an occurrence of $V$ can never pass through a bag of its own sort. <span style="font-variant:small-caps">Identify</span> applies to two aliens. Its equal branch continues at their strictly lower sort.</p>
+
+<h3><span class="num">3.3</span>The ACU rule</h3>
+<p>Let $\mathcal B$ be some pending equations of one bag sort (possibly a single one), and $E'$ the rest. Let $V_1,\dots,V_n$ be the bag variables of $\mathcal B$.</p>
+<p><b>Alien classes and compatibility.</b> Two aliens of $\mathcal B$ are in the same <em>class</em> if they are syntactically identical or connected by pending equations in $E'$; such equations stay in $E'$ and are solved later, at the aliens' lower sort. Pick a representative $a_c$ for each class $c$. Two classes are <em>incompatible</em> if they can never denote the same element: a pair of their aliens is recorded as distinct in $D$, or the equation between them is refuted by the free rules (<span style="font-variant:small-caps">Clash</span>, <span style="font-variant:small-caps">Occurs</span>). Otherwise they are <em>compatible</em>. A <em>clique</em> is a set of pairwise compatible classes. Under a given valuation, the classes that denote the same element always form a clique. Let $A$ and $d_c$ be as in §2.3.</p>
+<p>The rule's data is a finite set $P_c\subseteq\mathbb N^n$ for each class, and $B=\{b_1,\dots,b_k\}\subseteq\mathbb N^n\setminus\{0\}$. For a choice $\pi=(p_c)_c\in\prod_c P_c$, define the substitution</p>
+<div class="display">$$\theta_\pi \;=\; \Bigl[\,V_i := \bigcup_c p_{c,i}\cdot\{a_c\} \;\cup\; \bigcup_{j=1}^{k} b_{j,i}\cdot Z_j\,\Bigr]_{i=1..n}$$</div>
+<p>with $Z_1,\dots,Z_k$ fresh bag variables, one per basis vector.</p>
+<div class="rule">$$\frac{\textsf{(S1)}\quad \textsf{(S2)}\quad \textsf{(S3)} \qquad \langle\alpha\theta_\pi;\ E'\theta_\pi;\ D\theta_\pi\rangle\Vdash\Sigma\ \ \text{for every }\pi\in\textstyle\prod_c P_c}{\langle\alpha;\ E',\mathcal B;\ D\rangle\Vdash\Sigma}\ \textsf{Solve}$$</div>
+<p>Side condition (S1) says $A p = d_c$ for $p\in P_c$, and $A b = 0$ for $b\in B$. (S3) is the domination property of §2.3. (S2) is required for every clique $G$, since the classes of $G$ may denote one element whose count is the sum of theirs:</p>
+<div class="display">$$\textsf{(S2)}\ \ \forall v.\ A v=\textstyle\sum_{c\in G} d_c \;\Rightarrow\; \exists\,(p_c\in P_c)_{c\in G}.\ \ \sum_{c\in G}p_c\le v .$$</div>
+<p>For a single class this is the domination property of §2.3. All side conditions are closed formulas of linear arithmetic, so they are checked, not searched. <span style="font-variant:small-caps">Identify</span> is needed only when (S2) fails for some clique; it then decides a pair of that clique.</p>
+<div class="env"><span class="label">Example 7 (when Identify is needed).</span> In $\{w(K)\}\cup P \stackrel{?}{=} \{w(K)\}\cup\{\mathit{idle}\}\cup\{w(M)\}\cup Q$, the aliens $w(K)$ and $\mathit{idle}$ are incompatible, while $w(K)$ and $w(M)$ are compatible. The classes give $p = q$, $p = q + 1$ and $p = q + 1$, with $P = \{(0,0)\}, \{(1,0)\}, \{(1,0)\}$ and $B = \{(1,1)\}$. For the clique $\{w(K), w(M)\}$, merging gives $p = q+1$, and every solution lies above $(0,0)+(1,0)$, so (S2) holds. One <span style="font-variant:small-caps">Solve</span> covers both $K = M$ and $K \neq M$. In contrast, for $X\cup X\stackrel{?}{=}\{a\}\cup\{b\}$ each class alone gives $2x = 1$, so $P_a = P_b = \varnothing$, but merging gives $2x = 2$ with the solution $x = 1$, which lies above no sum. (S2) fails for $\{a, b\}$, and <span style="font-variant:small-caps">Identify</span> must split $a = b$ from $a \neq b$.</div>
+<p>The data is read off the answers. In a most general answer, the multiplicity of its variable $U_j!$ in the binding of $V_i$ is $b_{j,i}$, and the multiplicity of alien $a_c$ is $p_{c,i}$. Each answer variable thus becomes one fresh variable $Z_j$ of the derivation.</p>
+
+<h3><span class="num">3.4</span>Leaves</h3>
+<div class="rule">$$\frac{}{\langle\alpha;\varnothing;D\rangle\Vdash\Sigma}\ \textsf{Cover}\quad(\sigma\in\Sigma,\ \ \alpha =_{ACU} \beta\circ\sigma)$$</div>
+<p>The witness $\beta$ maps the answer's variables $U!$ to terms over the context. It is supplied by the external tool, found by ACU matching of $\alpha$ against $\sigma$; the proof assistant only checks the equation.</p>
+
+<h3><span class="num">3.5</span>Derived rules</h3>
+<p>The familiar bag rules are instances of <span style="font-variant:small-caps">Solve</span>:</p>
+<ul>
+  <li>$X\cup Y \stackrel{?}{=} \varnothing$ has no aliens and $B=\varnothing$.</li>
+  <li>$X\cup Y\stackrel{?}{=}\{a\}$ has $P=\{(1,0),(0,1)\}$, $B=\varnothing$.</li>
+  <li>$X\cup Y \stackrel{?}{=} Z\cup W$ has no aliens, and $B$ is the four "grid cell" vectors, which correspond to the refinement property of free commutative monoids.</li>
+</ul>
+</section>
+
+<section id="soundness">
+<h2><span class="num">4</span>Soundness</h2>
+<div class="env"><span class="label">Theorem 1 (rule validity).</span><span class="status done">Mechanized</span> If all premises of a rule are valid, so is its conclusion. Hence a derivation of $\langle\mathrm{id};E_0;\varnothing\rangle\Vdash\Sigma$ proves that $\Sigma$ is complete for $E_0$.</div>
+<div class="env proof"><span class="label">Proof.</span> The free rules and <span style="font-variant:small-caps">Identify</span> follow from injectivity and disjointness of constructors, a size argument for <span style="font-variant:small-caps">Occurs</span>, and case analysis on equality. <span style="font-variant:small-caps">Cover</span> is the definition of covering. For <span style="font-variant:small-caps">Solve</span>, let $\rho$ satisfy $\mathcal B$ and $D$, and let $v_e$ be the count vector of each element $e$ under $\rho$. Bags are multisets. The classes whose aliens denote $e$ form a clique $G_e$, possibly empty, so $A v_e = \sum_{c\in G_e} d_c$.
+<ul>
+  <li>At each element $e$ with $G_e$ nonempty, (S2) for $G_e$ gives $p_c\in P_c$ $(c\in G_e)$ with $\sum_{c} p_c\le v_e$, and by (S1) the difference solves the homogeneous system. Removing these copies leaves a homogeneous solution at every element; the chosen $p_c$ form one choice $\pi$, since every class denotes exactly one element.</li>
+  <li>Now induct on the total size of the remaining bags. If some count vector $v_e$ is nonzero, (S3) gives $b_j\le v_e$, and by (S1) the vector $v_e-b_j$ is still a solution. Remove one copy of $e$ according to $b_j$, apply the induction hypothesis, and add $\{e\}$ to $Z_j$.</li>
+</ul>
+The result is a valuation of the $Z_j$ under which $\rho = \rho'\circ\theta_\pi$, with $\pi$ the chosen particular parts. The premise for $\pi$ then applies. ∎</div>
+</section>
+
+<section id="completeness">
+<h2><span class="num">5</span>Search Completeness</h2>
+<p>We state search completeness for any rule set whose rules meet four local obligations. A change to one rule then only requires re-checking that rule.</p>
+<p>Fix a <em>rank</em> for every sort: a total order in which a sort's terms only contain terms of the same or lower rank. Stratification makes every bag sort rank strictly above its element sort. Each rule application acts at one rank. For a rule with conclusion $\langle\alpha;E;D\rangle$ and a premise $\langle\alpha';E';D'\rangle$:</p>
+<ul>
+  <li><b>(O1) Validity.</b> The rule is sound (Theorem 1).</li>
+  <li><b>(O2) Unifier preservation.</b> There is a substitution $\tau$ with $\alpha'=\alpha\circ\tau$, such that $\tau\circ\mu$ unifies $E$ whenever $\mu$ unifies $E'$.</li>
+  <li><b>(O3) Applicability.</b> In every state with $E\neq\varnothing$ reached by the strategy, some rule applies with data meeting its side conditions.</li>
+  <li><b>(O4) Progress.</b> Each non-closing step strictly decreases a well-founded measure, and has finitely many premises.</li>
+</ul>
+<p>(O2) gives an invariant: for every unifier $\mu$ of $E$, $\alpha\circ\mu$ is a unifier of $E_0$. It holds initially ($\alpha=\mathrm{id}$, $E=E_0$) and is preserved by every step. The disequations $D$ play no part in it.</p>
+<div class="env"><span class="label">Theorem 2 (search completeness).</span><span class="status done">Relative to O1–O4</span> Let the rules and strategy satisfy (O1)–(O4), and let $\Sigma$ be syntactically complete for $E_0$. Then $\langle\mathrm{id};E_0;\varnothing\rangle\Vdash\Sigma$ has a finite derivation.</div>
+<div class="env proof"><span class="label">Proof.</span> Build the tree with the strategy. It is finite by (O4) and König's lemma. By (O3), every leaf either closes by a rule without premises or has $E=\varnothing$. In the latter case, the invariant with $\mu=\mathrm{id}$ makes $\alpha$ a unifier of $E_0$. Syntactic completeness then gives $\sigma\in\Sigma$ and $\beta$ with $\alpha=_{ACU}\beta\circ\sigma$, and <span style="font-variant:small-caps">Cover</span> closes the leaf. ∎</div>
+<p>Leaves are single unifiers with variables, not sets of values. So we never face the question whether one answer covers a whole region of solutions; syntactic completeness, which the unification algorithm guarantees, answers it directly. The derivation proves the semantic statement, and the two notions of completeness meet exactly at <span style="font-variant:small-caps">Cover</span>.</p>
+<p><b>Discharging the obligations.</b> The strategy processes ranks from the top down. At a free rank it uses the free rules. At a bag rank it applies <span style="font-variant:small-caps">Solve</span>, unless (S2) fails for a clique of compatible classes; then it applies <span style="font-variant:small-caps">Identify</span> to a pair of that clique.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Rule</th><th>(O2) $\tau$</th><th>(O3) applies when</th><th>(O4) decreases</th></tr></thead>
+<tbody>
+<tr><td>Delete</td><td>$\mathrm{id}$</td><td>$t\stackrel{?}{=}t$</td><td>one equation removed</td></tr>
+<tr><td>Decomp</td><td>$\mathrm{id}$</td><td>same free head</td><td>equation replaced by smaller ones, same or lower rank</td></tr>
+<tr><td>Elim</td><td>$[V{:=}t]$</td><td>$V\notin t$</td><td>one variable of this rank removed</td></tr>
+<tr><td>Clash, Occurs, Distinct</td><td colspan="3">closing rules; a variable occurring in its own free-sort definition does so along free constructors, by stratification</td></tr>
+<tr><td>Identify</td><td>$\mathrm{id}$</td><td>a pair of compatible classes in a clique violating (S2)</td><td>compatible pairs at this rank; the new equation has lower rank</td></tr>
+<tr><td>Solve</td><td>$\theta_\pi$, valid by (S1)</td><td>(S2) holds for every clique; true minimal particulars and Hilbert basis satisfy (S1), (S3), and (S2) for single classes</td><td>the equations of $\mathcal B$ removed, none added at this rank</td></tr>
+</tbody></table></div>
+<p>For (O3) of <span style="font-variant:small-caps">Solve</span>: the Hilbert basis satisfies (S3), since a nonzero solution is a sum of basis vectors and any summand lies below it. Minimal particular solutions satisfy (S2) for the same reason, and both sets are finite by Dickson's lemma. As the measure we propose the lexicographic combination, from the highest rank down, of three counts at each rank: variables occurring in $E$, the multiset of equation sizes, and compatible alien pairs. A step at rank $r$ changes only rank $r$ and lower ranks.</p>
+<div class="note"><b>Open in this draft.</b> A careful check of the measure against <span style="font-variant:small-caps">Elim</span>, which can enlarge other equations of the same rank; as in syntactic unification, this is meant to be absorbed by the variable count. A proof that the answers' most general elements always expose the full Hilbert basis, which is observed in §7 but not needed for Theorem 2.</div>
+</section>
+
+<section id="examples">
+<h2><span class="num">6</span>Examples</h2>
+<h3><span class="num">6.1</span>Mixed free and ACU</h3>
+<p>Take $X? \cup \{w(N?)\} \stackrel{?}{=} Y?\cup\{w(M?)\}$ with $w$ a free constructor over $\mathbb N$. Maude returns four answers, numbered from 0; answer 1 is $X?\mapsto U_3!\cup\{w(U_2!)\}$, $Y?\mapsto U_3!\cup\{w(U_1!)\}$, $N?\mapsto U_1!$, $M?\mapsto U_2!$, and answer 3 is $X?, Y?\mapsto U_1!$, $N?, M?\mapsto U_2!$. The derivation has two leaves:</p>
+<pre>IDENTIFY  w(N?) vs w(M?)
+├─ equal:    DECOMP  N? = M?;  ELIM M? := N?
+│            SOLVE   aliens cancel: x = y;   P = {0},  B = {(1,1)}
+│            leaf    X? ↦ Z1,  Y? ↦ Z1,  M? ↦ N?
+│            COVER   answer 3,  U1! := Z1,  U2! := N?
+└─ distinct: SOLVE   at w(N?): x + 1 = y,  P = {(0,1)}
+                     at w(M?): x = y + 1,  P = {(1,0)}
+                     elsewhere: x = y,     B = {(1,1)}
+             leaf    X? ↦ Z1 ∪ {w(M?)},  Y? ↦ Z1 ∪ {w(N?)}
+             COVER   answer 1,  U1! := N?,  U2! := M?,  U3! := Z1</pre>
+
+<h3><span class="num">6.2</span>Nonlinear</h3>
+<p>For $X?\cup Y?\stackrel{?}{=}Z?\cup Z?$, each element contributes $x+y=2z$. Its Hilbert basis $\{(2,0,1),(1,1,1),(0,2,1)\}$ is exactly the multiplicities of the variables of Maude's most general answer:</p>
+<div class="display">$$X?\mapsto U_1!\cup U_1!\cup U_2!,\qquad Y?\mapsto U_2!\cup U_3!\cup U_3!,\qquad Z?\mapsto U_1!\cup U_2!\cup U_3!.$$</div>
+<p>One <span style="font-variant:small-caps">Solve</span> step, with fresh variables $Z_1, Z_2, Z_3$ for the three basis vectors, produces this answer as its only leaf, covered with $U_j! := Z_j$. Condition (S3) is the single formula</p>
+<div class="display">$$x+y=2z\ \wedge\ (x,y,z)\ne 0 \;\Rightarrow\; (2\le x\wedge 1\le z)\vee(1\le x\wedge1\le y\wedge 1\le z)\vee(2\le y\wedge1\le z),$$</div>
+<p>which <code>omega</code> proves. Dropping $(1,1,1)$ from $B$ makes it fail at $v=(1,1,1)$, so an incomplete basis is rejected.</p>
+</section>
+
+<section id="impl">
+<h2><span class="num">7</span>Implementation and Evaluation</h2>
+<p><b>Shallow encoding.</b> Each bag sort is an instance of one template: raw trees $\varnothing \mid \{s\} \mid t\cup u$, the least congruence generated by the ACU axioms, and the quotient type. We prove once that the quotient is isomorphic to <code>Multiset</code>. Every ACU fact then reduces to element counts. Free sorts are ordinary Lean inductives, so <span style="font-variant:small-caps">Decomp</span> and <span style="font-variant:small-caps">Clash</span> are built-in constructor facts. Associativity, commutativity and unit instances for union let <code>ac_rfl</code> check <span style="font-variant:small-caps">Cover</span> and answer soundness.</p>
+<p><b>Mechanized.</b> The isomorphism; every rule of §3 as a generic theorem, including <span style="font-variant:small-caps">Solve</span> in its clique form; and completeness of Maude's verbatim answer sets for a linear, a nonlinear (§6.2) and a mixed (§6.1) problem.</p>
+<p><b>Answer shape.</b> We ran Maude's ACU unification on problems chosen to stress the rule.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Problem</th><th>Per-element system</th><th class="num">Answers</th><th>Most general answers expose</th></tr></thead>
+<tbody>
+<tr><td>$XX = Ya$</td><td>$2x = y + [a]$</td><td class="num">2</td><td>$p=(1,1)$, $b=(1,2)$</td></tr>
+<tr><td>$XX = YYa$</td><td>$2x=2y+1$</td><td class="num">0</td><td>$P=\varnothing$ (parity)</td></tr>
+<tr><td>$XX = YYY$</td><td>$2x = 3y$</td><td class="num">2</td><td>$b=(3,2)$</td></tr>
+<tr><td>$XY = ZZ$</td><td>$x+y=2z$</td><td class="num">8</td><td>full Hilbert basis (3 vectors)</td></tr>
+<tr><td>$XX = Yaa$</td><td>$2x=y+2[a]$</td><td class="num">2</td><td>$p=(1,0)$, $b=(1,2)$</td></tr>
+<tr><td>$XY = ZZa$</td><td>$x+y=2z+[a]$</td><td class="num">16</td><td>two particulars × full basis</td></tr>
+<tr><td>$XX=Ya,\ Y=Zb$</td><td>2 equations</td><td class="num">2</td><td>one particular per alien, full basis</td></tr>
+<tr><td>$X\,w(N) = Y\,w(M)$</td><td>mixed</td><td class="num">4</td><td>one answer per identification case</td></tr>
+</tbody></table></div>
+<p>In every case, the answer set is the product of the minimal particular solutions and all subsets of the Hilbert basis. Only the most general answers, with the full basis, are needed for <span style="font-variant:small-caps">Cover</span>. The others are special cases with some variables set to $\varnothing$.</p>
+
+</section>
+
+<section id="related">
+<h2><span class="num">8</span>Related Work</h2>
+<p class="todo">To be completed; citations below are placeholders to verify.</p>
+<p>AC and ACU unification reduce to linear Diophantine systems over $\mathbb N$ [Stickel; Fages]. Hilbert bases and their completeness criteria are studied in [Pottier; Contejean and Devie]. The combination of unification algorithms for disjoint theories, including the treatment of alien subterms, is due to [Baader and Schulz]. Maude's unification and narrowing infrastructure is described in [Clavel et al.; Durán, Eker, Escobar, Meseguer et al.]. Certified checking of untrusted tool output is established practice in termination analysis [CeTA; CoLoR] and is the general idea of certifying algorithms [McConnell et al.]. To our knowledge, checking completeness of a given ACU unifier set by reusing the answers' own arithmetic data has not been described. This claim needs a literature check.</p>
+<ol class="refs">
+  <li>M. E. Stickel. A unification algorithm for associative-commutative functions. <i>J. ACM</i>, 1981.</li>
+  <li>F. Baader, K. U. Schulz. Unification in the union of disjoint equational theories: combining decision procedures. <i>J. Symbolic Computation</i>, 1996.</li>
+  <li>E. Contejean, H. Devie. An efficient incremental algorithm for solving systems of linear Diophantine equations. <i>Information and Computation</i>, 1994.</li>
+  <li>R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer. Certifying algorithms. <i>Computer Science Review</i>, 2011.</li>
+  <li><span class="todo">Remaining entries to be added and verified.</span></li>
+</ol>
+</section>
+
+<section id="limits">
+<h2><span class="num">9</span>Limitations and Future Work</h2>
+<ul>
+  <li><b>Recursive bag sorts.</b> Supporting them needs a joint quotient over mutually defined raw syntax. The rules are unchanged; only the normal-form theorem changes.</li>
+  <li><b>Cost of the side conditions.</b> <code>omega</code> is exponential in the worst case, and its behaviour on large systems is unmeasured.</li>
+  <li><b>Producer.</b> A Maude strategy that emits derivations (§5) and a compact derivation format are future work.</li>
+  <li><b>Other theories and interpreted functions.</b> Operators with further equations (idempotence, etc.) and interpreted functions such as $n+m$ on $\mathbb N$ are out of scope. A successor $n+1$ is allowed, because it is the constructor $\mathsf{succ}\,n$.</li>
+  <li><b>Nested bags.</b> Whether <code>ac_rfl</code> handles two union operators at once, as in $\mathsf{Bag}(\mathsf{Bag}(S))$, is untested.</li>
+</ul>
+</section>
+
+<section id="glossary">
+<h2><span class="num">A</span>Glossary</h2>
+<dl class="gloss">
+  <dt>ACU</dt><dd>Associativity, commutativity and unit: the equations of a commutative monoid. Here the monoid is bags under union.</dd>
+  <dt>Alien</dt><dd>A term $t$ in a singleton $\{t\}$. It is opaque to the bag theory.</dd>
+  <dt>Stratified</dt><dd>No sort contains bags of itself, directly or indirectly.</dd>
+  <dt>Solution</dt><dd>Values for the original variables that satisfy the equations.</dd>
+  <dt>Unifier</dt><dd>A substitution by terms with variables that satisfies the equations as ACU identities.</dd>
+  <dt>Covers</dt><dd>$\sigma$ covers $\gamma$ if $\gamma=\beta\circ\sigma$ for some witness $\beta$.</dd>
+  <dt>Complete</dt><dd>Every solution (semantic) or every unifier (syntactic) is covered by some answer.</dd>
+  <dt>Count vector</dt><dd>The multiplicities of one element across the bag variables.</dd>
+  <dt>Particular solution</dt><dd>A solution of $Av=d$ with $d\ne0$; minimal if nothing else lies below it.</dd>
+  <dt>Hilbert basis</dt><dd>The minimal nonzero solutions of $Av=0$; every solution is an $\mathbb N$-combination of them.</dd>
+  <dt>Domination</dt><dd>Every solution lies above some given vector, conditions (S2) and (S3).</dd>
+  <dt>Witness</dt><dd>The instantiation $\beta$ that shows an answer covers a solution or a unifier.</dd>
+  <dt>Variables $X?$, $U!$, $Z$</dt><dd>Original variables of the problem; the answers' own, existentially quantified variables; fresh variables introduced by a derivation.</dd>
+  <dt>Search completeness</dt><dd>A derivation exists whenever the answer set is complete. It is needed for automation, not for trust.</dd>
+</dl>
+</section>
+
+<footer>Working draft. Statements marked “proof sketch” are not yet established.</footer>
+</main>
