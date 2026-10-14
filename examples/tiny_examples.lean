@@ -38,16 +38,16 @@ structure Conf where
 The condition in an atom belongs to that same ticket assignment.
 -/
 
-def initial : Patt Conf :=
-  .bind (fun n : Nat => .atom ⟨n, n, {.idle}⟩)
+def initial : Pattern Conf :=
+  .atom (.bind fun n : Nat => { state := ⟨n, n, {.idle}⟩ })
 
-def waiting : Patt Conf :=
-  .bind (fun n : Nat => .atom ⟨n + 1, n, {.wait n}⟩ (n < n + 1))
+def waiting : Pattern Conf :=
+  .atom (.bind fun n : Nat => ⟨⟨n + 1, n, {.wait n}⟩, n < n + 1⟩)
 
-def critical : Patt Conf :=
-  .bind (fun n : Nat => .atom ⟨n + 1, n, {.crit n}⟩ (n < n + 1))
+def critical : Pattern Conf :=
+  .atom (.bind fun n : Nat => ⟨⟨n + 1, n, {.crit n}⟩, n < n + 1⟩)
 
-def bakeryInv : Patt Conf :=
+def bakeryInv : Pattern Conf :=
   .disj initial (.disj waiting critical)
 
 --#reduce bakeryInv
@@ -58,17 +58,16 @@ The same bound ticket occurs on both sides and in the rule condition.
 -/
 
 def wake : System Conf :=
-  .bind (fun n : Nat =>
-    .rule ⟨n, n, {.idle}⟩ ⟨n + 1, n, {.wait n}⟩)
+  .rule (.bind fun n : Nat =>
+    { lhs := ⟨n, n, {.idle}⟩, rhs := ⟨n + 1, n, {.wait n}⟩ })
 
 def enter : System Conf :=
-  .bind (fun n : Nat =>
-    .rule ⟨n + 1, n, {.wait n}⟩
-      ⟨n + 1, n, {.crit n}⟩ (n < n + 1))
+  .rule (.bind fun n : Nat =>
+    ⟨⟨n + 1, n, {.wait n}⟩, ⟨n + 1, n, {.crit n}⟩, n < n + 1⟩)
 
 def exit : System Conf :=
-  .bind (fun n : Nat =>
-    .rule ⟨n + 1, n, {.crit n}⟩ ⟨n + 1, n + 1, {.idle}⟩)
+  .rule (.bind fun n : Nat =>
+    { lhs := ⟨n + 1, n, {.crit n}⟩, rhs := ⟨n + 1, n + 1, {.idle}⟩ })
 
 def bakerySystem : System Conf :=
   .choice wake (.choice enter exit)
