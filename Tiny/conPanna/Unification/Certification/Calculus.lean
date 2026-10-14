@@ -58,15 +58,17 @@ theorem identify {T : Sort y} {s : State Γ₀ Γ} (a b : Γ → T)
   different (`hE`), and S2 is required for every clique of compatible classes.
 * `P` (particular solutions per class) and `B` (basis) are the data, read off
   the answers; `S0`–`S3` are the side conditions.
-* One premise per choice `π`: the bag variables become `θ_π`, over the rest
-  plus fresh bags `U! : Fin k → ACU El`. -/
+* `E'` are the remaining equations, over the whole context.
+* One premise per choice `π`: the bag variables become `θ_π` in the images, the
+  remaining equations and the disequations (the paper's `αθ_π; E'θ_π; Dθ_π`),
+  over the rest plus fresh bags `Z : Fin k → ACU El`. -/
 theorem solve {El : Type y} {Γr : Type w'} {n m k : ℕ} {s : State Γ₀ Γ}
     (V : Γ → Fin n → ACU El) (rest : Γ → Γr) (glue : Γr → (Fin n → ACU El) → Γ)
     (hglue : ∀ ρ, glue (rest ρ) (V ρ) = ρ)
-    (a : Γr → Fin m → El) (L R : Fin n → ℕ) (La Ra : Fin m → ℕ) (E' : Γr → Prop)
+    (a : Γr → Fin m → El) (L R : Fin n → ℕ) (La Ra : Fin m → ℕ) (E' : Γ → Prop)
     (cp : Fin m → Fin m → Bool)
     (hE : ∀ ρ, s.E ρ → s.D ρ →
-      side L (V ρ) La (a (rest ρ)) = side R (V ρ) Ra (a (rest ρ)) ∧ E' (rest ρ) ∧
+      side L (V ρ) La (a (rest ρ)) = side R (V ρ) Ra (a (rest ρ)) ∧ E' ρ ∧
       ∀ c c', c ≠ c' → cp c c' = false → a (rest ρ) c ≠ a (rest ρ) c')
     (P : Fin m → List (Fin n → ℕ)) (B : Fin k → Fin n → ℕ)
     (S0 : ∀ j, ∃ i, B j i ≠ 0)
@@ -77,7 +79,7 @@ theorem solve {El : Type y} {Γr : Type w'} {n m k : ℕ} {s : State Γ₀ Γ}
         Below (fun i => (G.map fun c => π c i).sum) v)
     (S3 : ∀ v, dot L v = dot R v → (∃ i, v i ≠ 0) → ∃ j, Below (B j) v)
     (next : ∀ π ∈ choices P,
-      (⟨fun (r, U) => s.α (glue r (theta (a r) π B U)), fun (r, _) => E' r,
+      (⟨fun (r, U) => s.α (glue r (theta (a r) π B U)), fun (r, U) => E' (glue r (theta (a r) π B U)),
         fun (r, U) => s.D (glue r (theta (a r) π B U))⟩ :
         State Γ₀ (Γr × (Fin k → ACU El))) ⊩ answers) :
     s ⊩ answers := by
@@ -86,8 +88,23 @@ theorem solve {El : Type y} {Γr : Type w'} {n m k : ℕ} {s : State Γ₀ Γ}
   obtain ⟨π, hπ, U, hU⟩ := solve_decomp (V ρ) (a (rest ρ)) L R La Ra cp heq hinc P B
     S0 S1p S1b S2 S3
   have hρ : ρ = glue (rest ρ) (theta (a (rest ρ)) π B U) := by rw [← hU, hglue]
-  have := next π hπ (rest ρ, U) hE' (by show s.D _; rw [← hρ]; exact hDρ)
+  have := next π hπ (rest ρ, U) (by show E' _; rw [← hρ]; exact hE') (by show s.D _; rw [← hρ]; exact hDρ)
   rw [hρ]
   exact this
+
+/-! ## Bookkeeping -/
+
+/-- Not a rule of the paper: present the same state over another context, related
+by `f` with a right inverse `g`. Used to unpack SOLVE's fresh block
+`Z : Fin k → ACU El` into named variables `Z1, …, Zk`. -/
+theorem rename {Γ' : Type w'} {s : State Γ₀ Γ} (f : Γ' → Γ) (g : Γ → Γ')
+    (hfg : ∀ ρ, f (g ρ) = ρ)
+    (next : (⟨s.α ∘ f, s.E ∘ f, s.D ∘ f⟩ : State Γ₀ Γ') ⊩ answers) : s ⊩ answers := by
+  intro ρ hE hD
+  have h := next (g ρ) (by show s.E (f (g ρ)); rw [hfg]; exact hE)
+    (by show s.D (f (g ρ)); rw [hfg]; exact hD)
+  show answers.Covers (s.α ρ)
+  have : s.α (f (g ρ)) = s.α ρ := by rw [hfg]
+  exact this ▸ h
 
 end Unification.Certification

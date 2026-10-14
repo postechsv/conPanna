@@ -70,22 +70,28 @@ theorem complete : UnifierSet.Complete problem answers := by
       (fun (N?, P?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | P? + Q? = {Mode.wait N?} | -
   -- solve P? + Q? = {Mode.wait N?}
-  refine solve (V := fun (N?, P?, Q?) => ![P?, Q?]) (rest := fun (N?, P?, Q?) => N?)
+  refine solve (V := fun (_, P?, Q?) => ![P?, Q?]) (rest := fun (N?, _, _) => N?)
       (glue := fun N? V => (N?, V 0, V 1)) (hglue := fun _ => rfl)
       (a := fun N? => ![Mode.wait N?]) (L := ![1, 1]) (R := ![0, 0]) (La := ![0]) (Ra := ![1])
-      (E' := fun _ => True) (cp := fun _ _ => false)
+      (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
       (P := ![[![1, 0], ![0, 1]]]) (B := ![])
-      (fun (N?, P?, Q?) h hD => ⟨by acu_side h, trivial, by acu_distinct⟩)
+      (fun (N?, P?, Q?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; rcases hπ with rfl | rfl
   · -- branch (1,0)
+    refine rename (fun N? => (N?, ![]))
+        (fun (N?, Z) => N?)
+        (fun (N?, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
     -- ⊢ P? := {Mode.wait N?}, Q? := ∅ | - | -
     -- cover answer 1 with U1! := N?
-    exact cover answer1 (by simp [answers]) fun (N?, Z) _ _ => ⟨N?, by acu_cover⟩
+    exact cover answer1 (by simp [answers]) fun N? _ _ => ⟨N?, by acu_cover⟩
   · -- branch (0,1)
+    refine rename (fun N? => (N?, ![]))
+        (fun (N?, Z) => N?)
+        (fun (N?, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
     -- ⊢ P? := ∅, Q? := {Mode.wait N?} | - | -
     -- cover answer 0 with U1! := N?
-    exact cover answer0 (by simp [answers]) fun (N?, Z) _ _ => ⟨N?, by acu_cover⟩
+    exact cover answer0 (by simp [answers]) fun N? _ _ => ⟨N?, by acu_cover⟩
 
 end Demo.L137

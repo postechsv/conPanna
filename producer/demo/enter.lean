@@ -90,21 +90,21 @@ theorem complete : UnifierSet.Complete problem answers := by
       (fun (K?, P?, M?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ N? := K? | P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?} | -
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?}
-  refine solve (V := fun (K?, P?, M?, Q?) => ![P?, Q?]) (rest := fun (K?, P?, M?, Q?) => (K?, M?))
+  refine solve (V := fun (_, P?, _, Q?) => ![P?, Q?]) (rest := fun (K?, _, M?, _) => (K?, M?))
       (glue := fun (K?, M?) V => (K?, V 0, M?, V 1)) (hglue := fun _ => rfl)
       (a := fun (K?, M?) => ![Mode.wait K?, Mode.idle, Mode.wait M?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0, 0]) (Ra := ![1, 1, 1])
-      (E' := fun _ => True) (cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0))
+      (E' := fun (_, _, _, _) => True) (cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0))
       (P := ![[![0, 0]], [![1, 0]], [![1, 0]]]) (B := ![![1, 1]])
-      (fun (K?, P?, M?, Q?) h hD => ⟨by acu_side h, trivial, by acu_distinct⟩)
+      (fun (K?, P?, M?, Q?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0], [1], [2], [0, 2]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; subst hπ
   -- branch (0,0) (1,0) (1,0)
+  refine rename (fun (K?, M?, Z1) => ((K?, M?), ![Z1]))
+      (fun ((K?, M?), Z) => (K?, M?, Z 0))
+      (fun ((K?, M?), Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
   -- ⊢ N? := K?, P? := {Mode.idle} + Z1 + {Mode.wait M?}, Q? := Z1 | - | -
   -- cover answer 3 with U1! := K?, U2! := Z1, U3! := M?
-  exact cover answer3 (by simp [answers]) fun ((K?, M?), Z) _ _ => by
-    obtain ⟨Z1, rfl⟩ : ∃ x0, Z = ![x0] :=
-      ⟨Z 0, funext fun i => by fin_cases i; rfl⟩
-    exact ⟨(K?, Z1, M?), by acu_cover⟩
+  exact cover answer3 (by simp [answers]) fun (K?, M?, Z1) _ _ => ⟨(K?, Z1, M?), by acu_cover⟩
 
 end Demo.Enter

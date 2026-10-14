@@ -1,0 +1,31 @@
+problem X? + Y? = Z? + {a}; Y? = W? + {b}
+answers
+  0: W? := ∅, X? := {a}, Y? := {b}, Z? := {b}
+  1: W? := ∅, X? := {a} + U1!, Y? := {b}, Z? := {b} + U1!
+  2: W? := U1!, X? := {a}, Y? := {b} + U1!, Z? := {b} + U1!
+  3: W? := U1!, X? := {a} + U2!, Y? := {b} + U1!, Z? := {b} + U1! + U2!
+  4: W? := {a}, X? := ∅, Y? := {a} + {b}, Z? := {b}
+  5: W? := {a}, X? := U1!, Y? := {a} + {b}, Z? := {b} + U1!
+  6: W? := {a} + U1!, X? := ∅, Y? := {a} + {b} + U1!, Z? := {b} + U1!
+  7: W? := {a} + U2!, X? := U1!, Y? := {a} + {b} + U2!, Z? := {b} + U1! + U2!
+derivation
+  ⊢ - | X? + Y? = Z? + {a}; Y? = W? + {b} | -
+  solve X? + Y? = Z? + {a}
+    vars X? Y? Z? | aliens a | L (1,1,0) R (0,0,1) La (0) Ra (1)
+    compatible - | P [(1,0,0) (0,1,0)] | B [(1,0,1) (0,1,1)]
+    branch [(1,0,0)]: X? := {a} + Z1, Y? := Z2, Z? := Z1 + Z2
+      ⊢ X? := {a} + Z1, Y? := Z2, Z? := Z1 + Z2 | Z2 = {b} + W? | -
+      solve Z2 = {b} + W?
+        vars Z2 W? | aliens b | L (1,0) R (0,1) La (0) Ra (1)
+        compatible - | P [(1,0)] | B [(1,1)]
+        branch [(1,0)]: Z2 := {b} + Z3, W? := Z3
+          ⊢ W? := Z3, X? := {a} + Z1, Y? := {b} + Z3, Z? := {b} + Z1 + Z3 | - | -
+          cover answer 3 with U1! := Z3, U2! := Z1
+    branch [(0,1,0)]: X? := Z1, Y? := {a} + Z2, Z? := Z1 + Z2
+      ⊢ X? := Z1, Y? := {a} + Z2, Z? := Z1 + Z2 | {a} + Z2 = {b} + W? | -
+      solve {a} + Z2 = {b} + W?
+        vars Z2 W? | aliens a b | L (1,0) R (0,1) La (1,0) Ra (0,1)
+        compatible - | P [(0,1)] [(1,0)] | B [(1,1)]
+        branch [(0,1) (1,0)]: Z2 := {b} + Z3, W? := {a} + Z3
+          ⊢ W? := {a} + Z3, X? := Z1, Y? := {a} + {b} + Z3, Z? := {b} + Z1 + Z3 | - | -
+          cover answer 7 with U1! := Z1, U2! := Z3

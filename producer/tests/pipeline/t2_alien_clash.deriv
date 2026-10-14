@@ -1,0 +1,12 @@
+problem P? + {wait(N?)} = Q? + {idle}
+answers
+  0: N? := U1!, P? := {idle}, Q? := {wait(U1!)}
+  1: N? := U1!, P? := {idle} + U2!, Q? := U2! + {wait(U1!)}
+derivation
+  ⊢ - | P? + {wait(N?)} = Q? + {idle} | -
+  solve P? + {wait(N?)} = Q? + {idle}
+    vars P? Q? | aliens wait(N?) idle | L (1,0) R (0,1) La (1,0) Ra (0,1)
+    compatible - | P [(0,1)] [(1,0)] | B [(1,1)]
+    branch [(0,1) (1,0)]: P? := {idle} + Z1, Q? := Z1 + {wait(N?)}
+      ⊢ P? := {idle} + Z1, Q? := Z1 + {wait(N?)} | - | -
+      cover answer 1 with U1! := N?, U2! := Z1

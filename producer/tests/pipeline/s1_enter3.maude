@@ -1,0 +1,7 @@
+***( Rule ENTER against a state with 3 further waiting processes. )
+load models.maude
+select SHOW .
+red certify('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('K:Num, 'P:ProcSet, 'N:Num, 'M1:Num, 'M2:Num, 'M3:Num, 'Q:ProcSet),
+        '<_`,_`,_>['s['K:Num], 'K:Num, '__['wait['K:Num], 'P:ProcSet]],
+        '<_`,_`,_>['s['N:Num], 'N:Num, '__['wait['N:Num], 'idle.Mode, 'wait['M1:Num], 'wait['M2:Num], 'wait['M3:Num], 'Q:ProcSet]]) .

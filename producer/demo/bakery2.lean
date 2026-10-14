@@ -64,28 +64,28 @@ theorem complete : UnifierSet.Complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | P? + Q? = {Mode.wait N?} + R? | -
   -- solve P? + Q? = {Mode.wait N?} + R?
-  refine solve (V := fun (N?, P?, Q?, R?) => ![P?, Q?, R?]) (rest := fun (N?, P?, Q?, R?) => N?)
+  refine solve (V := fun (_, P?, Q?, R?) => ![P?, Q?, R?]) (rest := fun (N?, _, _, _) => N?)
       (glue := fun N? V => (N?, V 0, V 1, V 2)) (hglue := fun _ => rfl)
       (a := fun N? => ![Mode.wait N?]) (L := ![1, 1, 0]) (R := ![0, 0, 1]) (La := ![0]) (Ra := ![1])
-      (E' := fun _ => True) (cp := fun _ _ => false)
+      (E' := fun (_, _, _, _) => True) (cp := fun _ _ => false)
       (P := ![[![1, 0, 0], ![0, 1, 0]]]) (B := ![![1, 0, 1], ![0, 1, 1]])
-      (fun (N?, P?, Q?, R?) h hD => ⟨by simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+      (fun (N?, P?, Q?, R?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ; rcases hπ with rfl | rfl
   · -- branch (1,0,0)
+    refine rename (fun (N?, Z1, Z2) => (N?, ![Z1, Z2]))
+        (fun (N?, Z) => (N?, Z 0, Z 1))
+        (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i <;> rfl)) ?_
     -- ⊢ P? := Z1 + {Mode.wait N?}, Q? := Z2, R? := Z1 + Z2 | - | -
     -- cover answer 7 with U1! := Z2, U2! := N?, U3! := Z1
-    exact cover answer7 (by simp [answers]) fun (N?, Z) _ _ => by
-      obtain ⟨Z1, Z2, rfl⟩ : ∃ x0 x1, Z = ![x0, x1] :=
-        ⟨Z 0, Z 1, funext fun i => by fin_cases i <;> rfl⟩
-      exact ⟨(Z2, N?, Z1), by acu_cover⟩
+    exact cover answer7 (by simp [answers]) fun (N?, Z1, Z2) _ _ => ⟨(Z2, N?, Z1), by acu_cover⟩
   · -- branch (0,1,0)
+    refine rename (fun (N?, Z1, Z2) => (N?, ![Z1, Z2]))
+        (fun (N?, Z) => (N?, Z 0, Z 1))
+        (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i <;> rfl)) ?_
     -- ⊢ P? := Z1, Q? := Z2 + {Mode.wait N?}, R? := Z1 + Z2 | - | -
     -- cover answer 3 with U1! := Z1, U2! := N?, U3! := Z2
-    exact cover answer3 (by simp [answers]) fun (N?, Z) _ _ => by
-      obtain ⟨Z1, Z2, rfl⟩ : ∃ x0 x1, Z = ![x0, x1] :=
-        ⟨Z 0, Z 1, funext fun i => by fin_cases i <;> rfl⟩
-      exact ⟨(Z1, N?, Z2), by acu_cover⟩
+    exact cover answer3 (by simp [answers]) fun (N?, Z1, Z2) _ _ => ⟨(Z1, N?, Z2), by acu_cover⟩
 
 end Demo.Bakery2

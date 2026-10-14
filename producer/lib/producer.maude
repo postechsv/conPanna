@@ -255,7 +255,7 @@ fmod PRODUCER is
     if BI := infoOf(bis(X), T1, T2)
     /\ LS := flat(BI, T1) /\ RS := flat(BI, T2)
     /\ VL := bvars(BI, (LS, RS), empty) /\ AL := aliens(BI, (LS, RS), empty)
-    /\ P := partOf(absUnifiers(VL, AL, LS, RS), VL, AL, 0)
+    /\ P := partsOf(VL, AL, LS, RS, 0, len(AL))
     /\ (A, A') := failingPair(VL, AL, LS, RS, P, cliques(X, D, AL, 0, len(AL))) .
   eq bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) = solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) [owise] .
 
@@ -264,9 +264,37 @@ fmod PRODUCER is
   eq known(T, T', neq(T', T) ,, D) = true .
   eq known(T, T', D) = false [owise] .
 
+  *** Two aliens are compatible unless recorded distinct or refuted by the free
+  *** rules alone (CLASH, OCCURS along free constructors). Bag-sorted subterms are
+  *** never treated as refuting: a merge that matters shows up as a failure of S2*.
   op compat : Ctx Diseqs Term Term -> Bool .
-  eq compat(X, D, T, T') =
-    not known(T, T', D) and metaUnify(mod(X), T =? T', 0, 0) :: UnificationPair .
+  eq compat(X, D, T, T') = not known(T, T', D) and not freeClash(bis(X), T, T') .
+
+  op freeClash : BagInfos Term Term -> Bool .
+  op freeClashArgs : BagInfos TermList TermList -> Bool .
+  eq freeClash(BIs, T, T') =
+    if isBagAny(BIs, T) or isBagAny(BIs, T') then false
+    else if T :: Variable then T =/= T' and freeOcc(BIs, T, T')
+    else if T' :: Variable then T =/= T' and freeOcc(BIs, T', T)
+    else headOf(T) =/= headOf(T') or freeClashArgs(BIs, argsOf(T), argsOf(T')) fi fi fi .
+  eq freeClashArgs(BIs, empty, empty) = false .
+  eq freeClashArgs(BIs, (T1, TL), (T2, TL')) = freeClash(BIs, T1, T2) or freeClashArgs(BIs, TL, TL') .
+  eq freeClashArgs(BIs, TL, TL') = true [owise] .
+  op headOf : Term -> Qid .
+  eq headOf(F[TL]) = F .
+  eq headOf(C) = getName(C) .
+  op argsOf : Term -> TermList .
+  eq argsOf(F[TL]) = TL .
+  eq argsOf(C) = empty .
+  *** V occurs in T along free constructors only.
+  op freeOcc : BagInfos Variable Term -> Bool .
+  op freeOccArgs : BagInfos Variable TermList -> Bool .
+  eq freeOcc(BIs, V, T) =
+    if T == V then true
+    else if T :: Variable or isBagAny(BIs, T) then false
+    else freeOccArgs(BIs, V, argsOf(T)) fi fi .
+  eq freeOccArgs(BIs, V, empty) = false .
+  eq freeOccArgs(BIs, V, (T, TL)) = freeOcc(BIs, V, T) or freeOccArgs(BIs, V, TL) .
 
   *** Cliques of size >= 2, as lists of class indices.
   sort Groups .  op grp : NatL -> Groups [ctor] .
@@ -309,7 +337,7 @@ fmod PRODUCER is
 
   op s2star : TermList TermList TermList TermList VecsL NatL -> Bool .
   eq s2star(VL, AL, LS, RS, P, I ^^ GR) =
-    allDominate(mergedUnifiers(VL, AL, LS, RS, I ^^ GR), I, len(VL), P, I ^^ GR) .
+    allDominate(groupUnifiers(VL, AL, LS, RS, I ^^ GR), 0, len(VL), P, I ^^ GR) .
   op allDominate : Answers Nat Nat VecsL NatL -> Bool .
   eq allDominate(noAns, I, K, P, GR) = true .
   eq allDominate(Sb :: US, I, K, P, GR) =
@@ -331,18 +359,20 @@ fmod PRODUCER is
   eq minus(nilN, nilN) = nilN .
   eq minus(K ^^ NL, N ^^ NL') = sd(K, N) ^^ minus(NL, NL') .
 
-  *** The abstracted equation with the aliens of GR merged into one constant.
-  op mergedUnifiers : TermList TermList TermList TermList NatL -> Answers .
-  eq mergedUnifiers(VL, AL, LS, RS, I ^^ GR) =
+  *** The count equation at the element of a group GR of alien classes: the
+  *** abstracted equation keeping only the aliens of GR, merged into the constant
+  *** k0 (the other aliens contribute nothing at that element).
+  op groupUnifiers : TermList TermList TermList TermList NatL -> Answers .
+  eq groupUnifiers(VL, AL, LS, RS, GR) =
     allUnifiers(upModule('ABS-BAG, false),
-      mk(bag('Bag, '__, 'none.Bag), absListM(VL, AL, LS, I ^^ GR)),
-      mk(bag('Bag, '__, 'none.Bag), absListM(VL, AL, RS, I ^^ GR)), 0) .
-  op absListM : TermList TermList TermList NatL -> TermList .
-  eq absListM(VL, AL, empty, GR) = empty .
-  eq absListM(VL, AL, (T, TL), I ^^ GR) =
+      mk(bag('Bag, '__, 'none.Bag), absListG(VL, AL, LS, GR)),
+      mk(bag('Bag, '__, 'none.Bag), absListG(VL, AL, RS, GR)), 0) .
+  op absListG : TermList TermList TermList NatL -> TermList .
+  eq absListG(VL, AL, empty, GR) = empty .
+  eq absListG(VL, AL, (T, TL), GR) =
     (if mem(T, VL) then absVar(pos(T, VL))
-     else absAlien(if inG(pos(T, AL), I ^^ GR) then I else pos(T, AL) fi) fi),
-    absListM(VL, AL, TL, I ^^ GR) .
+     else if inG(pos(T, AL), GR) then absAlien(0) else empty fi fi),
+    absListG(VL, AL, TL, GR) .
   op inG : Nat NatL -> Bool .
   eq inG(N, nilN) = false .
   eq inG(N, K ^^ NL) = N == K or inG(N, NL) .
@@ -356,8 +386,7 @@ fmod PRODUCER is
     if BI := infoOf(bis(X), T1, T2)
     /\ LS := flat(BI, T1) /\ RS := flat(BI, T2)
     /\ VL := bvars(BI, (LS, RS), empty) /\ AL := aliens(BI, (LS, RS), empty)
-    /\ US := absUnifiers(VL, AL, LS, RS)
-    /\ P := partOf(US, VL, AL, 0)
+    /\ P := partsOf(VL, AL, LS, RS, 0, len(AL))
     /\ B := basisOf(homUnifiers(VL, LS, RS), VL, noVec) .
   vars LS RS VL AL : TermList .  var P : VecsL .  var B : Vecs .  var US : Answers .
 
@@ -408,9 +437,13 @@ fmod PRODUCER is
   eq bnd(Sb, N) = flat(bag('Bag, '__, 'none.Bag), absVar(N) << Sb) .
 
   *** P: for each alien class c, the distinct vectors (count of kc in V0..Vn-1).
-  op partOf : Answers TermList TermList Nat -> VecsL .
-  eq partOf(US, VL, empty, N) = noCls .
-  eq partOf(US, VL, (T, TL), N) = cls(pvecs(US, len(VL), N, noVec)) ## partOf(US, VL, TL, s N) .
+  *** P: for each alien class c, the distinct vectors (count of k0 in V0..Vn-1)
+  *** in the answers of the count equation at c's element.
+  op partsOf : TermList TermList TermList TermList Nat Nat -> VecsL .
+  eq partsOf(VL, AL, LS, RS, I, K) =
+    if I < K then cls(pvecs(groupUnifiers(VL, AL, LS, RS, I), len(VL), 0, noVec))
+                  ## partsOf(VL, AL, LS, RS, s I, K)
+    else noCls fi .
   op pvecs : Answers Nat Nat Vecs -> Vecs .
   eq pvecs(noAns, K, N, VS) = VS .
   eq pvecs(Sb :: US, K, N, VS) = pvecs(US, K, N, addVec(VS, [cvec(Sb, absAlien(N), K, 0)])) .
@@ -506,7 +539,23 @@ fmod PRODUCER is
   *** run against a given answer set (e.g. a deliberately incomplete one)
   op runWith : Qid BagInfos Qid TermList Eqns Answers -> Result .
   eq runWith(Q, BIs, F, TL, E, AS) =
-    result(AS, derive(ctx(upModule(Q, false), BIs, F, TL, AS), st(idSub(TL), E, noNeq, 0), 100)) .
+    result(AS, derive(ctx(withTup(upModule(Q, false), TL), BIs, 'CertTuple, TL, AS),
+                      st(idSub(TL), E, noNeq, 0), 100)) .
+
+  *** The user's module extended with a tuple operator over the original variables,
+  *** used to match answers against a leaf in one go (COVER). The tuple-operator
+  *** argument of run is no longer needed and is ignored.
+  op withTup : Module TermList -> Module .
+  eq withTup(M, TL) =
+    fmod getName(M) is getImports(M)
+      sorts (getSorts(M) ; 'CertTuple) .
+      getSubsorts(M)
+      (getOps(M) (op 'CertTuple : typesOf(TL) -> 'CertTuple [ctor] .))
+      getMbs(M) getEqs(M)
+    endfm .
+  op typesOf : TermList -> TypeList .
+  eq typesOf(empty) = nil .
+  eq typesOf((V, TL)) = getType(V) typesOf(TL) .
   *** the answers of unify without the N-th one (counting from 0)
   op dropAt : Answers Nat -> Answers .
   eq dropAt(noAns, N) = noAns .

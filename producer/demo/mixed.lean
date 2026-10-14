@@ -66,40 +66,40 @@ theorem complete : UnifierSet.Complete problem answers := by
         (fun (X?, Y?, N?, M?) h => ⟨(X?, Y?, N?), by acu_free [problem], by acu_free [problem]⟩) ?_
     -- ⊢ M? := N? | X? + {Elem.w N?} = Y? + {Elem.w N?} | -
     -- solve X? + {Elem.w N?} = Y? + {Elem.w N?}
-    refine solve (V := fun (X?, Y?, N?) => ![X?, Y?]) (rest := fun (X?, Y?, N?) => N?)
+    refine solve (V := fun (X?, Y?, _) => ![X?, Y?]) (rest := fun (_, _, N?) => N?)
         (glue := fun N? V => (V 0, V 1, N?)) (hglue := fun _ => rfl)
         (a := fun N? => ![Elem.w N?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1]) (Ra := ![1])
-        (E' := fun _ => True) (cp := fun _ _ => false)
+        (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
         (P := ![[![0, 0]]]) (B := ![![1, 1]])
-        (fun (X?, Y?, N?) h hD => ⟨by acu_side h, trivial, by acu_distinct⟩)
+        (fun (X?, Y?, N?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
         (by decide) (by decide) (by decide)
         (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
     -- branch (0,0)
+    refine rename (fun (N?, Z1) => (N?, ![Z1]))
+        (fun (N?, Z) => (N?, Z 0))
+        (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
     -- ⊢ M? := N?, X? := Z1, Y? := Z1 | - | -
     -- cover answer 3 with U1! := Z1, U2! := N?
-    exact cover answer3 (by simp [answers]) fun (N?, Z) _ _ => by
-      obtain ⟨Z1, rfl⟩ : ∃ x0, Z = ![x0] :=
-        ⟨Z 0, funext fun i => by fin_cases i; rfl⟩
-      exact ⟨(Z1, N?), by acu_cover⟩
+    exact cover answer3 (by simp [answers]) fun (N?, Z1) _ _ => ⟨(Z1, N?), by acu_cover⟩
   · -- distinct:
     -- ⊢ - | X? + {Elem.w N?} = Y? + {Elem.w M?} | Elem.w N? ≠ Elem.w M?
     -- solve X? + {Elem.w N?} = Y? + {Elem.w M?}
-    refine solve (V := fun (X?, Y?, N?, M?) => ![X?, Y?]) (rest := fun (X?, Y?, N?, M?) => (N?, M?))
+    refine solve (V := fun (X?, Y?, _, _) => ![X?, Y?]) (rest := fun (_, _, N?, M?) => (N?, M?))
         (glue := fun (N?, M?) V => (V 0, V 1, N?, M?)) (hglue := fun _ => rfl)
         (a := fun (N?, M?) => ![Elem.w N?, Elem.w M?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0]) (Ra := ![0, 1])
-        (E' := fun _ => True) (cp := fun _ _ => false)
+        (E' := fun (_, _, _, _) => True) (cp := fun _ _ => false)
         (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-        (fun (X?, Y?, N?, M?) h hD => ⟨by acu_side h, trivial, by acu_distinct⟩)
+        (fun (X?, Y?, N?, M?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
         (by decide) (by decide) (by decide)
         (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
     -- branch (0,1) (1,0)
+    refine rename (fun (N?, M?, Z1) => ((N?, M?), ![Z1]))
+        (fun ((N?, M?), Z) => (N?, M?, Z 0))
+        (fun ((N?, M?), Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
     -- ⊢ X? := Z1 + {Elem.w M?}, Y? := Z1 + {Elem.w N?} | - | Elem.w N? ≠ Elem.w M?
     -- cover answer 1 with U1! := N?, U2! := M?, U3! := Z1
-    exact cover answer1 (by simp [answers]) fun ((N?, M?), Z) _ _ => by
-      obtain ⟨Z1, rfl⟩ : ∃ x0, Z = ![x0] :=
-        ⟨Z 0, funext fun i => by fin_cases i; rfl⟩
-      exact ⟨(N?, M?, Z1), by acu_cover⟩
+    exact cover answer1 (by simp [answers]) fun (N?, M?, Z1) _ _ => ⟨(N?, M?, Z1), by acu_cover⟩
 
 end Demo.Mixed

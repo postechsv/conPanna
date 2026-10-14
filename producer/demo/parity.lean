@@ -39,12 +39,12 @@ theorem complete : UnifierSet.Complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | X? + X? = Y? + Y? + {Elem.a} | -
   -- solve X? + X? = Y? + Y? + {Elem.a}
-  refine solve (V := fun (X?, Y?) => ![X?, Y?]) (rest := fun (X?, Y?) => ())
+  refine solve (V := fun (X?, Y?) => ![X?, Y?]) (rest := fun (_, _) => ())
       (glue := fun _ V => (V 0, V 1)) (hglue := fun _ => rfl)
       (a := fun _ => ![Elem.a]) (L := ![2, 0]) (R := ![0, 2]) (La := ![0]) (Ra := ![1])
-      (E' := fun _ => True) (cp := fun _ _ => false)
+      (E' := fun (_, _) => True) (cp := fun _ _ => false)
       (P := ![[]]) (B := ![![1, 1]])
-      (fun (X?, Y?) h hD => ⟨by simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+      (fun (X?, Y?) h hD => ⟨by try simp only [State.start, Problem.unifies, problem] at h; acu_side h, trivial, by acu_distinct⟩)
       (by decide) (by decide) (by decide)
       (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
   intro π hπ; simp [choices] at hπ

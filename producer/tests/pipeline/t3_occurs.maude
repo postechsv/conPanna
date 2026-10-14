@@ -1,0 +1,6 @@
+***( No unifiers: X? + {w(N?)} =? X? + {w(N? + 1)}. )
+load models.maude
+select SHOW .
+red certify('MIXED, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'N:Num, 'M:Num),
+        '__['X:Bag, 'w['N:Num]], '__['X:Bag, 'w['s['N:Num]]]) .

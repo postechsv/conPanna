@@ -1,0 +1,6 @@
+***( Nested bags: {box X?} + R? =? {box ({a} + Y?)} + {box {b}}. )
+load models.maude
+select SHOW .
+red certify('NESTED, bag('Bag, '__, 'none.Bag) &b bag('Boxes, '_|_, 'nil.Boxes), 'tup,
+        ('X:Bag, 'Y:Bag, 'R:Boxes),
+        '_|_['`{_`}['X:Bag], 'R:Boxes], '_|_['`{_`}['__['a.Elem, 'Y:Bag]], '`{_`}['b.Elem]]) .

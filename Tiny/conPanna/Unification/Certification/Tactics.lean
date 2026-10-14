@@ -16,7 +16,8 @@ syntax "acu_free" (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
 macro_rules
   | `(tactic| acu_free) => `(tactic| acu_free [])
   | `(tactic| acu_free [$xs,*]) => `(tactic| (
-      try simp only [State.start, Problem.unifies, $xs,*] at *
+      try simp only [State.start, Problem.unifies, theta, sum, copies, Function.comp_apply,
+        ACU.plus_unit, ACU.unit_plus, $xs,*] at *
       iterate 2 (
         try casesm* _ ∧ _
         try subst_vars
@@ -25,21 +26,25 @@ macro_rules
       try assumption
       try simp_all))
 
-/-- The bag equation of SOLVE, read off a hypothesis `h` stating it: unfold the
-coefficient form `side`, normalize modulo ACU, compare. -/
-macro "acu_side " h:ident : tactic => `(tactic| (
-  simp only [side, sum, copies, List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil,
+/-- The bag equation of SOLVE, read off a proof `h` of it: unfold the coefficient
+form `side`, normalize modulo ACU, compare. -/
+macro "acu_side " h:term : tactic => `(tactic| (
+  have hb := $h
+  simp only [theta, Function.comp_apply, side, sum, copies, List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil,
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons,
-    Fin.succ_zero_eq_one, ACU.plus_unit, ACU.unit_plus] at $h:ident ⊢
-  try ac_nf at $h:ident ⊢
-  try exact $h:ident))
+    Fin.succ_zero_eq_one, ACU.plus_unit, ACU.unit_plus] at hb ⊢
+  try ac_nf at hb ⊢
+  try exact hb))
 
 /-- Distinctness of incompatible alien classes: by constructor disjointness,
 recorded disequations, or arithmetic. -/
 macro "acu_distinct" : tactic => `(tactic| (
   intro c c' hcc hcp
   fin_cases c <;> fin_cases c' <;>
-    first | (simp_all; done) | (simp_all [eq_comm]; done) | (simp_all; omega)))
+    first
+      | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
+      | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
 
 /-- S2 over the listed cliques: one closed Presburger formula per clique. -/
 macro "acu_cliques" : tactic => `(tactic| (
@@ -48,7 +53,7 @@ macro "acu_cliques" : tactic => `(tactic| (
   repeat' constructor
   all_goals (
     intro v hv
-    simp_all [dot, Below, choices, List.ofFn_succ, Fin.forall_fin_succ, Fin.exists_fin_succ]
+    simp_all [dot, Below, prodL, vsum, List.ofFn_succ, Fin.forall_fin_succ, Fin.exists_fin_succ]
     try omega)))
 
 /-- S3: every nonzero homogeneous solution lies above a basis vector. -/

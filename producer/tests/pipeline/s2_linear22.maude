@@ -1,0 +1,6 @@
+***( A linear equation with 2 and 2 bag variables. )
+load models.maude
+select SHOW .
+red certify('LINEAR, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X1:Bag, 'X2:Bag, 'Y1:Bag, 'Y2:Bag),
+        '__['X1:Bag, 'X2:Bag], '__['Y1:Bag, 'Y2:Bag]) .

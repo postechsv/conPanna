@@ -1,0 +1,8 @@
+problem X? + {w(N?)} = X? + {w(s(N?))}
+answers
+derivation
+  ⊢ - | X? + {w(N?)} = X? + {w(s(N?))} | -
+  solve X? + {w(N?)} = X? + {w(s(N?))}
+    vars X? | aliens w(N?) w(s(N?)) | L (1) R (1) La (1,0) Ra (0,1)
+    compatible - | P [] [] | B [(1)]
+    no choice

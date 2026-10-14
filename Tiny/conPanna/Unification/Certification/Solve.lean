@@ -336,16 +336,56 @@ theorem S2_of_choices (cp : Fin m → Fin m → Bool) (L R : Fin n → ℕ) (La 
   obtain ⟨π, hπ, hb⟩ := h G hG v hv
   exact ⟨π, fun c _ => mem_of_choices hπ c, hb⟩
 
-/-- S2 over an explicit list of cliques and the finite list of choices: the form
-a certificate states, which unfolds to one closed Presburger formula per clique. -/
+/-- All ways of picking one element from each list. -/
+def prodL {α : Type} : List (List α) → List (List α)
+  | [] => [[]]
+  | l :: ls => l.flatMap fun x => (prodL ls).map (x :: ·)
+
+/-- The component-wise sum of a list of vectors. -/
+def vsum (ps : List (Fin n → ℕ)) : Fin n → ℕ := fun i => (ps.map (· i)).sum
+
+/-- A pick from the lists `P c` (`c ∈ G`) is a choice function on `G`. -/
+theorem choice_of_prodL [DecidableEq (Fin m)] (P : Fin m → List (Fin n → ℕ)) :
+    ∀ (G : List (Fin m)), G.Nodup → ∀ ps ∈ prodL (G.map P),
+      ∃ π : Fin m → Fin n → ℕ, (∀ c ∈ G, π c ∈ P c) ∧
+        ∀ i, (G.map fun c => π c i).sum = vsum ps i
+  | [], _, ps, hps => by
+    simp only [List.map_nil, prodL, List.mem_singleton] at hps
+    subst hps
+    exact ⟨fun _ _ => 0, by simp, fun i => by simp [vsum]⟩
+  | c :: G, hnd, ps, hps => by
+    simp only [List.map_cons, prodL, List.mem_flatMap, List.mem_map] at hps
+    obtain ⟨p, hp, ps', hps', rfl⟩ := hps
+    have hc : c ∉ G := (List.nodup_cons.mp hnd).1
+    obtain ⟨π, hπ, hsum⟩ := choice_of_prodL P G (List.nodup_cons.mp hnd).2 ps' hps'
+    refine ⟨Function.update π c p, fun c' hc' => ?_, fun i => ?_⟩
+    · rcases List.mem_cons.mp hc' with rfl | h
+      · simpa using hp
+      · have hne : c' ≠ c := fun e => hc (e ▸ h)
+        rw [Function.update_of_ne hne]; exact hπ c' h
+    · have : (G.map fun c' => Function.update π c p c' i) = G.map fun c' => π c' i :=
+        List.map_congr_left fun c' h => by
+          have hne : c' ≠ c := fun e => hc (e ▸ h)
+          rw [Function.update_of_ne hne]
+      simp only [List.map_cons, List.sum_cons, Function.update_self, this, hsum, vsum]
+
+/-- S2 over an explicit list of cliques, each stated as a closed Presburger
+formula over the sums of picks from the clique's particular solutions: the
+form a certificate states. -/
 theorem S2_of_list (cp : Fin m → Fin m → Bool) (L R : Fin n → ℕ) (La Ra : Fin m → ℕ)
     (P : Fin m → List (Fin n → ℕ)) (Gs : List (List (Fin m))) (hGs : ∀ G ∈ cliques cp, G ∈ Gs)
     (h : ∀ G ∈ Gs, ∀ v, dot L v + (G.map La).sum = dot R v + (G.map Ra).sum →
-      ∃ π ∈ choices P, Below (fun i => (G.map fun c => π c i).sum) v) :
+      ∃ ps ∈ prodL (G.map P), Below (vsum ps) v) :
     ∀ G ∈ cliques cp, ∀ v, dot L v + (G.map La).sum = dot R v + (G.map Ra).sum →
       ∃ π : Fin m → Fin n → ℕ, (∀ c ∈ G, π c ∈ P c) ∧
-        Below (fun i => (G.map fun c => π c i).sum) v :=
-  S2_of_choices cp L R La Ra P fun G hG => h G (hGs G hG)
+        Below (fun i => (G.map fun c => π c i).sum) v := by
+  intro G hG v hv
+  obtain ⟨ps, hps, hb⟩ := h G (hGs G hG) v hv
+  have hnd : G.Nodup := by
+    simp only [cliques, List.mem_filter, List.mem_sublists] at hG
+    exact (List.nodup_finRange m).sublist hG.1
+  obtain ⟨π, hπ, hsum⟩ := choice_of_prodL P G hnd ps hps
+  exact ⟨π, hπ, fun i => by show (G.map fun c => π c i).sum ≤ v i; rw [hsum]; exact hb i⟩
 
 /-- S2 for an all-incompatible relation reduces to one class at a time. -/
 theorem S2_single (L R : Fin n → ℕ) (La Ra : Fin m → ℕ) (P : Fin m → List (Fin n → ℕ))

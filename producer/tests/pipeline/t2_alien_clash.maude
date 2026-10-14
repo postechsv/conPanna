@@ -1,0 +1,6 @@
+***( A singleton against an incompatible one: P? + {wait(N?)} =? Q? + {idle}. )
+load models.maude
+select SHOW .
+red certify('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'Q:ProcSet),
+        '__['P:ProcSet, 'wait['N:Num]], '__['Q:ProcSet, 'idle.Mode]) .

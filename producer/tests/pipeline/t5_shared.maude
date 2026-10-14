@@ -1,0 +1,6 @@
+***( A system sharing a bag variable: X? + Y? =? Z? + {a} and Y? =? W? + {b}. )
+load models.maude
+select SHOW .
+red certify('BAGS2, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'Z:Bag, 'W:Bag),
+        eqn('__['X:Bag, 'Y:Bag], '__['Z:Bag, 'a.Elem]) ;; eqn('Y:Bag, '__['W:Bag, 'b.Elem])) .

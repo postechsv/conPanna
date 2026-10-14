@@ -1,0 +1,59 @@
+***( Models of the pipeline tests (hand-written; later dumped from Lean). )
+
+fmod BAKERY is
+  sorts Num Mode ProcSet Conf Tup .
+  subsort Mode < ProcSet .
+  op z : -> Num [ctor] .
+  op s : Num -> Num [ctor] .
+  op idle : -> Mode [ctor] .
+  ops wait crit : Num -> Mode [ctor] .
+  op none : -> ProcSet [ctor] .
+  op __ : ProcSet ProcSet -> ProcSet [ctor assoc comm id: none] .
+  op <_,_,_> : Num Num ProcSet -> Conf [ctor] .
+  op tup : Num ProcSet ProcSet -> Tup [ctor] .
+  op tup : Num ProcSet Num Num ProcSet -> Tup [ctor] .
+  op tup : Num ProcSet Num Num Num ProcSet -> Tup [ctor] .
+  op tup : Num ProcSet Num Num Num Num ProcSet -> Tup [ctor] .
+endfm
+
+fmod MIXED is
+  sorts Num Elem Bag Tup .
+  subsort Elem < Bag .
+  op z : -> Num [ctor] .
+  op s : Num -> Num [ctor] .
+  op w : Num -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag Num Num -> Tup [ctor] .
+endfm
+
+fmod BAGS2 is
+  sorts Elem Bag Tup .
+  subsort Elem < Bag .
+  ops a b : -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag Bag Bag -> Tup [ctor] .
+endfm
+
+fmod NESTED is
+  sorts Elem Bag Box Boxes Tup .
+  subsort Elem < Bag .
+  subsort Box < Boxes .
+  ops a b : -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op {_} : Bag -> Box [ctor] .
+  op nil : -> Boxes [ctor] .
+  op _|_ : Boxes Boxes -> Boxes [ctor assoc comm id: nil] .
+  op tup : Bag Bag Boxes -> Tup [ctor] .
+endfm
+
+fmod LINEAR is
+  sorts Elem Bag Tup .
+  subsort Elem < Bag .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag Bag Bag -> Tup [ctor] .
+  op tup : Bag Bag Bag Bag Bag -> Tup [ctor] .
+endfm

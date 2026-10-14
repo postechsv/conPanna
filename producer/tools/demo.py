@@ -2,9 +2,11 @@
 """Run demos end to end: Maude derivation, compilation to Lean, and Lean's check.
 
   python3 producer/tools/demo.py mixed enter      # or: all
+  python3 producer/tools/demo.py --dir producer/tests/pipeline all
 
-For a demo NAME it uses producer/demo/NAME.maude (request) and NAME.claim.lean
-(the user's claim), and writes NAME.deriv and NAME.lean. Run from the repository root.
+For a demo NAME it uses DIR/NAME.maude (request) and NAME.claim.lean (the user's
+claim), and writes NAME.deriv and NAME.lean. DIR defaults to producer/demo.
+Run from the repository root.
 """
 import pathlib, subprocess, sys, time
 
@@ -20,7 +22,7 @@ def step(title, cmd):
     return r, dt
 
 
-def run(name):
+def run(name, DEMO):
     print(f"== {name}")
     r, dt = step("derive", [sys.executable, str(TOOLS / "derive.py"), str(DEMO / f"{name}.maude")])
     if r.returncode:
@@ -47,10 +49,14 @@ def run(name):
 
 
 def main():
-    names = sys.argv[1:] or ["all"]
+    args = sys.argv[1:]
+    demo = DEMO
+    if args[:1] == ["--dir"]:
+        demo, args = ROOT / args[1], args[2:]
+    names = args or ["all"]
     if names == ["all"]:
-        names = sorted(p.stem for p in DEMO.glob("*.maude") if p.stem != "models")
-    results = {n: run(n) for n in names}
+        names = sorted(p.stem for p in demo.glob("*.maude") if p.stem != "models")
+    results = {n: run(n, demo) for n in names}
     print("\n" + "  ".join(f"{n}: {'ok' if ok else 'no certificate'}" for n, ok in results.items()))
 
 
