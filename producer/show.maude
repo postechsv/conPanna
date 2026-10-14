@@ -1,0 +1,207 @@
+***(
+  A readable, line-based rendering of a producer result.
+
+  Terms are printed in prefix form with the model's operator names; bag unions
+  are written  t1 + t2 + ...  with elements in braces {t} and the unit as ∅.
+  Original variables end in ?, fresh variables of SOLVE in !, and the answers'
+  own variables keep Maude's names #1, #2, ...  One rule per line; children are
+  indented, and IDENTIFY / SOLVE label their branches.
+)
+load producer.maude
+
+fmod SHOW is
+  protecting PRODUCER .
+
+  vars X : Ctx .  vars T T' T1 T2 : Term .  vars TL : TermList .  var V : Variable .
+  var C : Constant .  vars F : Qid .  vars Sb Al W : Substitution .  vars N I : Nat .
+  vars E : Eqns .  var D : Diseqs .  vars Tr Tr1 Tr2 : Tree .  var BR : Branches .
+  vars NL : NatL .  var VS : Vecs .  var PL : VecsL .  var GS : Groups .  var AS : Answers .
+  var BI : BagInfo .  var BIs : BagInfos .  var S : Sort .  var Q : Qid .  vars Str : String .
+  var Res : Result .
+
+  op nl : -> String .
+  eq nl = "\n" .
+  op ind : Nat -> String .
+  eq ind(0) = "" .
+  eq ind(s N) = "  " + ind(N) .
+
+  *** ------------------------------------------------------------------ terms
+  op strip : String -> String .          *** drop Maude's backquotes
+  eq strip(Str) =
+    if find(Str, "`", 0) == notFound then Str
+    else substr(Str, 0, find(Str, "`", 0)) + strip(substr(Str, s find(Str, "`", 0), length(Str))) fi .
+
+  op plain : String -> Bool .            *** an operator name usable without quotes
+  eq plain(Str) = find(Str, "_", 0) == notFound and find(Str, ",", 0) == notFound
+    and find(Str, "(", 0) == notFound and find(Str, "{", 0) == notFound and find(Str, " ", 0) == notFound .
+
+  op opName : Qid -> String .
+  eq opName(F) = if plain(strip(string(F))) then strip(string(F)) else "\"" + strip(string(F)) + "\"" fi .
+
+  op isUnit : BagInfos Term -> Bool .
+  eq isUnit(bag(S, F, C) &b BIs, C) = true .
+  eq isUnit(BIs, T) = false [owise] .
+  op isUnion : BagInfos Qid -> Bool .
+  eq isUnion(bag(S, F, C) &b BIs, F) = true .
+  eq isUnion(BIs, F) = false [owise] .
+  op isBagVarAny : BagInfos Term -> Bool .
+  eq isBagVarAny(noBag, T) = false .
+  eq isBagVarAny(BI &b BIs, T) = isBagVar(BI, T) or isBagVarAny(BIs, T) .
+
+  op showTerm : Ctx Term -> String .
+  op showArgs : Ctx TermList -> String .
+  op showSum : Ctx TermList -> String .
+  op showSummand : Ctx Term -> String .
+  *** Original variables X?; SOLVE's fresh variables Z1, Z2, ... (Maude F1, F2, ...);
+  *** the answers' existential binders U1!, U2!, ... (Maude #1, #2, ...).
+  eq showTerm(X, V) =
+    if mem(V, origs(X)) then string(getName(V)) + "?"
+    else if substr(string(getName(V)), 0, 1) == "F"
+      then "Z" + substr(string(getName(V)), 1, length(string(getName(V))))
+    else if substr(string(getName(V)), 0, 1) == "#" or substr(string(getName(V)), 0, 1) == "%"
+      then "U" + substr(string(getName(V)), 1, length(string(getName(V)))) + "!"
+    else string(getName(V)) fi fi fi .
+  eq showTerm(X, C) = if isUnit(bis(X), C) then "∅" else opName(getName(C)) fi .
+  eq showTerm(X, F[TL]) =
+    if isUnion(bis(X), F) then showSum(X, TL)
+    else opName(F) + "(" + showArgsT(X, TL, argTypes(getOps(mod(X)), F, len(TL))) + ")" fi .
+  eq showArgs(X, T) = showTerm(X, T) .
+  eq showArgs(X, (T, T', TL)) = showTerm(X, T) + ", " + showArgs(X, (T', TL)) .
+
+  *** A term in a bag position: a single element is shown as {t}.
+  op showBag : Ctx Term -> String .
+  eq showBag(X, T) =
+    if isBagSideAny(bis(X), T) then showTerm(X, T) else "{" + showTerm(X, T) + "}" fi .
+  op isBagSideAny : BagInfos Term -> Bool .
+  eq isBagSideAny(noBag, T) = false .
+  eq isBagSideAny(BI &b BIs, T) = isBagSide(BI, T) or isBagSideAny(BIs, T) .
+  op isBagSort : BagInfos Type -> Bool .
+  eq isBagSort(bag(S, F, C) &b BIs, S) = true .
+  eq isBagSort(BIs, Ty) = false [owise] .
+  var Ty : Type .  var TyL : TypeList .  var ODS : OpDeclSet .  var AtS : AttrSet .
+
+  *** Arguments, shown according to the declared argument sorts.
+  op showArgsT : Ctx TermList TypeList -> String .
+  eq showArgsT(X, T, Ty) = showIn(X, T, Ty) .
+  eq showArgsT(X, (T, T', TL), Ty TyL) = showIn(X, T, Ty) + ", " + showArgsT(X, (T', TL), TyL) .
+  eq showArgsT(X, TL, TyL) = showArgs(X, TL) [owise] .
+  op showIn : Ctx Term Type -> String .
+  eq showIn(X, T, Ty) = if isBagSort(bis(X), Ty) then showBag(X, T) else showTerm(X, T) fi .
+  op argTypes : OpDeclSet Qid Nat -> TypeList .
+  ceq argTypes((op F : TyL -> Ty [AtS] .) ODS, F, N) = TyL if tlen(TyL) == N .
+  eq argTypes(ODS, F, N) = nil [owise] .
+  op tlen : TypeList -> Nat .
+  eq tlen(nil) = 0 .
+  eq tlen(Ty TyL) = 1 + tlen(TyL) .
+  eq showSum(X, T) = showSummand(X, T) .
+  eq showSum(X, (T, T', TL)) = showSummand(X, T) + " + " + showSum(X, (T', TL)) .
+  eq showSummand(X, T) =
+    if T :: Variable and isBagVarAny(bis(X), T) then showTerm(X, T) else "{" + showTerm(X, T) + "}" fi .
+
+  op showList : Ctx TermList -> String .
+  eq showList(X, empty) = "-" .
+  eq showList(X, T) = showTerm(X, T) .
+  eq showList(X, (T, T', TL)) = showTerm(X, T) + " " + showList(X, (T', TL)) .
+
+  op showEqn : Ctx Eqn -> String .
+  eq showEqn(X, eqn(T1, T2)) =
+    if isBagSideAny(bis(X), T1) or isBagSideAny(bis(X), T2)
+    then showBag(X, T1) + " = " + showBag(X, T2)
+    else showTerm(X, T1) + " = " + showTerm(X, T2) fi .
+  op showEqns : Ctx Eqns -> String .
+  eq showEqns(X, noEq) = "-" .
+  eq showEqns(X, eqn(T1, T2)) = showEqn(X, eqn(T1, T2)) .
+  eq showEqns(X, eqn(T1, T2) ;; eqn(T, T') ;; E) = showEqn(X, eqn(T1, T2)) + "; " + showEqns(X, eqn(T, T') ;; E) .
+
+  op showSub : Ctx Substitution -> String .
+  eq showSub(X, none) = "-" .
+  eq showSub(X, (V <- T)) = showBind(X, V, T) .
+  eq showSub(X, (V <- T) ; Sb) = showBind(X, V, T) + ", " + showSub(X, Sb) [owise] .
+  op showBind : Ctx Variable Term -> String .
+  eq showBind(X, V, T) =
+    showTerm(X, V) + " := " + (if isBagVarAny(bis(X), V) then showBag(X, T) else showTerm(X, T) fi) .
+
+  *** ------------------------------------------------------------------ data
+  op showNatL : NatL -> String .
+  op showNats : NatL -> String .
+  eq showNatL(NL) = "(" + showNats(NL) + ")" .
+  eq showNats(nilN) = "" .
+  eq showNats(N) = string(N, 10) .
+  eq showNats(N ^^ I ^^ NL) = string(N, 10) + "," + showNats(I ^^ NL) .
+  op showVecs : Vecs -> String .
+  op showVecs1 : Vecs -> String .
+  eq showVecs(VS) = "[" + showVecs1(VS) + "]" .
+  eq showVecs1(noVec) = "" .
+  eq showVecs1([NL]) = showNatL(NL) .
+  eq showVecs1([NL] || [I ^^ NL'] || VS) = showNatL(NL) + " " + showVecs1([I ^^ NL'] || VS) .
+  eq showVecs1([NL] || [nilN] || VS) = showNatL(NL) + " " + showVecs1([nilN] || VS) .
+  var NL' : NatL .
+  op showPs : VecsL -> String .
+  eq showPs(noCls) = "-" .
+  eq showPs(cls(VS)) = showVecs(VS) .
+  eq showPs(cls(VS) ## PL) = showVecs(VS) + " " + showPs(PL) [owise] .
+  op showPairs : Groups -> String .
+  eq showPairs(noGrp) = "-" .
+  eq showPairs(grp(N ^^ I)) = string(N, 10) + "~" + string(I, 10) .
+  eq showPairs(grp(N ^^ I) @@ GS) = string(N, 10) + "~" + string(I, 10) + " " + showPairs(GS) [owise] .
+
+  *** ------------------------------------------------------------------ trees
+  op showTree : Ctx Tree Nat -> String .
+  op showBranches : Ctx Branches Nat -> String .
+  eq showTree(X, delete(eqn(T1, T2), Tr), N) =
+    ind(N) + "delete " + showEqn(X, eqn(T1, T2)) + nl + showTree(X, Tr, N) .
+  eq showTree(X, decomp(eqn(T1, T2), E, Tr), N) =
+    ind(N) + "decomp " + showEqn(X, eqn(T1, T2)) + "  ==>  " + showEqns(X, E) + nl + showTree(X, Tr, N) .
+  eq showTree(X, clash(eqn(T1, T2)), N) = ind(N) + "clash " + showEqn(X, eqn(T1, T2)) + nl .
+  eq showTree(X, occurs(eqn(T1, T2)), N) = ind(N) + "occurs " + showEqn(X, eqn(T1, T2)) + nl .
+  eq showTree(X, elim(V, T, Tr), N) =
+    ind(N) + "elim " + showTerm(X, V) + " := " + showTerm(X, T) + nl + showTree(X, Tr, N) .
+  eq showTree(X, identify(T1, T2, Tr1, Tr2), N) =
+    ind(N) + "identify " + showTerm(X, T1) + " ~ " + showTerm(X, T2) + nl
+    + ind(s N) + "equal:" + nl + showTree(X, Tr1, s s N)
+    + ind(s N) + "distinct:" + nl + showTree(X, Tr2, s s N) .
+  eq showTree(X, distinct(T1, T2), N) = ind(N) + "distinct " + showTerm(X, T1) + " =/= " + showTerm(X, T2) + nl .
+  eq showTree(X, solve(eqn(T1, T2), TL, TL', NL1, NL2, NL3, NL4, GS, PL, VS, BR), N) =
+    ind(N) + "solve " + showEqn(X, eqn(T1, T2)) + nl
+    + ind(s N) + "vars " + showList(X, TL) + " | aliens " + showList(X, TL')
+      + " | L " + showNatL(NL1) + " R " + showNatL(NL2) + " La " + showNatL(NL3) + " Ra " + showNatL(NL4) + nl
+    + ind(s N) + "compatible " + showPairs(GS) + " | P " + showPs(PL) + " | B " + showVecs(VS) + nl
+    + (if BR == noBranch then ind(s N) + "no choice" + nl else showBranches(X, BR, s N) fi) .
+  vars NL1 NL2 NL3 NL4 : NatL .  var TL' : TermList .
+  eq showBranches(X, noBranch, N) = "" .
+  eq showBranches(X, branch(VS, Sb, Tr) & BR, N) =
+    ind(N) + "branch " + showVecs(VS) + ": " + showSub(X, Sb) + nl + showTree(X, Tr, s N)
+    + showBranches(X, BR, N) .
+  eq showTree(X, cover(I, Al, W), N) =
+    ind(N) + "cover answer " + string(I, 10) + " with " + showSub(X, W) + nl .
+  eq showTree(X, stuck(st(Al, E, D, I)), N) = ind(N) + "STUCK " + showEqns(X, E) + nl .
+  eq showTree(X, at(Al, E, D, Tr), N) =
+    ind(N) + "⊢ " + showAlpha(X, Al) + " | " + showEqns(X, E) + " | " + showDiseqs(X, D) + nl
+    + showTree(X, Tr, N) .
+
+  *** The images of the original variables that are not the variable itself.
+  op showAlpha : Ctx Substitution -> String .
+  eq showAlpha(X, Al) = showSub(X, nontrivial(Al)) .
+  op nontrivial : Substitution -> Substitution .
+  eq nontrivial(none) = none .
+  eq nontrivial((V <- T) ; Al) = if T == V then nontrivial(Al) else (V <- T) ; nontrivial(Al) fi .
+  op showDiseqs : Ctx Diseqs -> String .
+  eq showDiseqs(X, noNeq) = "-" .
+  eq showDiseqs(X, neq(T1, T2)) = showTerm(X, T1) + " =/= " + showTerm(X, T2) .
+  eq showDiseqs(X, neq(T1, T2) ,, D) = showTerm(X, T1) + " =/= " + showTerm(X, T2) + "; " + showDiseqs(X, D) [owise] .
+
+  op showAnswers : Ctx Answers Nat -> String .
+  eq showAnswers(X, noAns, N) = "" .
+  eq showAnswers(X, Sb :: AS, N) = "  " + string(N, 10) + ": " + showSub(X, Sb) + nl + showAnswers(X, AS, s N) .
+
+  *** Entry point: the same arguments as  run , rendered. Each rule line is
+  *** preceded by its judgment:  ⊢ α (nontrivial images) | E | D .
+  op certify : Qid BagInfos Qid TermList Eqns -> String .
+  eq certify(Q, BIs, F, TL, E) = show(ctx(upModule(Q, false), BIs, F, TL, noAns), E, run(Q, BIs, F, TL, E)) .
+  op certify : Qid BagInfos Qid TermList Term Term -> String .
+  eq certify(Q, BIs, F, TL, T1, T2) = certify(Q, BIs, F, TL, eqn(T1, T2)) .
+  op show : Ctx Eqns Result -> String .
+  eq show(X, E, result(AS, Tr)) =
+    "problem " + showEqns(X, E) + nl + "answers" + nl + showAnswers(X, AS, 0)
+    + "derivation" + nl + showTree(X, Tr, 1) .
+endfm

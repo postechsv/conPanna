@@ -104,13 +104,14 @@ fmod PRODUCER is
   op elim : Variable Term Tree -> Tree [ctor] .
   op identify : Term Term Tree Tree -> Tree [ctor] .
   op distinct : Term Term -> Tree [ctor] .
-  op solve : Eqn TermList TermList NatL NatL NatL NatL VecsL Vecs Branches -> Tree [ctor] .
-       *** equation, bag vars V, aliens a, L, R, La, Ra, P, B, one branch per choice
+  op solve : Eqn TermList TermList NatL NatL NatL NatL Groups VecsL Vecs Branches -> Tree [ctor] .
+       *** equation, bag vars V, aliens a, L, R, La, Ra, compatible pairs, P, B, one branch per choice
   op branch : Vecs Substitution Tree -> Branches [ctor] .   *** choice pi, theta_pi, subtree
   op noBranch : -> Branches [ctor] .
   op _&_ : Branches Branches -> Branches [ctor assoc id: noBranch] .
   op cover : Nat Substitution Substitution -> Tree [ctor] .  *** answer index, leaf alpha, witness
   op stuck : State -> Tree [ctor] .
+  op at : Substitution Eqns Diseqs Tree -> Tree [ctor] .   *** the judgment a rule is applied to
   op result : Answers Tree -> Result [ctor] .
 
   *** ------------------------------------------------------------------
@@ -199,21 +200,23 @@ fmod PRODUCER is
   *** ------------------------------------------------------------------
   *** The derivation strategy.
   op derive : Ctx State Nat -> Tree .         *** fuel bounds the depth
+  op derive1 : Ctx State Nat -> Tree .        *** the rule applied to a state
   var Fu : Nat .
+  eq derive(X, st(Al, E, D, K), Fu) = at(Al, E, D, derive1(X, st(Al, E, D, K), Fu)) .
 
-  eq derive(X, st(Al, E, D, K), 0) = stuck(st(Al, E, D, K)) .
+  eq derive1(X, st(Al, E, D, K), 0) = stuck(st(Al, E, D, K)) .
 
   *** DISTINCT: a recorded disequation between equal terms.
-  eq derive(X, st(Al, E, neq(T, T) ,, D, K), s Fu) = distinct(T, T) .
+  eq derive1(X, st(Al, E, neq(T, T) ,, D, K), s Fu) = distinct(T, T) .
 
   *** COVER: no equation left; match the answers against the images.
-  eq derive(X, st(Al, noEq, D, K), s Fu) = cover(X, Al, answers(X), 0) [owise] .
+  eq derive1(X, st(Al, noEq, D, K), s Fu) = cover(X, Al, answers(X), 0) [owise] .
 
   *** DELETE.
-  eq derive(X, st(Al, eqn(T, T) ;; E, D, K), s Fu) =
+  eq derive1(X, st(Al, eqn(T, T) ;; E, D, K), s Fu) =
     delete(eqn(T, T), derive(X, st(Al, E, D, K), Fu)) .
 
-  eq derive(X, st(Al, eqn(T1, T2) ;; E, D, K), s Fu) =
+  eq derive1(X, st(Al, eqn(T1, T2) ;; E, D, K), s Fu) =
     if isBagAny(bis(X), T1) or isBagAny(bis(X), T2)
     then bagStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu)
     else freeStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) fi [owise] .
@@ -290,6 +293,14 @@ fmod PRODUCER is
   eq size(nilN) = 0 .
   eq size(N ^^ NL) = 1 + size(NL) .
 
+  *** Compatible pairs (i, j), i < j, as two-element groups.
+  op cpairs : Ctx Diseqs TermList Nat Nat -> Groups .
+  eq cpairs(X, D, AL, I, K) = if I < K then cpairs1(X, D, AL, I, s I, K) @@ cpairs(X, D, AL, s I, K) else noGrp fi .
+  op cpairs1 : Ctx Diseqs TermList Nat Nat Nat -> Groups .
+  eq cpairs1(X, D, AL, I, J, K) =
+    if J < K then (if compat(X, D, nth(AL, I), nth(AL, J)) then grp(I ^^ J) else noGrp fi) @@ cpairs1(X, D, AL, I, s J, K)
+    else noGrp fi .
+
   *** The first pair of a clique violating S2*.
   op failingPair : TermList TermList TermList TermList VecsL Groups ~> TermList .
   eq failingPair(VL, AL, LS, RS, P, grp(I ^^ J ^^ GR) @@ GS) =
@@ -340,7 +351,8 @@ fmod PRODUCER is
   op solveStep : Ctx State Nat -> Tree .
   ceq solveStep(X, st(Al, eqn(T1, T2) ;; E, D, K), Fu) =
       solve(eqn(T1, T2), VL, AL, counts(VL, LS), counts(VL, RS), counts(AL, LS), counts(AL, RS),
-            P, B, branches(X, BI, st(Al, E, D, K + len2(B)), VL, AL, choices(P), B, K, Fu))
+            cpairs(X, D, AL, 0, len(AL)), P, B,
+            branches(X, BI, st(Al, E, D, K + len2(B)), VL, AL, choices(P), B, K, Fu))
     if BI := infoOf(bis(X), T1, T2)
     /\ LS := flat(BI, T1) /\ RS := flat(BI, T2)
     /\ VL := bvars(BI, (LS, RS), empty) /\ AL := aliens(BI, (LS, RS), empty)
