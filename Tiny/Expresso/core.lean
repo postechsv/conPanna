@@ -77,47 +77,47 @@ These describe ONE-STEP transitions. Choice is nondeterminism, not sequencing.
 None of these definitions computes unifiers or post-images.
 -/
 
-def Subsumes (source target : Pattern α) : Prop :=
+def subsumes (source target : Pattern α) : Prop :=
   ∀ state, source.holds state → target.holds state
 
-def Overlaps (left right : Pattern α) : Prop :=
+def overlaps (left right : Pattern α) : Prop :=
   ∃ state, left.holds state ∧ right.holds state
 
 def postImage (rule : System α) (source : Pattern α) (after : α) : Prop :=
   ∃ before, source.holds before ∧ rule.step before after
 
-def MapsInto (rule : System α) (source target : Pattern α) : Prop :=
+def mapsInto (rule : System α) (source target : Pattern α) : Prop :=
   ∀ before after, source.holds before → rule.step before after →
     target.holds after
 
 /-- No missing states: the candidate contains every actual successor.
 This is the SAME universal mapping judgment, not a second semantics. -/
-abbrev Over (rule : System α) (source post : Pattern α) : Prop := MapsInto rule source post
+abbrev over (rule : System α) (source post : Pattern α) : Prop := mapsInto rule source post
 
 /-- No junk states: every candidate state is an actual successor. -/
-def Under (rule : System α) (source post : Pattern α) : Prop :=
+def under (rule : System α) (source post : Pattern α) : Prop :=
   ∀ after, post.holds after → postImage rule source after
 
-def Exact (rule : System α) (source post : Pattern α) : Prop :=
-  Over rule source post ∧ Under rule source post
+def exact (rule : System α) (source post : Pattern α) : Prop :=
+  over rule source post ∧ under rule source post
 
-def Reaches (rule : System α) (source target : Pattern α) : Prop :=
+def reaches (rule : System α) (source target : Pattern α) : Prop :=
   ∃ before after, source.holds before ∧ rule.step before after ∧
     target.holds after
 
 theorem mapsInto_of_over_subsumes
     {rule : System α} {source post target : Pattern α}
-    (over : Over rule source post) (subsumes : Subsumes post target) :
-    MapsInto rule source target :=
-  fun before after hsource hstep => subsumes after (over before after hsource hstep)
+    (hover : over rule source post) (hsub : subsumes post target) :
+    mapsInto rule source target :=
+  fun before after hsource hstep => hsub after (hover before after hsource hstep)
 
 theorem reaches_of_under_overlaps
     {rule : System α} {source post target : Pattern α}
-    (under : Under rule source post) (overlap : Overlaps post target) :
-    Reaches rule source target :=
-  match overlap with
+    (hunder : under rule source post) (hoverlap : overlaps post target) :
+    reaches rule source target :=
+  match hoverlap with
   | ⟨after, hpost, htarget⟩ =>
-    match under after hpost with
+    match hunder after hpost with
     | ⟨before, hsource, hstep⟩ => ⟨before, after, hsource, hstep, htarget⟩
 
 end Expresso
