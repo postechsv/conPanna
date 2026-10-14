@@ -25,7 +25,7 @@ inductive Patch (α : Type u) : Type (u + 1) where
 
 inductive Pattern (α : Type u) : Type (u + 1) where
   | bott : Pattern α
-  | atom (p : Patch α) : Pattern α
+  | patch (p : Patch α) : Pattern α
   | disj (left right : Pattern α) : Pattern α
 
 def PatchBody.holds (p : PatchBody α) (actual : α) : Prop :=
@@ -39,7 +39,7 @@ def Patch.holds : Patch α → α → Prop
 
 def Pattern.holds : Pattern α → α → Prop
   | .bott, _ => False
-  | .atom p, state => p.holds state
+  | .patch p, state => p.holds state
   | .disj left right, state => left.holds state ∨ right.holds state
 
 /-- A rule body `lhs => rhs if cond`. -/

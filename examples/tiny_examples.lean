@@ -35,17 +35,17 @@ structure Conf where
 
 /-! ## Symbolic patterns
 `bind` means existential membership, not a concrete choice of ticket.
-The condition in an atom belongs to that same ticket assignment.
+The condition in a patch belongs to that same ticket assignment.
 -/
 
 def initial : Pattern Conf :=
-  .atom (.bind fun n : Nat => { state := ⟨n, n, {.idle}⟩ })
+  .patch (.bind fun n : Nat => { state := ⟨n, n, {.idle}⟩ })
 
 def waiting : Pattern Conf :=
-  .atom (.bind fun n : Nat => ⟨⟨n + 1, n, {.wait n}⟩, n < n + 1⟩)
+  .patch (.bind fun n : Nat => ⟨⟨n + 1, n, {.wait n}⟩, n < n + 1⟩)
 
 def critical : Pattern Conf :=
-  .atom (.bind fun n : Nat => ⟨⟨n + 1, n, {.crit n}⟩, n < n + 1⟩)
+  .patch (.bind fun n : Nat => ⟨⟨n + 1, n, {.crit n}⟩, n < n + 1⟩)
 
 def bakeryInv : Pattern Conf :=
   .disj initial (.disj waiting critical)
