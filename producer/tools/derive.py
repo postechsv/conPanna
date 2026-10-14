@@ -34,7 +34,7 @@ def run_maude(request: pathlib.Path) -> str:
 def main() -> None:
     for arg in sys.argv[1:]:
         request = pathlib.Path(arg)
-        if "certify(" not in request.read_text():
+        if "certify" not in request.read_text():
             continue  # not a request (e.g. a models file)
         text = run_maude(request)
         target = request.with_suffix(".deriv")

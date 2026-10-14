@@ -1,0 +1,7 @@
+***( Negative example: paper §6.1 with Maude's answer 1 removed, so the answer set
+     is incomplete. The producer finds no covering answer for one leaf (STUCK). )
+load models.maude
+select SHOW .
+red certifyWithout('MIXED, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag, 'N:Num, 'M:Num),
+        '__['X:Bag, 'w['N:Num]], '__['Y:Bag, 'w['M:Num]], 1) .

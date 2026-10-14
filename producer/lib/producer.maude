@@ -358,7 +358,7 @@ fmod PRODUCER is
     /\ VL := bvars(BI, (LS, RS), empty) /\ AL := aliens(BI, (LS, RS), empty)
     /\ US := absUnifiers(VL, AL, LS, RS)
     /\ P := partOf(US, VL, AL, 0)
-    /\ B := basisOf(US, VL, noVec) .
+    /\ B := basisOf(homUnifiers(VL, LS, RS), VL, noVec) .
   vars LS RS VL AL : TermList .  var P : VecsL .  var B : Vecs .  var US : Answers .
 
   op len2 : Vecs -> Nat .
@@ -391,6 +391,17 @@ fmod PRODUCER is
   eq unifAt(M, UP, N, {Sb, I}) = Sb :: allUnifs(M, UP, s N) .
   eq unifAt(M, UP, N, noUnifier) = noAns .
   var UP : UnificationProblem .
+
+  *** The homogeneous equation (aliens removed). Its answers always exist, and their
+  *** fresh-variable multiplicities give the basis B.
+  op homUnifiers : TermList TermList TermList -> Answers .
+  eq homUnifiers(VL, LS, RS) =
+    allUnifiers(upModule('ABS-BAG, false),
+      mk(bag('Bag, '__, 'none.Bag), absList(VL, empty, varsOnly(VL, LS))),
+      mk(bag('Bag, '__, 'none.Bag), absList(VL, empty, varsOnly(VL, RS))), 0) .
+  op varsOnly : TermList TermList -> TermList .
+  eq varsOnly(VL, empty) = empty .
+  eq varsOnly(VL, (T, TL)) = (if mem(T, VL) then T else empty fi), varsOnly(VL, TL) .
 
   *** Binding of abstract variable Vi in a unifier, flattened.
   op bnd : Substitution Nat -> TermList .
@@ -491,10 +502,16 @@ fmod PRODUCER is
   *** Entry point: prior unify, then the derivation.
   *** run(module, bag sorts, tuple op, original variables, equations)
   op run : Qid BagInfos Qid TermList Eqns -> Result .
-  eq run(Q, BIs, F, TL, E) =
-    result(allUnifs(upModule(Q, false), prob(E), 0),
-      derive(ctx(upModule(Q, false), BIs, F, TL, allUnifs(upModule(Q, false), prob(E), 0)),
-             st(idSub(TL), E, noNeq, 0), 100)) .
+  eq run(Q, BIs, F, TL, E) = runWith(Q, BIs, F, TL, E, allUnifs(upModule(Q, false), prob(E), 0)) .
+  *** run against a given answer set (e.g. a deliberately incomplete one)
+  op runWith : Qid BagInfos Qid TermList Eqns Answers -> Result .
+  eq runWith(Q, BIs, F, TL, E, AS) =
+    result(AS, derive(ctx(upModule(Q, false), BIs, F, TL, AS), st(idSub(TL), E, noNeq, 0), 100)) .
+  *** the answers of unify without the N-th one (counting from 0)
+  op dropAt : Answers Nat -> Answers .
+  eq dropAt(noAns, N) = noAns .
+  eq dropAt(Sb :: AS, 0) = AS .
+  eq dropAt(Sb :: AS, s N) = Sb :: dropAt(AS, N) .
   op run : Qid BagInfos Qid TermList Term Term -> Result .
   eq run(Q, BIs, F, TL, T1, T2) = run(Q, BIs, F, TL, eqn(T1, T2)) .
   op prob : Eqns ~> UnificationProblem .

@@ -1,0 +1,7 @@
+problem "<_,_,_>"(s(N?), N?, P?) = "<_,_,_>"(z, M?, Q?)
+answers
+derivation
+  ⊢ - | "<_,_,_>"(s(N?), N?, P?) = "<_,_,_>"(z, M?, Q?) | -
+  decomp "<_,_,_>"(s(N?), N?, P?) = "<_,_,_>"(z, M?, Q?)  ==>  s(N?) = z; N? = M?; P? = Q?
+  ⊢ - | s(N?) = z; N? = M?; P? = Q? | -
+  clash s(N?) = z

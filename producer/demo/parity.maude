@@ -1,0 +1,6 @@
+***( No unifiers, by parity:  X X =? Y Y a  (at a: 2x = 2y + 1) )
+load models.maude
+select SHOW .
+red certify('PARITY, bag('Bag, '__, 'none.Bag), 'tup,
+        ('X:Bag, 'Y:Bag),
+        '__['X:Bag, 'X:Bag], '__['Y:Bag, 'Y:Bag, 'a.Elem]) .

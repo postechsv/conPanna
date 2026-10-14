@@ -174,7 +174,9 @@ fmod SHOW is
     + showBranches(X, BR, N) .
   eq showTree(X, cover(I, Al, W), N) =
     ind(N) + "cover answer " + string(I, 10) + " with " + showSub(X, W) + nl .
-  eq showTree(X, stuck(st(Al, E, D, I)), N) = ind(N) + "STUCK " + showEqns(X, E) + nl .
+  eq showTree(X, stuck(st(Al, E, D, I)), N) =
+    ind(N) + (if E == noEq then "STUCK: no answer covers this leaf"
+              else "STUCK: no rule applies to " + showEqns(X, E) fi) + nl .
   eq showTree(X, at(Al, E, D, Tr), N) =
     ind(N) + "⊢ " + showAlpha(X, Al) + " | " + showEqns(X, E) + " | " + showDiseqs(X, D) + nl
     + showTree(X, Tr, N) .
@@ -198,6 +200,11 @@ fmod SHOW is
   *** preceded by its judgment:  ⊢ α (nontrivial images) | E | D .
   op certify : Qid BagInfos Qid TermList Eqns -> String .
   eq certify(Q, BIs, F, TL, E) = show(ctx(upModule(Q, false), BIs, F, TL, noAns), E, run(Q, BIs, F, TL, E)) .
+  *** The same with the N-th answer of unify removed: a negative example.
+  op certifyWithout : Qid BagInfos Qid TermList Term Term Nat -> String .
+  eq certifyWithout(Q, BIs, F, TL, T1, T2, N) =
+    show(ctx(upModule(Q, false), BIs, F, TL, noAns), eqn(T1, T2),
+      runWith(Q, BIs, F, TL, eqn(T1, T2), dropAt(allUnifs(upModule(Q, false), T1 =? T2, 0), N))) .
   op certify : Qid BagInfos Qid TermList Term Term -> String .
   eq certify(Q, BIs, F, TL, T1, T2) = certify(Q, BIs, F, TL, eqn(T1, T2)) .
   op show : Ctx Eqns Result -> String .

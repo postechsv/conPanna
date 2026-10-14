@@ -37,3 +37,13 @@ fmod NONLINEAR is
   op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
   op tup : Bag Bag Bag -> Tup [ctor] .
 endfm
+
+*** Bags over two constants (the parity demo).
+fmod PARITY is
+  sorts Elem Bag Tup .
+  subsort Elem < Bag .
+  ops a b : -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op tup : Bag Bag -> Tup [ctor] .
+endfm

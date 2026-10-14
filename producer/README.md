@@ -2,25 +2,49 @@
 
 Given a user model, a unification problem and the answers of a prior Maude
 `unify`, the producer builds a derivation in the calculus of the paper draft
-(https://claude.ai/artifact/NPzPT378gRTqQyyXn7QRXV). Lean checks the result; nothing
-here is trusted.
+(https://claude.ai/artifact/NPzPT378gRTqQyyXn7QRXV). A compiler turns the
+derivation into a Lean proof of `UnifierSet.Complete`. Nothing here is trusted:
+Lean checks the result.
 
 | Directory | Contents |
 |---|---|
 | `lib/` | The general library. `producer.maude` builds derivations; `show.maude` renders them as text. |
-| `tools/` | Command-line tools. `derive.py` runs Maude on a request and writes the derivation. |
-| `demo/` | Per demo: the Maude request (`*.maude`, models in `models.maude`), the derivation (`*.deriv`) and the Lean certificate (`*.lean`). The `.lean` files are currently written by hand in exactly the form the compiler will emit. |
+| `tools/` | `derive.py` (Maude → derivation), `compile.py` (derivation → Lean), `demo.py` (both, plus Lean's check). |
+| `demo/` | Per demo NAME: the request `NAME.maude` (models in `models.maude`), the user's claim `NAME.claim.lean`, and the generated `NAME.deriv` and `NAME.lean`. |
 | `tests/` | Development tests of the producer: `examples.maude`, `rules.maude` (every rule), `scale.maude` (larger inputs), and their models. |
 
-## Run a demo
+## Run the demos
+
+From the repository root:
 
 ```
-python3 producer/tools/derive.py producer/demo/mixed.maude   # writes producer/demo/mixed.deriv
-lake env lean producer/demo/mixed.lean                        # checks the certificate
+python3 producer/tools/demo.py all        # or e.g.: python3 producer/tools/demo.py mixed
 ```
 
-Known toolchain issue: checking `enter.lean` prints `PANIC at Lean.Expr.appArg!` messages
-from a Mathlib simplification procedure. They are harmless; the proof checks.
+For each demo this runs Maude (`unify`, then the derivation), compiles the
+derivation into a Lean certificate, and checks it with `lake env lean`. The demos:
+
+| Demo | What it shows |
+|---|---|
+| `l137` | Bakery: DECOMP of a configuration, then one SOLVE with two branches |
+| `bakery2` | Unknown bags on both sides: SOLVE with fresh variables (basis vectors) |
+| `mixed` | Paper §6.1: IDENTIFY splits two aliens that may cancel |
+| `nonlinear` | Paper §6.2: a Hilbert basis of three vectors |
+| `enter` | A Bakery transition step: compatible aliens, one SOLVE with a clique |
+| `clash` | No unifiers: a free clash (successor vs. zero); empty answer set certified |
+| `parity` | No unifiers: SOLVE with no possible choice (`2x = 2y + 1`); empty answer set certified |
+| `missing` | Negative: one of Maude's answers removed; the derivation gets STUCK, no certificate |
+
+Known toolchain issue: checking `enter.lean` prints `PANIC at Lean.Expr.appArg!`
+messages from a Mathlib simplification procedure. They are harmless; the proof checks.
+
+## The claim file
+
+`NAME.claim.lean` is ordinary Lean: the model (inductives, `ACU` sorts) and the
+problem. Its `/- certify {...} -/` header tells the compiler the namespace, the Lean
+type of the original variables (`context`), their order (`vars`), and the Lean
+counterparts of the Maude operators (`ops`). Later the model, problem and this
+header will be dumped from Lean instead of written by hand.
 
 ## Reading a derivation
 
@@ -28,3 +52,4 @@ from a Mathlib simplification procedure. They are harmless; the proof checks.
 - Bags are written `t + u`, `{a}`, `∅`.
 - Each rule line is preceded by its judgment `⊢ α | E | D`: the nontrivial images of the original variables, the pending equations, and the disequations.
 - Children are indented. IDENTIFY labels its branches `equal:` and `distinct:`, and SOLVE labels them `branch π`.
+- The compiled `NAME.lean` repeats each judgment and rule as a comment above the Lean step that applies it.

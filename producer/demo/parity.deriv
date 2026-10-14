@@ -1,0 +1,8 @@
+problem X? + X? = Y? + Y? + {a}
+answers
+derivation
+  ⊢ - | X? + X? = Y? + Y? + {a} | -
+  solve X? + X? = Y? + Y? + {a}
+    vars X? Y? | aliens a | L (2,0) R (0,2) La (0) Ra (1)
+    compatible - | P [] | B [(1,1)]
+    no choice

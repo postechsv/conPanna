@@ -1,0 +1,6 @@
+***( No unifiers, by a free clash:  < s N, N, P > =? < z, M, Q > )
+load models.maude
+select SHOW .
+red certify('BAKERY, bag('ProcSet, '__, 'none.ProcSet), 'tup,
+        ('N:Num, 'P:ProcSet, 'M:Num, 'Q:ProcSet),
+        '<_`,_`,_>['s['N:Num], 'N:Num, 'P:ProcSet], '<_`,_`,_>['z.Num, 'M:Num, 'Q:ProcSet]) .
