@@ -78,7 +78,7 @@ None of these definitions computes unifiers or post-images.
 -/
 
 -- R(A) ⊓ B ≠ ⊥ renaming? redifine using overlaps?
-def reaches (R : System α) (A B : Pattern α) : Prop :=
+def hasStep (R : System α) (A B : Pattern α) : Prop :=
   ∃ a b, A.holds a ∧ R.step a b ∧ B.holds b
 
 -- A ⊑ B
@@ -90,30 +90,30 @@ def overlaps (A B : Pattern α) : Prop :=
   ∃ v, A.holds v ∧ B.holds v
 
 -- No Junk : B ⊑ R(A)
-def under (R : System α) (A B : Pattern α) : Prop :=
+def isUnderPost (R : System α) (A B : Pattern α) : Prop :=
   ∀ b, B.holds b → ∃ a, A.holds a ∧ R.step a b
 
 -- No Miss : R(A) ⊑ B
-def over (R : System α) (A B : Pattern α) : Prop :=
+def isOverPost (R : System α) (A B : Pattern α) : Prop :=
   ∀ a b, A.holds a → R.step a b → B.holds b
 
 -- No Junk & No Miss : R(A) = B
-def exact (R : System α) (A B : Pattern α) : Prop :=
-  over R A B ∧ under R A B
+def isPost (R : System α) (A B : Pattern α) : Prop :=
+  isOverPost R A B ∧ isUnderPost R A B
 
 
 -- R(A) ⊑ B ∧ C ⊑ B → R(A) ⊑ C
 theorem over_of_subsumes
     {R : System α} {A B C : Pattern α}
-    (hover : over R A C) (hsub : subsumes C B) :
-    over R A B :=
+    (hover : isOverPost R A C) (hsub : subsumes C B) :
+    isOverPost R A B :=
   fun before after hsource hstep => hsub after (hover before after hsource hstep)
 
 -- B ⊑ R(A) ∧ B ⊓ C ≠ ⊥ → R(A) ⊓ C ≠ ⊥
-theorem reaches_of_under_overlaps
+theorem hasStep_of_isUnderPost_overlaps
     {R : System α} {A B C : Pattern α}
-    (hunder : under R A B) (hoverlap : overlaps B C) :
-    reaches R A C :=
+    (hunder : isUnderPost R A B) (hoverlap : overlaps B C) :
+    hasStep R A C :=
   match hoverlap with
   | ⟨after, hpost, htarget⟩ =>
     match hunder after hpost with

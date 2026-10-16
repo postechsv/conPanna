@@ -4,10 +4,10 @@ import Tiny.conPanna.Unification.Unification
 /-!
 One-step narrowing, reduced to unification.
 
-The specification is `exact` from `core.lean`: `over` (no missing successor) and
-`under` (no junk successor) play the roles of `complete` and `sound`. For one
+The specification is `isPost` from `core.lean`: `isOverPost` (no missing successor) and
+`isUnderPost` (no junk successor) play the roles of `complete` and `sound`. For one
 patch and one rule, the post is read off the unifiers of their mayFire problem
-(`exact_of_unifiers`); patterns and systems then compose by `disj` and `choice`.
+(`isPost_of_unifiers`); patterns and systems then compose by `disj` and `choice`.
 -/
 
 namespace Narrowing
@@ -43,9 +43,9 @@ theorem post_holds {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r
   | nil => simp [post, Pattern.holds]
   | cons σ rest ih => simp [post, Pattern.holds, ih]
 
-/-- Completeness of the unifiers gives `over`. -/
-theorem over_of_complete {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r.Vars × p.Vars)}
-    (h : complete (mayFire r p) unifiers) : over (.rule r) (.patch p) (post r p unifiers) := by
+/-- Completeness of the unifiers gives `isOverPost`. -/
+theorem isOverPost_of_complete {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r.Vars × p.Vars)}
+    (h : complete (mayFire r p) unifiers) : isOverPost (.rule r) (.patch p) (post r p unifiers) := by
   obtain ⟨g⟩ := r
   obtain ⟨f⟩ := p
   rintro _ after ⟨a, rfl, hc⟩ ⟨b, hl, rfl, hd⟩
@@ -53,41 +53,41 @@ theorem over_of_complete {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u,
   refine post_holds.2 ⟨.bind σ, hmem, x, ?_⟩
   simp [PatchBody.holds, ← hx, hc, hd]
 
-/-- Soundness of the unifiers gives `under`. -/
-theorem under_of_sound {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r.Vars × p.Vars)}
-    (h : sound (mayFire r p) unifiers) : under (.rule r) (.patch p) (post r p unifiers) := by
+/-- Soundness of the unifiers gives `isUnderPost`. -/
+theorem isUnderPost_of_sound {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r.Vars × p.Vars)}
+    (h : sound (mayFire r p) unifiers) : isUnderPost (.rule r) (.patch p) (post r p unifiers) := by
   obtain ⟨g⟩ := r
   obtain ⟨f⟩ := p
   intro after hpost
   obtain ⟨⟨σ⟩, hmem, x, rfl, hc, hd⟩ := post_holds.1 hpost
   exact ⟨_, ⟨_, rfl, hc⟩, _, h _ hmem (σ x) ⟨x, rfl⟩, rfl, hd⟩
 
-theorem exact_of_unifiers {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r.Vars × p.Vars)}
+theorem isPost_of_unifiers {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u, u} (r.Vars × p.Vars)}
     (hc : complete (mayFire r p) unifiers) (hs : sound (mayFire r p) unifiers) :
-    exact (.rule r) (.patch p) (post r p unifiers) :=
-  ⟨over_of_complete hc, under_of_sound hs⟩
+    isPost (.rule r) (.patch p) (post r p unifiers) :=
+  ⟨isOverPost_of_complete hc, isUnderPost_of_sound hs⟩
 
 /-! ## Patterns and systems compose -/
 
 -- R(⊥) = ⊥
-theorem exact_bott (R : System α) : exact R .bott .bott :=
+theorem isPost_bott (R : System α) : isPost R .bott .bott :=
   ⟨fun _ _ h => h.elim, fun _ h => h.elim⟩
 
 -- ⊥(S) = ⊥
-theorem exact_empty (S : Pattern α) : exact .empty S .bott :=
+theorem isPost_empty (S : Pattern α) : isPost .empty S .bott :=
   ⟨fun _ _ _ h => h.elim, fun _ h => h.elim⟩
 
 -- R(S₁) = P₁, R(S₂) = P₂ ⇒ R(S₁ ⊔ S₂) = P₁ ⊔ P₂
-theorem exact_disj {R : System α} {S₁ S₂ P₁ P₂ : Pattern α}
-    (h₁ : exact R S₁ P₁) (h₂ : exact R S₂ P₂) : exact R (.disj S₁ S₂) (.disj P₁ P₂) :=
+theorem isPost_disj {R : System α} {S₁ S₂ P₁ P₂ : Pattern α}
+    (h₁ : isPost R S₁ P₁) (h₂ : isPost R S₂ P₂) : isPost R (.disj S₁ S₂) (.disj P₁ P₂) :=
   ⟨fun before after hs hstep => hs.imp (h₁.1 before after · hstep) (h₂.1 before after · hstep),
    fun after hp => hp.elim
      (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, .inl hs, hstep⟩)
      (fun hp => let ⟨b, hs, hstep⟩ := h₂.2 after hp; ⟨b, .inr hs, hstep⟩)⟩
 
 -- R₁(S) = P₁, R₂(S) = P₂ ⇒ (R₁ ⊔ R₂)(S) = P₁ ⊔ P₂
-theorem exact_choice {R₁ R₂ : System α} {S P₁ P₂ : Pattern α}
-    (h₁ : exact R₁ S P₁) (h₂ : exact R₂ S P₂) : exact (.choice R₁ R₂) S (.disj P₁ P₂) :=
+theorem isPost_choice {R₁ R₂ : System α} {S P₁ P₂ : Pattern α}
+    (h₁ : isPost R₁ S P₁) (h₂ : isPost R₂ S P₂) : isPost (.choice R₁ R₂) S (.disj P₁ P₂) :=
   ⟨fun before after hs hstep => hstep.imp (h₁.1 before after hs) (h₂.1 before after hs),
    fun after hp => hp.elim
      (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, hs, .inl hstep⟩)
