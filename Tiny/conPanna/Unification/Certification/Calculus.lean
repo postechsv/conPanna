@@ -15,25 +15,25 @@ namespace Unification.Certification
 
 universe v w w' x y
 
-variable {Γ₀ : Type v} {Γ : Type w} {answers : UnifierSet.{v, x} Γ₀}
+variable {Γ₀ : Type v} {Γ : Type w} {unifiers : UnifierSet.{v, x} Γ₀}
 
 /-! ## Free part and identification -/
 
 /-- DECOMP (and DELETE): replace the pending equations by consequences of them,
 e.g. `f(s⃗) = f(t⃗)` by `s⃗ = t⃗` for a free constructor `f`. -/
 theorem decomp {s : State Γ₀ Γ} (E' : Γ → Prop) (h : ∀ ρ, s.E ρ → E' ρ)
-    (next : { s with E := E' } ⊩ answers) : s ⊩ answers :=
+    (next : { s with E := E' } ⊩ unifiers) : s ⊩ unifiers :=
   fun ρ hE hD => next ρ (h ρ hE) hD
 
 /-- CLASH (and OCCURS, DISTINCT): the pending constraints are contradictory. -/
-theorem clash {s : State Γ₀ Γ} (h : ∀ ρ, s.E ρ → s.D ρ → False) : s ⊩ answers :=
+theorem clash {s : State Γ₀ Γ} (h : ∀ ρ, s.E ρ → s.D ρ → False) : s ⊩ unifiers :=
   close h
 
 /-- ELIM `V := t`: every solution has the form `f ρ'`, where `f` puts `t` in
 place of `V`. The variable leaves the context and is substituted into `α`. -/
 theorem elim {Γ' : Type w'} {s : State Γ₀ Γ} (f : Γ' → Γ) (E' : Γ' → Prop)
     (h : ∀ ρ, s.E ρ → ∃ ρ', ρ = f ρ' ∧ E' ρ')
-    (next : (⟨s.α ∘ f, E', s.D ∘ f⟩ : State Γ₀ Γ') ⊩ answers) : s ⊩ answers := by
+    (next : (⟨s.α ∘ f, E', s.D ∘ f⟩ : State Γ₀ Γ') ⊩ unifiers) : s ⊩ unifiers := by
   intro ρ hE hD
   obtain ⟨ρ', rfl, hE'⟩ := h ρ hE
   exact next ρ' hE' hD
@@ -41,8 +41,8 @@ theorem elim {Γ' : Type w'} {s : State Γ₀ Γ} (f : Γ' → Γ) (E' : Γ' →
 /-- IDENTIFY two aliens: either they are equal (a new equation) or different
 (a new disequation). -/
 theorem identify {T : Sort y} {s : State Γ₀ Γ} (a b : Γ → T)
-    (eq : { s with E := fun ρ => s.E ρ ∧ a ρ = b ρ } ⊩ answers)
-    (ne : { s with D := fun ρ => s.D ρ ∧ a ρ ≠ b ρ } ⊩ answers) : s ⊩ answers := by
+    (eq : { s with E := fun ρ => s.E ρ ∧ a ρ = b ρ } ⊩ unifiers)
+    (ne : { s with D := fun ρ => s.D ρ ∧ a ρ ≠ b ρ } ⊩ unifiers) : s ⊩ unifiers := by
   intro ρ hE hD
   by_cases h : a ρ = b ρ
   · exact eq ρ ⟨hE, h⟩ hD
@@ -57,7 +57,7 @@ theorem identify {T : Sort y} {s : State Γ₀ Γ} (a b : Γ → T)
 * `cp` is the compatibility relation on classes; incompatible classes are
   different (`hE`), and S2 is required for every clique of compatible classes.
 * `P` (particular solutions per class) and `B` (basis) are the data, read off
-  the answers; `S0`–`S3` are the side conditions.
+  the unifiers; `S0`–`S3` are the side conditions.
 * `E'` are the remaining equations, over the whole context.
 * One premise per choice `π`: the bag variables become `θ_π` in the images, the
   remaining equations and the disequations (the paper's `αθ_π; E'θ_π; Dθ_π`),
@@ -81,8 +81,8 @@ theorem solve {El : Type y} {Γr : Type w'} {n m k : ℕ} {s : State Γ₀ Γ}
     (next : ∀ π ∈ choices P,
       (⟨fun (r, U) => s.α (glue r (theta (a r) π B U)), fun (r, U) => E' (glue r (theta (a r) π B U)),
         fun (r, U) => s.D (glue r (theta (a r) π B U))⟩ :
-        State Γ₀ (Γr × (Fin k → ACU El))) ⊩ answers) :
-    s ⊩ answers := by
+        State Γ₀ (Γr × (Fin k → ACU El))) ⊩ unifiers) :
+    s ⊩ unifiers := by
   intro ρ hEρ hDρ
   obtain ⟨heq, hE', hinc⟩ := hE ρ hEρ hDρ
   obtain ⟨π, hπ, U, hU⟩ := solve_decomp (V ρ) (a (rest ρ)) L R La Ra cp heq hinc P B
@@ -99,11 +99,11 @@ by `f` with a right inverse `g`. Used to unpack SOLVE's fresh block
 `Z : Fin k → ACU El` into named variables `Z1, …, Zk`. -/
 theorem rename {Γ' : Type w'} {s : State Γ₀ Γ} (f : Γ' → Γ) (g : Γ → Γ')
     (hfg : ∀ ρ, f (g ρ) = ρ)
-    (next : (⟨s.α ∘ f, s.E ∘ f, s.D ∘ f⟩ : State Γ₀ Γ') ⊩ answers) : s ⊩ answers := by
+    (next : (⟨s.α ∘ f, s.E ∘ f, s.D ∘ f⟩ : State Γ₀ Γ') ⊩ unifiers) : s ⊩ unifiers := by
   intro ρ hE hD
   have h := next (g ρ) (by show s.E (f (g ρ)); rw [hfg]; exact hE)
     (by show s.D (f (g ρ)); rw [hfg]; exact hD)
-  show ∃ σ ∈ answers, covers σ (s.α ρ)
+  show ∃ σ ∈ unifiers, covers σ (s.α ρ)
   have : s.α (f (g ρ)) = s.α ρ := by rw [hfg]
   exact this ▸ h
 

@@ -34,12 +34,12 @@ def unifiedBy : Problem α Γ → Γ → Prop
 def covers : Unifier.{v, x} Γ → Γ → Prop
   | .bind body, γ => ∃ a, γ = body a
 
-/-- Every solution is an instance of some answer. -/
-def complete (problem : Problem α Γ) (answers : UnifierSet.{v, x} Γ) : Prop :=
-  ∀ γ, unifiedBy problem γ → ∃ σ ∈ answers, covers σ γ
+/-- Every solution is an instance of some unifier. -/
+def complete (problem : Problem α Γ) (unifiers : UnifierSet.{v, x} Γ) : Prop :=
+  ∀ γ, unifiedBy problem γ → ∃ σ ∈ unifiers, covers σ γ
 
-/-- Every instance of every answer is a solution. -/
-def sound (problem : Problem α Γ) (answers : UnifierSet.{v, x} Γ) : Prop :=
-  ∀ σ ∈ answers, ∀ γ, covers σ γ → unifiedBy problem γ
+/-- Every instance of every unifier is a solution. -/
+def sound (problem : Problem α Γ) (unifiers : UnifierSet.{v, x} Γ) : Prop :=
+  ∀ σ ∈ unifiers, ∀ γ, covers σ γ → unifiedBy problem γ
 
 end Unification
