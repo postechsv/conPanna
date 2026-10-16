@@ -69,12 +69,15 @@ theorem exact_of_unifiers {r : Rule α} {p : Patch α} {unifiers : UnifierSet.{u
 
 /-! ## Patterns and systems compose -/
 
+-- R(⊥) = ⊥
 theorem exact_bott (R : System α) : exact R .bott .bott :=
   ⟨fun _ _ h => h.elim, fun _ h => h.elim⟩
 
+-- ⊥(S) = ⊥
 theorem exact_empty (S : Pattern α) : exact .empty S .bott :=
   ⟨fun _ _ _ h => h.elim, fun _ h => h.elim⟩
 
+-- R(S₁) = P₁, R(S₂) = P₂ ⇒ R(S₁ ⊔ S₂) = P₁ ⊔ P₂
 theorem exact_disj {R : System α} {S₁ S₂ P₁ P₂ : Pattern α}
     (h₁ : exact R S₁ P₁) (h₂ : exact R S₂ P₂) : exact R (.disj S₁ S₂) (.disj P₁ P₂) :=
   ⟨fun before after hs hstep => hs.imp (h₁.1 before after · hstep) (h₂.1 before after · hstep),
@@ -82,6 +85,7 @@ theorem exact_disj {R : System α} {S₁ S₂ P₁ P₂ : Pattern α}
      (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, .inl hs, hstep⟩)
      (fun hp => let ⟨b, hs, hstep⟩ := h₂.2 after hp; ⟨b, .inr hs, hstep⟩)⟩
 
+-- R₁(S) = P₁, R₂(S) = P₂ ⇒ (R₁ ⊔ R₂)(S) = P₁ ⊔ P₂
 theorem exact_choice {R₁ R₂ : System α} {S P₁ P₂ : Pattern α}
     (h₁ : exact R₁ S P₁) (h₂ : exact R₂ S P₂) : exact (.choice R₁ R₂) S (.disj P₁ P₂) :=
   ⟨fun before after hs hstep => hstep.imp (h₁.1 before after hs) (h₂.1 before after hs),

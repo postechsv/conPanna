@@ -77,44 +77,43 @@ These describe ONE-STEP transitions. Choice is nondeterminism, not sequencing.
 None of these definitions computes unifiers or post-images.
 -/
 
-def subsumes (source target : Pattern α) : Prop :=
-  ∀ state, source.holds state → target.holds state
+-- R(A) ⊓ B ≠ ⊥ renaming? redifine using overlaps?
+def reaches (R : System α) (A B : Pattern α) : Prop :=
+  ∃ a b, A.holds a ∧ R.step a b ∧ B.holds b
 
-def overlaps (left right : Pattern α) : Prop :=
-  ∃ state, left.holds state ∧ right.holds state
+-- A ⊑ B
+def subsumes (A B : Pattern α) : Prop :=
+  ∀ v, A.holds v → B.holds v
 
-def postImage (rule : System α) (source : Pattern α) (after : α) : Prop :=
-  ∃ before, source.holds before ∧ rule.step before after
+-- A ⊓ B ≠ ⊥
+def overlaps (A B : Pattern α) : Prop :=
+  ∃ v, A.holds v ∧ B.holds v
 
-def mapsInto (rule : System α) (source target : Pattern α) : Prop :=
-  ∀ before after, source.holds before → rule.step before after →
-    target.holds after
+-- No Junk : B ⊑ R(A)
+def under (R : System α) (A B : Pattern α) : Prop :=
+  ∀ b, B.holds b → ∃ a, A.holds a ∧ R.step a b
 
-/-- No missing states: the candidate contains every actual successor.
-This is the SAME universal mapping judgment, not a second semantics. -/
-abbrev over (rule : System α) (source post : Pattern α) : Prop := mapsInto rule source post
+-- No Miss : R(A) ⊑ B
+def over (R : System α) (A B : Pattern α) : Prop :=
+  ∀ a b, A.holds a → R.step a b → B.holds b
 
-/-- No junk states: every candidate state is an actual successor. -/
-def under (rule : System α) (source post : Pattern α) : Prop :=
-  ∀ after, post.holds after → postImage rule source after
+-- No Junk & No Miss : R(A) = B
+def exact (R : System α) (A B : Pattern α) : Prop :=
+  over R A B ∧ under R A B
 
-def exact (rule : System α) (source post : Pattern α) : Prop :=
-  over rule source post ∧ under rule source post
 
-def reaches (rule : System α) (source target : Pattern α) : Prop :=
-  ∃ before after, source.holds before ∧ rule.step before after ∧
-    target.holds after
-
-theorem mapsInto_of_over_subsumes
-    {rule : System α} {source post target : Pattern α}
-    (hover : over rule source post) (hsub : subsumes post target) :
-    mapsInto rule source target :=
+-- R(A) ⊑ B ∧ C ⊑ B → R(A) ⊑ C
+theorem over_of_subsumes
+    {R : System α} {A B C : Pattern α}
+    (hover : over R A C) (hsub : subsumes C B) :
+    over R A B :=
   fun before after hsource hstep => hsub after (hover before after hsource hstep)
 
+-- B ⊑ R(A) ∧ B ⊓ C ≠ ⊥ → R(A) ⊓ C ≠ ⊥
 theorem reaches_of_under_overlaps
-    {rule : System α} {source post target : Pattern α}
-    (hunder : under rule source post) (hoverlap : overlaps post target) :
-    reaches rule source target :=
+    {R : System α} {A B C : Pattern α}
+    (hunder : under R A B) (hoverlap : overlaps B C) :
+    reaches R A C :=
   match hoverlap with
   | ⟨after, hpost, htarget⟩ =>
     match hunder after hpost with
