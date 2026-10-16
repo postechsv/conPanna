@@ -102,6 +102,35 @@ def isPost (R : System α) (A B : Pattern α) : Prop :=
   isOverPost R A B ∧ isUnderPost R A B
 
 
+
+
+/-! ## Patterns and systems compose -/
+
+-- R(⊥) = ⊥
+theorem isPost_bott (R : System α) : isPost R .bott .bott :=
+  ⟨fun _ _ h => h.elim, fun _ h => h.elim⟩
+
+-- ⊥(S) = ⊥
+theorem isPost_empty (S : Pattern α) : isPost .empty S .bott :=
+  ⟨fun _ _ _ h => h.elim, fun _ h => h.elim⟩
+
+-- R(S₁) = P₁, R(S₂) = P₂ ⇒ R(S₁ ⊔ S₂) = P₁ ⊔ P₂
+theorem isPost_disj {R : System α} {S₁ S₂ P₁ P₂ : Pattern α}
+    (h₁ : isPost R S₁ P₁) (h₂ : isPost R S₂ P₂) : isPost R (.disj S₁ S₂) (.disj P₁ P₂) :=
+  ⟨fun before after hs hstep => hs.imp (h₁.1 before after · hstep) (h₂.1 before after · hstep),
+   fun after hp => hp.elim
+     (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, .inl hs, hstep⟩)
+     (fun hp => let ⟨b, hs, hstep⟩ := h₂.2 after hp; ⟨b, .inr hs, hstep⟩)⟩
+
+-- R₁(S) = P₁, R₂(S) = P₂ ⇒ (R₁ ⊔ R₂)(S) = P₁ ⊔ P₂
+theorem isPost_choice {R₁ R₂ : System α} {S P₁ P₂ : Pattern α}
+    (h₁ : isPost R₁ S P₁) (h₂ : isPost R₂ S P₂) : isPost (.choice R₁ R₂) S (.disj P₁ P₂) :=
+  ⟨fun before after hs hstep => hstep.imp (h₁.1 before after hs) (h₂.1 before after hs),
+   fun after hp => hp.elim
+     (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, hs, .inl hstep⟩)
+     (fun hp => let ⟨b, hs, hstep⟩ := h₂.2 after hp; ⟨b, hs, .inr hstep⟩)⟩
+
+
 -- R(A) ⊑ B ∧ C ⊑ B → R(A) ⊑ C
 theorem over_of_subsumes
     {R : System α} {A B C : Pattern α}
