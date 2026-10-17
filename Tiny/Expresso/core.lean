@@ -77,10 +77,6 @@ These describe ONE-STEP transitions. Choice is nondeterminism, not sequencing.
 None of these definitions computes unifiers or post-images.
 -/
 
--- R(A) ⊓ B ≠ ⊥ renaming? redifine using overlaps?
-def hasStep (R : System α) (A B : Pattern α) : Prop :=
-  ∃ a b, A.holds a ∧ R.step a b ∧ B.holds b
-
 -- A ⊑ B
 def subsumes (A B : Pattern α) : Prop :=
   ∀ v, A.holds v → B.holds v
@@ -96,6 +92,10 @@ def isUnderPost (R : System α) (A B : Pattern α) : Prop :=
 -- No Miss : R(A) ⊑ B
 def isOverPost (R : System α) (A B : Pattern α) : Prop :=
   ∀ a b, A.holds a → R.step a b → B.holds b
+
+-- R(A) ⊓ B ≠ ⊥ renaming? redifine using overlaps?
+def overlapsPost (R : System α) (A B : Pattern α) : Prop :=
+  ∃ a b, A.holds a ∧ R.step a b ∧ B.holds b
 
 -- No Junk & No Miss : R(A) = B
 def isPost (R : System α) (A B : Pattern α) : Prop :=
@@ -139,10 +139,10 @@ theorem over_of_subsumes
   fun before after hsource hstep => hsub after (hover before after hsource hstep)
 
 -- B ⊑ R(A) ∧ B ⊓ C ≠ ⊥ → R(A) ⊓ C ≠ ⊥
-theorem hasStep_of_isUnderPost_overlaps
+theorem overlapsPost_of_isUnderPost_overlaps
     {R : System α} {A B C : Pattern α}
     (hunder : isUnderPost R A B) (hoverlap : overlaps B C) :
-    hasStep R A C :=
+    overlapsPost R A C :=
   match hoverlap with
   | ⟨after, hpost, htarget⟩ =>
     match hunder after hpost with

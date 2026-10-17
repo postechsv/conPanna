@@ -51,10 +51,10 @@ def waiting : Pattern Conf :=
 def critical : Pattern Conf :=
   .patch (.bind fun n : Nat => ⟨⟨n + 1, n, {.crit n}⟩, n < n + 1⟩)
 
-def bakeryInv : Pattern Conf :=
+def invP : Pattern Conf :=
   .disj initial (.disj waiting critical)
 
---#reduce bakeryInv
+--#reduce invP
 
 /-! ## Parameterized rules and their one-step choice
 The same bound ticket occurs on both sides and in the rule condition.
@@ -112,9 +112,9 @@ def criticalP : Patch Conf := .bind fun ((N, M, PS) : Nat × Nat × ProcSet) =>
     M < N ∧ noCrit PS ∧ (∀ t ∈ tickets PS, M < t ∧ t < N) ∧ (tickets PS).Nodup⟩
 
 -- The constructor model of `Conf`, as the Maude module the producer works in.
-#dump_model Conf
+-- #dump_model Conf
 
-def bakeryInv : Pattern Conf :=
+def invP : Pattern Conf :=
   .disj (.patch initialP) (.disj (.patch waitingP) (.patch criticalP))
 
 /-- `⟨N, M, wait(M) + R⟩ ⇒ ⟨N, M, crit(M) + R⟩` -/
@@ -124,19 +124,16 @@ def enterR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
 from `waiting` (lands in `critical`), and from `critical`: two processes in the
 critical section, refuted by the ticket range. -/
-theorem enter_preserves_inv : isOverPost (.rule enterR) bakeryInv bakeryInv := by
+theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
   -- one unifier set per (rule, patch) cell, computed by Maude
-  let Us : unifiers_R_P (.rule enterR) bakeryInv := by maude_unify
-  have hpost : isPost (.rule enterR) bakeryInv (post_R_P (.rule enterR) bakeryInv Us) :=
+  let Us : unifiers_R_P (.rule enterR) invP := by maude_unify
+  let post : Pattern Conf := post_R_P (.rule enterR) invP Us
+  have hpost : isPost (.rule enterR) invP (post) :=
     certifyPost_R_P _ _ Us
       ⟨⟨sorry, sorry⟩,     -- initial:  complete, sound
        ⟨sorry, sorry⟩,     -- waiting:  complete, sound
        ⟨sorry, sorry⟩⟩     -- critical: complete, sound
-  -- the post, unfolded: `hP` shows the disjunction of the candidates
-  generalize hP : post_R_P (.rule enterR) bakeryInv Us = P at hpost
-  simp only [Us, post_R_P, post_r_P, post_r_p, post_r_p_u, bakeryInv,
-    enterR, initialP, waitingP, criticalP, and_true] at hP
-  have hsub : subsumes P bakeryInv := by
+  have hsub : subsumes post invP := by
     sorry
   exact over_of_subsumes hpost.1 hsub
 
