@@ -26,56 +26,56 @@ variable {α : Type u}
 def mayFire : (r : Rule α) → (p : Patch α) → Problem α (r.Vars × p.Vars)
   | .bind rframe, .bind pframe => .bind fun (b, a) => ((rframe b).lhs, (pframe a).state)
 
-/-! Naming: `r` a rule, `R` a system, `p` a patch, `P` a pattern, `v` a unifier,
-`V` a unifier set, `U` the unifier data of a level. A suffix `_r_p`, `_r_P`, `_R_P`
+/-! Naming: `r` a rule, `R` a system, `p` a patch, `P` a pattern, `u` a unifier,
+`U` a unifier set, `Us` the unifier sets of a level. A suffix `_r_p`, `_r_P`, `_R_P`
 names the level a definition works at. -/
 
 abbrev unifier_r_p (r : Rule α) (p : Patch α) := Unifier.{u, u} (r.Vars × p.Vars)
 abbrev unifiers_r_p (r : Rule α) (p : Patch α) := UnifierSet.{u, u} (r.Vars × p.Vars)
 
-/-- `V` is a complete and sound set of unifiers of `mayFire r p`. -/
-def certificates_r_p (r : Rule α) (p : Patch α) (V : unifiers_r_p r p) : Prop :=
-  complete (mayFire r p) V ∧ sound (mayFire r p) V
+/-- `U` is a complete and sound set of unifiers of `mayFire r p`. -/
+def certificates_r_p (r : Rule α) (p : Patch α) (U : unifiers_r_p r p) : Prop :=
+  complete (mayFire r p) U ∧ sound (mayFire r p) U
 
-/-- The successor patch of one unifier `v = ∃x. (b x, a x)`: `∃x. ⟨t (b x) | c (a x) ∧ d (b x)⟩`. -/
--- `post_r_p_v r p v` = v(r.rhs) | v(p.cond) ∧ v(r.cond)
-def post_r_p_v : (r : Rule α) → (p : Patch α) → unifier_r_p r p → Patch α
-  | .bind rframe, .bind pframe, .bind v => .bind fun x =>
-      ⟨(rframe (v x).1).rhs, (pframe (v x).2).cond ∧ (rframe (v x).1).cond⟩
+/-- The successor patch of one unifier `u = ∃x. (b x, a x)`: `∃x. ⟨t (b x) | c (a x) ∧ d (b x)⟩`. -/
+-- `post_r_p_u r p u` = u(r.rhs) | u(p.cond) ∧ u(r.cond)
+def post_r_p_u : (r : Rule α) → (p : Patch α) → unifier_r_p r p → Patch α
+  | .bind rframe, .bind pframe, .bind u => .bind fun x =>
+      ⟨(rframe (u x).1).rhs, (pframe (u x).2).cond ∧ (rframe (u x).1).cond⟩
 
 /-- One successor patch per unifier. -/
--- `post_r_p r p V` = ⊔_v∈V {v(r.rhs) | v(p.cond) ∧ v(r.cond)}
+-- `post_r_p r p U` = ⊔_u∈U {u(r.rhs) | u(p.cond) ∧ u(r.cond)}
 def post_r_p (r : Rule α) (p : Patch α) : unifiers_r_p r p → Pattern α
   | [] => .bott
-  | v :: V => .disj (.patch (post_r_p_v r p v)) (post_r_p r p V)
+  | u :: U => .disj (.patch (post_r_p_u r p u)) (post_r_p r p U)
 
-theorem post_r_p_holds {r : Rule α} {p : Patch α} {V : unifiers_r_p r p} {s : α} :
-    (post_r_p r p V).holds s ↔ ∃ v ∈ V, (post_r_p_v r p v).holds s := by
-  induction V with
+theorem post_r_p_holds {r : Rule α} {p : Patch α} {U : unifiers_r_p r p} {s : α} :
+    (post_r_p r p U).holds s ↔ ∃ u ∈ U, (post_r_p_u r p u).holds s := by
+  induction U with
   | nil => simp [post_r_p, Pattern.holds]
-  | cons v V ih => simp [post_r_p, Pattern.holds, ih]
+  | cons u U ih => simp [post_r_p, Pattern.holds, ih]
 
 /-- Completeness of the unifiers gives `isOverPost`. -/
-theorem isOverPost_of_complete {r : Rule α} {p : Patch α} {V : unifiers_r_p r p}
-    (h : complete (mayFire r p) V) : isOverPost (.rule r) (.patch p) (post_r_p r p V) := by
+theorem isOverPost_of_complete {r : Rule α} {p : Patch α} {U : unifiers_r_p r p}
+    (h : complete (mayFire r p) U) : isOverPost (.rule r) (.patch p) (post_r_p r p U) := by
   obtain ⟨g⟩ := r
   obtain ⟨f⟩ := p
   rintro _ after ⟨a, rfl, hc⟩ ⟨b, hl, rfl, hd⟩
-  obtain ⟨⟨v⟩, hmem, x, hx⟩ := h (b, a) hl
-  refine post_r_p_holds.2 ⟨.bind v, hmem, x, ?_⟩
+  obtain ⟨⟨u⟩, hmem, x, hx⟩ := h (b, a) hl
+  refine post_r_p_holds.2 ⟨.bind u, hmem, x, ?_⟩
   simp [PatchBody.holds, ← hx, hc, hd]
 
 /-- Soundness of the unifiers gives `isUnderPost`. -/
-theorem isUnderPost_of_sound {r : Rule α} {p : Patch α} {V : unifiers_r_p r p}
-    (h : sound (mayFire r p) V) : isUnderPost (.rule r) (.patch p) (post_r_p r p V) := by
+theorem isUnderPost_of_sound {r : Rule α} {p : Patch α} {U : unifiers_r_p r p}
+    (h : sound (mayFire r p) U) : isUnderPost (.rule r) (.patch p) (post_r_p r p U) := by
   obtain ⟨g⟩ := r
   obtain ⟨f⟩ := p
   intro after hpost
-  obtain ⟨⟨v⟩, hmem, x, rfl, hc, hd⟩ := post_r_p_holds.1 hpost
-  exact ⟨_, ⟨_, rfl, hc⟩, _, h _ hmem (v x) ⟨x, rfl⟩, rfl, hd⟩
+  obtain ⟨⟨u⟩, hmem, x, rfl, hc, hd⟩ := post_r_p_holds.1 hpost
+  exact ⟨_, ⟨_, rfl, hc⟩, _, h _ hmem (u x) ⟨x, rfl⟩, rfl, hd⟩
 
-theorem certifyPost_r_p (r : Rule α) (p : Patch α) (V : unifiers_r_p r p)
-    (h : certificates_r_p r p V) : isPost (.rule r) (.patch p) (post_r_p r p V) :=
+theorem certifyPost_r_p (r : Rule α) (p : Patch α) (U : unifiers_r_p r p)
+    (h : certificates_r_p r p U) : isPost (.rule r) (.patch p) (post_r_p r p U) :=
   ⟨isOverPost_of_complete h.1, isUnderPost_of_sound h.2⟩
 
 /-! ## One rule, a pattern: one unifier set per patch -/
@@ -87,20 +87,20 @@ def unifiers_r_P (r : Rule α) : Pattern α → Type (u + 1)
 
 def certificates_r_P (r : Rule α) : (P : Pattern α) → unifiers_r_P r P → Prop
   | .bott, _ => True
-  | .patch p, V => certificates_r_p r p V
-  | .disj P₁ P₂, (U₁, U₂) => certificates_r_P r P₁ U₁ ∧ certificates_r_P r P₂ U₂
+  | .patch p, U => certificates_r_p r p U
+  | .disj P₁ P₂, (Us₁, Us₂) => certificates_r_P r P₁ Us₁ ∧ certificates_r_P r P₂ Us₂
 
 def post_r_P (r : Rule α) : (P : Pattern α) → unifiers_r_P r P → Pattern α
   | .bott, _ => .bott
-  | .patch p, V => post_r_p r p V
-  | .disj P₁ P₂, (U₁, U₂) => .disj (post_r_P r P₁ U₁) (post_r_P r P₂ U₂)
+  | .patch p, U => post_r_p r p U
+  | .disj P₁ P₂, (Us₁, Us₂) => .disj (post_r_P r P₁ Us₁) (post_r_P r P₂ Us₂)
 
-theorem certifyPost_r_P (r : Rule α) : (P : Pattern α) → (U : unifiers_r_P r P) →
-    certificates_r_P r P U → isPost (.rule r) P (post_r_P r P U)
+theorem certifyPost_r_P (r : Rule α) : (P : Pattern α) → (Us : unifiers_r_P r P) →
+    certificates_r_P r P Us → isPost (.rule r) P (post_r_P r P Us)
   | .bott, _, _ => isPost_bott _
-  | .patch p, V, h => certifyPost_r_p r p V h
-  | .disj P₁ P₂, (U₁, U₂), ⟨h₁, h₂⟩ =>
-      isPost_disj (certifyPost_r_P r P₁ U₁ h₁) (certifyPost_r_P r P₂ U₂ h₂)
+  | .patch p, U, h => certifyPost_r_p r p U h
+  | .disj P₁ P₂, (Us₁, Us₂), ⟨h₁, h₂⟩ =>
+      isPost_disj (certifyPost_r_P r P₁ Us₁ h₁) (certifyPost_r_P r P₂ Us₂ h₂)
 
 /-! ## A system, a pattern: one row per rule -/
 
@@ -111,21 +111,21 @@ def unifiers_R_P : System α → Pattern α → Type (u + 1)
 
 def certificates_R_P : (R : System α) → (P : Pattern α) → unifiers_R_P R P → Prop
   | .empty, _, _ => True
-  | .rule r, P, U => certificates_r_P r P U
-  | .choice R₁ R₂, P, (U₁, U₂) => certificates_R_P R₁ P U₁ ∧ certificates_R_P R₂ P U₂
+  | .rule r, P, Us => certificates_r_P r P Us
+  | .choice R₁ R₂, P, (Us₁, Us₂) => certificates_R_P R₁ P Us₁ ∧ certificates_R_P R₂ P Us₂
 
 def post_R_P : (R : System α) → (P : Pattern α) → unifiers_R_P R P → Pattern α
   | .empty, _, _ => .bott
-  | .rule r, P, U => post_r_P r P U
-  | .choice R₁ R₂, P, (U₁, U₂) => .disj (post_R_P R₁ P U₁) (post_R_P R₂ P U₂)
+  | .rule r, P, Us => post_r_P r P Us
+  | .choice R₁ R₂, P, (Us₁, Us₂) => .disj (post_R_P R₁ P Us₁) (post_R_P R₂ P Us₂)
 
 /-- One narrowing step: if every (rule, patch) pair has a certified unifier set,
 `post_R_P` is exactly the set of successors. -/
-theorem certifyPost_R_P : (R : System α) → (P : Pattern α) → (U : unifiers_R_P R P) →
-    certificates_R_P R P U → isPost R P (post_R_P R P U)
+theorem certifyPost_R_P : (R : System α) → (P : Pattern α) → (Us : unifiers_R_P R P) →
+    certificates_R_P R P Us → isPost R P (post_R_P R P Us)
   | .empty, P, _, _ => isPost_empty P
-  | .rule r, P, U, h => certifyPost_r_P r P U h
-  | .choice R₁ R₂, P, (U₁, U₂), ⟨h₁, h₂⟩ =>
-      isPost_choice (certifyPost_R_P R₁ P U₁ h₁) (certifyPost_R_P R₂ P U₂ h₂)
+  | .rule r, P, Us, h => certifyPost_r_P r P Us h
+  | .choice R₁ R₂, P, (Us₁, Us₂), ⟨h₁, h₂⟩ =>
+      isPost_choice (certifyPost_R_P R₁ P Us₁ h₁) (certifyPost_R_P R₂ P Us₂ h₂)
 
 end Narrowing

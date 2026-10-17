@@ -25,8 +25,8 @@ elements are bags, an unnamed `ACU E`) is rejected with the offending type named
 
 namespace Dumper
 
-/-- Where `#dump_model` writes, relative to the project root (Lean's working
-directory). The producer's tools read the model from here; change it at will. -/
+/-- Where `#dump_model` writes, relative to the project root. The producer's tools
+read the model from here; change it at will. -/
 def outDir : System.FilePath := "producer/.cache"
 
 open Lean Meta Elab Command
@@ -40,6 +40,8 @@ inductive Kind where
 structure Sort' where
   name : String
   kind : Kind
+  /-- The Lean type this sort stands for. -/
+  type : Expr
 
 structure Op where
   name : String
@@ -72,9 +74,9 @@ private def sortName (n : Name) : MetaM String := do
 
 /-- The Maude sort of a Lean type, registering it on first sight. -/
 partial def sortOf (t : Expr) : M String := do
-  let t ← instantiateMVars t
-  if t.isConstOf ``Nat then return (← add "Nat" .nat)
-  if t.isConstOf ``Bool then return (← add "Bool" .bool)
+  let t := (← instantiateMVars t).cleanupAnnotations
+  if t.isConstOf ``Nat then return (← add "Nat" .nat t)
+  if t.isConstOf ``Bool then return (← add "Bool" .bool t)
   let some c := t.getAppFn.constName? | throwError "dump: unsupported type {t}"
   if c == ``ACU then throwError "dump: name the ACU sort with an abbrev, e.g. `abbrev S := {t}`"
   match (← getEnv).find? c with
@@ -84,7 +86,7 @@ partial def sortOf (t : Expr) : M String := do
     let s ← sortName c
     if !(← get).sorts.any (·.name == s) then
       modify fun st => { st with todo := st.todo.push c }
-    add s (.ind c)
+    add s (.ind c) t
   | some (.defnInfo info) =>
     unless t.isConst do throwError "dump: unsupported type {t}"
     let v := info.value
@@ -92,16 +94,16 @@ partial def sortOf (t : Expr) : M String := do
       let e ← sortOf v.appArg!
       if (← get).sorts.any fun s => s.name == e && s.kind matches .acu _ then
         throwError "dump: {c} is a bag of bags; wrap the inner bag in a constructor"
-      add (← sortName c) (.acu e)
+      add (← sortName c) (.acu e) t
     else
       sortOf v
   | _ => throwError "dump: unsupported type {t}"
 where
-  add (s : String) (k : Kind) : M String := do
+  add (s : String) (k : Kind) (t : Expr) : M String := do
     match (← get).sorts.find? (·.name == s) with
     | some _ => return s
     | none =>
-      modify fun st => { st with sorts := st.sorts.push ⟨s, k⟩ }
+      modify fun st => { st with sorts := st.sorts.push ⟨s, k, t⟩ }
       return s
 
 /-- The constructors of an inductive type, as Maude operators. -/
@@ -188,18 +190,40 @@ def table (st : State) : String := Id.run do
   let bagsJ := ", ".intercalate (bags.map fun b => s!"[{jstr b}, \"__\", \"none\"]").toList
   return s!"\{\n  \"module\": \"CTOR\",\n  \"ops\": \{\n{opsJ}\n  },\n  \"bags\": [{bagsJ}]\n}\n"
 
+/-- The constructor model of state type `root`. -/
+def model (root : Expr) : MetaM State := do
+  let ((), st) ← (do collect root; finish).run {}
+  return st
+
+/-- The project root: the nearest directory above the current Lean file holding a
+lakefile. Paths are anchored here, so the working directory does not matter (the
+editor's Lean server need not run in the project root). -/
+def projectRoot : CoreM System.FilePath := do
+  let mut dir ← IO.FS.realPath (← getFileName)
+  while true do
+    let some parent := dir.parent | break
+    dir := parent
+    if (← (dir / "lakefile.toml").pathExists) || (← (dir / "lakefile.lean").pathExists) then
+      return dir
+  throwError "dump: no lakefile above {← getFileName}"
+
+/-- The absolute output directory. -/
+def outPath : CoreM System.FilePath := return (← projectRoot) / outDir
+
+/-- Write `ctor.maude` and `ctor.json` into `outDir`. -/
+def write (st : State) : CoreM Unit := do
+  let out ← outPath
+  IO.FS.createDirAll out
+  IO.FS.writeFile (out / "ctor.maude") (render st)
+  IO.FS.writeFile (out / "ctor.json") (table st)
+
 /-- `#dump_model T`: write `ctor.maude` and `ctor.json` for state type `T` into `outDir`. -/
 syntax (name := dumpModel) "#dump_model " term : command
 
 @[command_elab dumpModel] def elabDumpModel : CommandElab
   | `(#dump_model $t) => do
-    let st ← liftTermElabM do
-      let root ← Term.elabType t
-      let ((), st) ← (do collect root; finish).run {}
-      return st
-    IO.FS.createDirAll outDir
-    IO.FS.writeFile (outDir / "ctor.maude") (render st)
-    IO.FS.writeFile (outDir / "ctor.json") (table st)
+    let st ← liftTermElabM do model (← Term.elabType t)
+    liftCoreM (write st)
     logInfo m!"{render st}\nwrote {outDir / "ctor.maude"} and {outDir / "ctor.json"}"
   | _ => throwUnsupportedSyntax
 

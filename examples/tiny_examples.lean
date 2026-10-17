@@ -5,6 +5,7 @@ import Tiny.conPanna.Unification.Certification.Calculus
 import Tiny.conPanna.Unification.Certification.Multiset
 import Tiny.conPanna.Narrowing.Narrowing
 import Tiny.conPanna.Dumper
+import Tiny.conPanna.Unification.Tactics.maudeUnify
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 
@@ -78,7 +79,8 @@ def bakerySystem : System Conf :=
 /-! ## N processes: `enter` preserves the invariant
 The process bag now has a rest variable, so unification is genuinely modulo ACU.
 Conditions follow the legacy `bakery.lean`, stated through `ACU.toMultiset`.
-The unifiers are Maude's; every certificate and the containment are left as `sorry`.
+The unifiers are computed by Maude (`maude_unify`); every certificate and the
+containment are left as `sorry`.
 -/
 namespace NProc
 
@@ -119,35 +121,20 @@ def bakeryInv : Pattern Conf :=
 def enterR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
   { lhs := ⟨N, M, {Mode.wait M} + R⟩, rhs := ⟨N, M, {Mode.crit M} + R⟩ }
 
-/-! Maude's unifiers, one cell per (rule, patch); a unifier assigns (rule vars, patch vars). -/
-
-/-- `⟨c, c, PS⟩ =? ⟨N, M, wait(M) + R⟩`: `N, M ↦ c`, `PS ↦ wait(c) + R` -/
-def V_init : unifiers_r_p enterR initialP :=
-  [.bind fun ((c, R) : Nat × ProcSet) => ((c, c, R), (c, {Mode.wait c} + R))]
-
-/-- `⟨N, M, PS⟩ =? ⟨N, M, wait(M) + R⟩`: `PS ↦ wait(M) + R` -/
-def V_wait : unifiers_r_p enterR waitingP :=
-  [.bind fun ((N, M, R) : Nat × Nat × ProcSet) => ((N, M, R), (N, M, {Mode.wait M} + R))]
-
-/-- `⟨N, M, crit(M) + PS⟩ =? ⟨N, M, wait(M) + R⟩`: `PS ↦ wait(M) + Z`, `R ↦ crit(M) + Z` -/
-def V_crit : unifiers_r_p enterR criticalP :=
-  [.bind fun ((N, M, Z) : Nat × Nat × ProcSet) =>
-    ((N, M, {Mode.crit M} + Z), (N, M, {Mode.wait M} + Z))]
-
-def U : unifiers_R_P (.rule enterR) bakeryInv := (V_init, (V_wait, V_crit))
-
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
 from `waiting` (lands in `critical`), and from `critical`: two processes in the
 critical section, refuted by the ticket range. -/
 theorem enter_preserves_inv : isOverPost (.rule enterR) bakeryInv bakeryInv := by
-  have hpost : isPost (.rule enterR) bakeryInv (post_R_P (.rule enterR) bakeryInv U) :=
-    certifyPost_R_P _ _ U
+  -- one unifier set per (rule, patch) cell, computed by Maude
+  let Us : unifiers_R_P (.rule enterR) bakeryInv := by maude_unify
+  have hpost : isPost (.rule enterR) bakeryInv (post_R_P (.rule enterR) bakeryInv Us) :=
+    certifyPost_R_P _ _ Us
       ⟨⟨sorry, sorry⟩,     -- initial:  complete, sound
        ⟨sorry, sorry⟩,     -- waiting:  complete, sound
        ⟨sorry, sorry⟩⟩     -- critical: complete, sound
-  -- the post, unfolded: `hP` shows the disjunction of the three candidates
-  generalize hP : post_R_P (.rule enterR) bakeryInv U = P at hpost
-  simp only [post_R_P, post_r_P, post_r_p, post_r_p_v, bakeryInv, U, V_init, V_wait, V_crit,
+  -- the post, unfolded: `hP` shows the disjunction of the candidates
+  generalize hP : post_R_P (.rule enterR) bakeryInv Us = P at hpost
+  simp only [Us, post_R_P, post_r_P, post_r_p, post_r_p_u, bakeryInv,
     enterR, initialP, waitingP, criticalP, and_true] at hP
   have hsub : subsumes P bakeryInv := by
     sorry
