@@ -4,6 +4,7 @@ import Tiny.conPanna.Unification.Unification
 import Tiny.conPanna.Unification.Certification.Calculus
 import Tiny.conPanna.Unification.Certification.Multiset
 import Tiny.conPanna.Narrowing.Narrowing
+import Tiny.conPanna.Dumper
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 
@@ -107,6 +108,9 @@ def waitingP : Patch Conf := .bind fun ((N, M, PS) : Nat × Nat × ProcSet) =>
 def criticalP : Patch Conf := .bind fun ((N, M, PS) : Nat × Nat × ProcSet) =>
   ⟨⟨N, M, {Mode.crit M} + PS⟩,
     M < N ∧ noCrit PS ∧ (∀ t ∈ tickets PS, M < t ∧ t < N) ∧ (tickets PS).Nodup⟩
+
+-- The constructor model of `Conf`, as the Maude module the producer works in.
+#dump_model Conf
 
 def bakeryInv : Pattern Conf :=
   .disj (.patch initialP) (.disj (.patch waitingP) (.patch criticalP))

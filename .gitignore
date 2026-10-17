@@ -6,3 +6,6 @@ __pycache__/
 
 # Standalone certifier's generated inputs, transcripts and proof bundles
 certifier/.cache/
+
+# Generated model dump (#dump_model) and other producer artifacts
+producer/.cache/
