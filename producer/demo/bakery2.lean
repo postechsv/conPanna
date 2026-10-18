@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-!
 Bakery, unknown bags on both sides. The claim (model, problem) is written by the

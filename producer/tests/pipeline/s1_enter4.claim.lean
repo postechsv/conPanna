@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! Rule ENTER against a state with 4 further waiting processes. -/
 

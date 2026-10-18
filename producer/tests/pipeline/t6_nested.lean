@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! Nested bags: {box X?} + R? =? {box ({a} + Y?)} + {box {b}}. -/
 

@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! A linear equation with 2 and 2 bag variables. -/
 

@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-!
 No unifiers, by a free clash: a successor is never zero. The claim (model,

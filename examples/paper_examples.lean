@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Calculus
+import conPanna.Unification.Certification.Calculus
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 

@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-!
 Paper §6.1, mixed free and ACU. The claim (model, problem) is written by the user;

@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-!
 Bakery, the L137 example. The claim (model, problem) is written by the user;

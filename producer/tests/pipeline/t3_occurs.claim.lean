@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! No unifiers: X? + {w(N?)} =? X? + {w(N? + 1)}. -/
 

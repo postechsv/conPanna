@@ -17,20 +17,8 @@ rev = "v4.25.0-rc2"
 
 [[lean_lib]]
 name = "Expresso"
-roots = ["Expresso.Expresso"]
-
-[[lean_lib]]
-name = "Tiny"
-roots = ["Tiny.Expresso.core", "Tiny.Expresso.TermAlgebra", "Tiny.Expresso.ACU", "Tiny.conPanna.Unification.Unification", "Tiny.conPanna.Narrowing.Narrowing", "Tiny.conPanna.Unification.Certification.Multiset", "Tiny.conPanna.Unification.Certification.Judgment", "Tiny.conPanna.Unification.Certification.Calculus", "Tiny.conPanna.Unification.Certification.Solve", "Tiny.conPanna.Unification.Certification.Tactics", "Tiny.conPanna.Dumper", "Tiny.conPanna.Unification.Tactics.maudeAdapter", "Tiny.conPanna.Unification.Tactics.maudeUnify", "Tiny.conPanna.Unification.Tactics.maudeCertifyComp"]
+globs = ["Expresso.+"]
 
 [[lean_lib]]
 name = "conPanna"
-roots = ["conPanna.conPanna", "conPanna.Unification", "conPanna.Structural", "conPanna.StructuralSemantics", "conPanna.Narrowing", "conPanna.Maude", "conPanna.PatternPretty", "conPanna.Certification.Client"]
-
-# Separate library configuration keeps proof-backend builds resource-limited
-# without changing how ordinary conPanna modules compile.
-[[lean_lib]]
-name = "Certification"
-roots = ["conPanna.Certification.Client"]
-globs = ["conPanna.Certification.+"]
-moreLeanArgs = ["-j1", "-M512"]
+globs = ["conPanna.+"]

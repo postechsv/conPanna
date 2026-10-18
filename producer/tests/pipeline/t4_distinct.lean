@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! A system: X? + {w(N?)} =? Y? + {w(M?)} and N? =? M?. -/
 

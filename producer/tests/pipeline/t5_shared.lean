@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! A system sharing a bag variable: X? + Y? =? Z? + {a} and Y? =? W? + {b}. -/
 

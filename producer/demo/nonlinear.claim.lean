@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-!
 Paper §6.2, nonlinear. The claim (model, problem) is written by the user;

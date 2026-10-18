@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-! A singleton against an incompatible one: P? + {wait(N?)} =? Q? + {idle}. -/
 

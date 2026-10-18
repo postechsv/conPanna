@@ -1,4 +1,4 @@
-import Tiny.conPanna.Unification.Certification.Tactics
+import conPanna.Unification.Certification.Tactics
 
 /-!
 No unifiers, by parity: at the element `a` the counts would satisfy 2x = 2y + 1.
