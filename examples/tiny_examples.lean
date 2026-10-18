@@ -135,13 +135,14 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
        ⟨sorry, sorry⟩⟩     -- critical: complete, sound
   have hsub : subsumes post invP := by
     sorry
-  exact over_of_subsumes hpost.1 hsub
+  exact over_of_subsumes hpost.1 hsub -- TODO: completeness & soundness instead of 1 & 2
 
 -- TODOs
 -- filter bot
 -- flatten disjunctions
 -- user friendly syntax for patches
 -- unfoldable defintions for patches so user can unfold state and cond at will
+-- support A/C/AC + free/U 6 combinations as "basic theories" for maude_unify and dump
 
 end NProc
 
