@@ -32,7 +32,8 @@ partial def listElems (l : Expr) : MetaM (List Expr) := do
 
 /-- The literal form of goal `complete P U`, and the request for `certify.py`. -/
 def prepare (st : Dumper.State) (ty : Expr) : MetaM (Expr × Json) := do
-  let #[α, Γ, P, U] := ty.getAppArgs | throwError "maude_certify_comp: the goal is not `complete P U`"
+  let #[α, Γ, P, U] := ty.getAppArgs
+    | throwError "maude_certify_comp: the goal is not `complete P U`"
   let elemTy := (← whnf (← inferType U)).appArg!
   openProblem P fun shape xs names lhs rhs => do
     let ns := (List.range xs.size).map (s!"X{· + 1}")
@@ -46,7 +47,8 @@ def prepare (st : Dumper.State) (ty : Expr) : MetaM (Expr × Json) := do
         let body := (← shape.tuple images).replaceFVars zs (← binder.projections z).toArray
         mkAppOptM ``Unifier.bind #[Γ, A, ← mkLambdaFVars #[z] body]
     let vars ← xs.mapIdxM fun i x => do
-      return Json.mkObj [("name", .str s!"X{i + 1}"), ("sort", .str (← sortOfType st (← inferType x)))]
+      let sort ← sortOfType st (← inferType x)
+      return Json.mkObj [("name", .str s!"X{i + 1}"), ("sort", .str sort)]
     let request := Json.mkObj [
       ("model", .str ((← Dumper.outPath) / "ctor.maude").toString),
       ("vars", .arr vars), ("shape", shape.toJson ns),
@@ -73,9 +75,14 @@ elab "maude_certify_comp" : tactic => withMainContext do
     "open Unification Unification.Certification in by\n" ++
     "\n".intercalate ((script.splitOn "\n").map ("  " ++ ·))
   let stx ← IO.ofExcept (Parser.runParserCategory (← getEnv) `term text)
+  -- The parsed steps carry positions in `text`, not in the user's file: re-anchor them at
+  -- this tactic call (errors point here), and record no editor info for them (otherwise
+  -- the editor highlights unrelated parts of the file).
+  let info := SourceInfo.fromRef (← getRef)
+  let stx := stx.rewriteBottomUp (·.setInfo info)
   replaceMainGoal [goal]
   goal.withContext do
-    let pf ← elabTermEnsuringType stx (← goal.getType)
+    let pf ← withEnableInfoTree false <| elabTermEnsuringType stx (← goal.getType)
     goal.assign pf
   replaceMainGoal []
 
