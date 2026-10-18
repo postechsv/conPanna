@@ -122,26 +122,6 @@ def invP : Pattern Conf :=
 def enterR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
   { lhs := ⟨N, M, {Mode.wait M} + R⟩, rhs := ⟨N, M, {Mode.crit M} + R⟩ }
 
-/-! Completeness of each cell's unifiers, certified by Maude. The unifiers are
-those `maude_unify` computes in `enter_preserves_inv` below; Maude's ACU unification
-also returns the special case of an empty rest, an instance of the general one. -/
-
-theorem initial_complete : complete (mayFire enterR initialP)
-    [.bind fun (c : Nat) => ((c, c, ∅), c, {Mode.wait c}),
-     .bind fun ((R, c) : ProcSet × Nat) => ((c, c, R), c, R + {Mode.wait c})] := by
-  maude_certify_comp
-
-theorem waiting_complete : complete (mayFire enterR waitingP)
-    [.bind fun ((N, M) : Nat × Nat) => ((N, M, ∅), N, M, {Mode.wait M}),
-     .bind fun ((R, N, M) : ProcSet × Nat × Nat) => ((N, M, R), N, M, R + {Mode.wait M})] := by
-  maude_certify_comp
-
-theorem critical_complete : complete (mayFire enterR criticalP)
-    [.bind fun ((N, M) : Nat × Nat) => ((N, M, {Mode.crit M}), N, M, {Mode.wait M}),
-     .bind fun ((N, M, Z) : Nat × Nat × ProcSet) =>
-       ((N, M, Z + {Mode.crit M}), N, M, Z + {Mode.wait M})] := by
-  maude_certify_comp
-
 /-! ## Recording holes (proof of concept)
 `later` is `sorry` whose statement is first made self-contained: the proof's local
 `let`s (here `Us`, the Maude unifiers) are unfolded, so the hole states a closed,
@@ -176,11 +156,35 @@ elab "#obligations " id:ident : command => liftTermElabM do
       msg := msg ++ m!"theorem {n}.obligation_{i + 1} :{Format.nest 4 (Format.line ++ stmt)} := by\n  sorry\n\n"
   logInfo msg
 
+open Lean Meta Elab Command in
+/-- Rebuild a theorem's proof as `thm.linked`, with each recorded hole replaced by a
+theorem of this file stating the same obligation. The kernel re-checks the result. -/
+elab "#link " id:ident : command => liftTermElabM do
+  let n ← realizeGlobalConstNoOverloadWithInfo id
+  let info ← getConstInfo n
+  let some v := info.value? | throwError "{n} has no proof term"
+  let lemmas := (← getEnv).constants.map₂.toList.filterMap fun (c, ci) =>
+    if ci matches .thmInfo _ && c != n then some ci else none
+  let holes ← IO.mkRef (#[] : Array Expr)
+  v.forEach fun e => do
+    if e.isAppOfArity ``sorryAx 2 && !e.appFn!.appArg!.hasLooseBVars then
+      holes.modify (·.push e.appFn!.appArg!)
+  let mut v := v
+  let mut linked : Array Name := #[]
+  for P in (← holes.get) do
+    let some c ← lemmas.findM? (fun ci => isDefEq ci.type P)
+      | throwError "#link: no theorem of this file proves{indentExpr P}"
+    v := v.replace fun e =>
+      if e.isAppOfArity ``sorryAx 2 && e.appFn!.appArg! == P then some (mkConst c.name) else none
+    linked := linked.push c.name
+  addDecl <| .thmDecl { name := n ++ `linked, levelParams := info.levelParams, type := info.type, value := v }
+  logInfo m!"{n ++ `linked}: {linked.size} holes filled by {linked.toList}"
+
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
 from `waiting` (lands in `critical`), and from `critical`: two processes in the
 critical section, refuted by the ticket range. -/
 theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
-  -- one unifier set per (rule, patch) cell, computed by Maude
+  -- narrowing start --
   let Us : unifiers_R_P (.rule enterR) invP := by maude_unify
   let post : Pattern Conf := post_R_P (.rule enterR) invP Us
   have hpost : isPost (.rule enterR) invP (post) :=
@@ -188,6 +192,9 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
       ⟨⟨by later, by later⟩,     -- initial:  complete, sound
        ⟨by later, by later⟩,     -- waiting:  complete, sound
        ⟨by later, by later⟩⟩    -- critical: complete, sound
+  -- compactify Us e.g. ...
+  -- narrowing end --
+
   have hsub : subsumes post invP := by
     sorry
   exact over_of_subsumes hpost.1 hsub -- TODO: completeness & soundness instead of 1 & 2
@@ -206,6 +213,59 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
 #print axioms enter_preserves_inv
 
 #obligations enter_preserves_inv
+
+/-! Obligations printed by `#obligations`, pasted verbatim and proved. -/
+
+theorem enter_preserves_inv.obligation_1 :
+    complete (mayFire enterR initialP)
+      [Unifier.bind fun (x : ℕ) => ((x, x, ∅), x, {Mode.wait x}),
+        Unifier.bind fun (x : ProcSet × ℕ) => ((x.2, x.2, x.1), x.2, x.1 + {Mode.wait x.2})] := by
+  maude_certify_comp
+
+theorem enter_preserves_inv.obligation_2 :
+    sound (mayFire enterR initialP)
+      [Unifier.bind fun (x : ℕ) => ((x, x, ∅), x, {Mode.wait x}),
+        Unifier.bind fun (x : ProcSet × ℕ) => ((x.2, x.2, x.1), x.2, x.1 + {Mode.wait x.2})] := by
+  intro u hu γ hγ
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hu
+  rcases hu with rfl | rfl <;> obtain ⟨x, rfl⟩ := hγ <;>
+    simp [unifiedBy, mayFire, enterR, initialP] <;> ac_rfl
+
+theorem enter_preserves_inv.obligation_3 :
+    complete (mayFire enterR waitingP)
+      [Unifier.bind fun (x : ℕ × ℕ) => ((x.1, x.2, ∅), x.1, x.2, {Mode.wait x.2}),
+        Unifier.bind fun (x : ProcSet × ℕ × ℕ) => ((x.2.1, x.2.2, x.1), x.2.1, x.2.2, x.1 + {Mode.wait x.2.2})] := by
+  maude_certify_comp
+
+theorem enter_preserves_inv.obligation_4 :
+    sound (mayFire enterR waitingP)
+      [Unifier.bind fun (x : ℕ × ℕ) => ((x.1, x.2, ∅), x.1, x.2, {Mode.wait x.2}),
+        Unifier.bind fun (x : ProcSet × ℕ × ℕ) => ((x.2.1, x.2.2, x.1), x.2.1, x.2.2, x.1 + {Mode.wait x.2.2})] := by
+  intro u hu γ hγ
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hu
+  rcases hu with rfl | rfl <;> obtain ⟨x, rfl⟩ := hγ <;>
+    simp [unifiedBy, mayFire, enterR, waitingP] <;> ac_rfl
+
+theorem enter_preserves_inv.obligation_5 :
+    complete (mayFire enterR criticalP)
+      [Unifier.bind fun (x : ℕ × ℕ) => ((x.1, x.2, {Mode.crit x.2}), x.1, x.2, {Mode.wait x.2}),
+        Unifier.bind fun (x : ℕ × ℕ × ProcSet) =>
+          ((x.1, x.2.1, x.2.2 + {Mode.crit x.2.1}), x.1, x.2.1, x.2.2 + {Mode.wait x.2.1})] := by
+  maude_certify_comp
+
+theorem enter_preserves_inv.obligation_6 :
+    sound (mayFire enterR criticalP)
+      [Unifier.bind fun (x : ℕ × ℕ) => ((x.1, x.2, {Mode.crit x.2}), x.1, x.2, {Mode.wait x.2}),
+        Unifier.bind fun (x : ℕ × ℕ × ProcSet) =>
+          ((x.1, x.2.1, x.2.2 + {Mode.crit x.2.1}), x.1, x.2.1, x.2.2 + {Mode.wait x.2.1})] := by
+  intro u hu γ hγ
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hu
+  rcases hu with rfl | rfl <;> obtain ⟨x, rfl⟩ := hγ <;>
+    simp [unifiedBy, mayFire, enterR, criticalP] <;> ac_rfl
+
+#link enter_preserves_inv
+
+#print axioms enter_preserves_inv.linked
 
 end NProc
 
