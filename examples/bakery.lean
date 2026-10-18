@@ -142,6 +142,40 @@ theorem critical_complete : complete (mayFire enterR criticalP)
        ((N, M, Z + {Mode.crit M}), N, M, Z + {Mode.wait M})] := by
   maude_certify_comp
 
+/-! ## Recording holes (proof of concept)
+`later` is `sorry` whose statement is first made self-contained: the proof's local
+`let`s (here `Us`, the Maude unifiers) are unfolded, so the hole states a closed,
+literal obligation. `#obligations thm` lists the recorded holes of `thm` as theorem
+statements, ready to be proved elsewhere. -/
+
+open Lean Meta Elab Tactic in
+/-- Close the goal like `sorry`, recording its self-contained statement. -/
+elab "later" : tactic => withMainContext do
+  let goal ← getMainGoal
+  let P ← zetaReduce (← instantiateMVars (← goal.getType))
+  if P.hasFVar then
+    throwError "later: the statement depends on local variables{indentExpr P}"
+  goal.assign (← mkSorry P false)
+  replaceMainGoal []
+
+open Lean Meta Elab Command in
+/-- List the holes of a theorem's proof as standalone statements. -/
+elab "#obligations " id:ident : command => liftTermElabM do
+  let n ← realizeGlobalConstNoOverloadWithInfo id
+  let some v := (← getConstInfo n).value? | throwError "{n} has no proof term"
+  let holes ← IO.mkRef (#[] : Array Expr)
+  v.forEach fun e => do
+    if e.isAppOfArity ``sorryAx 2 then holes.modify (·.push e.appFn!.appArg!)
+  let mut msg := m!""
+  for (P, i) in (← holes.get).zipIdx do
+    if P.hasLooseBVars then
+      msg := msg ++ m!"-- hole {i + 1}: a plain `sorry`; its statement depends on the proof's context\n\n"
+    else
+      -- binder types are printed, so the statement parses back (`x.1` needs `x`'s type)
+      let stmt ← withOptions (pp.funBinderTypes.set · true) (ppExpr P)
+      msg := msg ++ m!"theorem {n}.obligation_{i + 1} :{Format.nest 4 (Format.line ++ stmt)} := by\n  sorry\n\n"
+  logInfo msg
+
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
 from `waiting` (lands in `critical`), and from `critical`: two processes in the
 critical section, refuted by the ticket range. -/
@@ -151,9 +185,9 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
   let post : Pattern Conf := post_R_P (.rule enterR) invP Us
   have hpost : isPost (.rule enterR) invP (post) :=
     certifyPost_R_P _ _ Us
-      ⟨⟨initial_complete, sorry⟩,     -- initial:  complete, sound
-       ⟨waiting_complete, sorry⟩,     -- waiting:  complete, sound
-       ⟨critical_complete, sorry⟩⟩    -- critical: complete, sound
+      ⟨⟨by later, by later⟩,     -- initial:  complete, sound
+       ⟨by later, by later⟩,     -- waiting:  complete, sound
+       ⟨by later, by later⟩⟩    -- critical: complete, sound
   have hsub : subsumes post invP := by
     sorry
   exact over_of_subsumes hpost.1 hsub -- TODO: completeness & soundness instead of 1 & 2
@@ -168,6 +202,10 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
 -- certification obligation printing so user coulde copy-paste as lemmas
 -- syntax highlighting error due to meta programming
 -- check maude producer is deterministic (i.e. no rules, only equations)
+
+#print axioms enter_preserves_inv
+
+#obligations enter_preserves_inv
 
 end NProc
 
