@@ -11,7 +11,10 @@ Prototype framework and tactics for constrained-pattern unification and narrowin
   `conPanna/conPanna.lean` imports all of it.
 - `producer/` is the Maude side: it computes unifiers and derives certificates that
   Lean checks (see `producer/README.md`).
-- `examples/` holds the Bakery narrowing example and the paper's examples.
+- `examples/` holds the paper's examples and `Bakery/`, a narrowing proof split into the
+  constructor model and the rules (`model/`), the top-down proof with
+  deferred obligations (`bakery_pf_uncertain`), the obligations (`bakery_obligation`),
+  and the linked proof (`bakery_pf`). The deferral commands are in `conPanna/Later.lean`.
 
 ## Build
 

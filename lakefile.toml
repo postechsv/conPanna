@@ -22,3 +22,7 @@ globs = ["Expresso.+"]
 [[lean_lib]]
 name = "conPanna"
 globs = ["conPanna.+"]
+
+[[lean_lib]]
+name = "examples"
+globs = ["examples.+"]
