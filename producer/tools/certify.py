@@ -23,7 +23,8 @@ from unify import render  # noqa: E402
 
 
 def main():
-    req = json.load(open(sys.argv[1]))
+    path = pathlib.Path(sys.argv[1])  # its .maude and .deriv go next to it
+    req = json.load(open(path))
     model = pathlib.Path(os.path.abspath(req["model"]))
     table = json.load(open(model.with_name("ctor.json")))
     sorts = {v["name"]: v["sort"] for v in req["vars"]}
@@ -32,12 +33,12 @@ def main():
     answers = " :: ".join(
         "(" + (" ; ".join(f"'{x}:{sorts[x]} <- {render(t)}" for x, t in a["sub"].items()) or "none") + ")"
         for a in req["answers"]) or "noAns"
-    request = model.with_name("certify-request.maude")
+    request = path.with_suffix(".maude")
     request.write_text(f"load {model}\nselect SHOW .\n"
                        f"red certifyWith('CTOR, {bags}, 'tup, ({tl}),\n"
                        f"  {render(req['lhs'])},\n  {render(req['rhs'])},\n  {answers}) .\n")
     text = derive.run_maude(request)
-    model.with_name("certify.deriv").write_text(text)
+    path.with_suffix(".deriv").write_text(text)
     stuck = [l.strip() for l in text.splitlines() if "STUCK" in l]
     if stuck:
         raise SystemExit(f"certify.py: the unifiers are not complete: {stuck[0]}\n\n{text}")

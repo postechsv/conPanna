@@ -214,8 +214,13 @@ def outPath : CoreM System.FilePath := return (← projectRoot) / outDir
 def write (st : State) : CoreM Unit := do
   let out ← outPath
   IO.FS.createDirAll out
-  IO.FS.writeFile (out / "ctor.maude") (render st)
-  IO.FS.writeFile (out / "ctor.json") (table st)
+  -- atomically (write, then rename): Lean elaborates proofs in parallel, and
+  -- concurrent tactics may write and read the model at the same time
+  let tag := toString (← IO.monoNanosNow)
+  for (name, text) in [("ctor.maude", render st), ("ctor.json", table st)] do
+    let tmp := out / s!"{name}.{tag}.tmp"
+    IO.FS.writeFile tmp text
+    IO.FS.rename tmp (out / name)
 
 /-- `#dump_model T`: write `ctor.maude` and `ctor.json` for state type `T` into `outDir`. -/
 syntax (name := dumpModel) "#dump_model " term : command

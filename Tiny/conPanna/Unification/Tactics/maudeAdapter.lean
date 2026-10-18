@@ -224,15 +224,22 @@ def encodeUnifier (shape : Shape) (names : List String) (u : Expr) : MetaM Json 
 
 /-! ## Tools -/
 
-/-- Run producer tool `tool` (relative to the project root) on a JSON request. -/
+/-- Run producer tool `tool` (relative to the project root) on a JSON request. Each call
+has its own files `<tool>-<id>.*` in `outDir` (proofs are elaborated in parallel);
+they are removed on success and kept on failure, for inspection. -/
 def callTool (tool : System.FilePath) (request : Json) : MetaM Json := do
   let root ← Dumper.projectRoot
   let out ← Dumper.outPath
-  let req := out / s!"{tool.fileStem.getD "tool"}-request.json"
+  let stem := s!"{tool.fileStem.getD "tool"}-{hash request.compress}-{← IO.monoNanosNow}"
+  let req := out / s!"{stem}.json"
   IO.FS.writeFile req request.compress
   let res ← IO.Process.output
     { cmd := "python3", args := #[(root / tool).toString, req.toString], cwd := root }
-  unless res.exitCode == 0 do throwError "maude: {tool} failed:\n{res.stderr}"
+  unless res.exitCode == 0 do
+    throwError "maude: {tool} failed (files kept in {out / stem}.*):\n{res.stderr}"
+  for ext in ["json", "maude", "deriv"] do
+    let f := out / s!"{stem}.{ext}"
+    if ← f.pathExists then IO.FS.removeFile f
   IO.ofExcept (Json.parse res.stdout)
 
 end MaudeAdapter

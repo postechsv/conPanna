@@ -33,7 +33,7 @@ partial def listElems (l : Expr) : MetaM (List Expr) := do
 /-- The literal form of goal `complete P U`, and the request for `certify.py`. -/
 def prepare (st : Dumper.State) (ty : Expr) : MetaM (Expr × Json) := do
   let #[α, Γ, P, U] := ty.getAppArgs | throwError "maude_certify_comp: the goal is not `complete P U`"
-  let elemTy := (← whnfR (← inferType U)).appArg!
+  let elemTy := (← whnf (← inferType U)).appArg!
   openProblem P fun shape xs names lhs rhs => do
     let ns := (List.range xs.size).map (s!"X{· + 1}")
     let P' ← withLocalDeclD `γ Γ fun γ => do

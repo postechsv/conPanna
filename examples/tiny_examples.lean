@@ -122,6 +122,26 @@ def invP : Pattern Conf :=
 def enterR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
   { lhs := ⟨N, M, {Mode.wait M} + R⟩, rhs := ⟨N, M, {Mode.crit M} + R⟩ }
 
+/-! Completeness of each cell's unifiers, certified by Maude. The unifiers are
+those `maude_unify` computes in `enter_preserves_inv` below; Maude's ACU unification
+also returns the special case of an empty rest, an instance of the general one. -/
+
+theorem initial_complete : complete (mayFire enterR initialP)
+    [.bind fun (c : Nat) => ((c, c, ∅), c, {Mode.wait c}),
+     .bind fun ((R, c) : ProcSet × Nat) => ((c, c, R), c, R + {Mode.wait c})] := by
+  maude_certify_comp
+
+theorem waiting_complete : complete (mayFire enterR waitingP)
+    [.bind fun ((N, M) : Nat × Nat) => ((N, M, ∅), N, M, {Mode.wait M}),
+     .bind fun ((R, N, M) : ProcSet × Nat × Nat) => ((N, M, R), N, M, R + {Mode.wait M})] := by
+  maude_certify_comp
+
+theorem critical_complete : complete (mayFire enterR criticalP)
+    [.bind fun ((N, M) : Nat × Nat) => ((N, M, {Mode.crit M}), N, M, {Mode.wait M}),
+     .bind fun ((N, M, Z) : Nat × Nat × ProcSet) =>
+       ((N, M, Z + {Mode.crit M}), N, M, Z + {Mode.wait M})] := by
+  maude_certify_comp
+
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
 from `waiting` (lands in `critical`), and from `critical`: two processes in the
 critical section, refuted by the ticket range. -/
@@ -131,9 +151,9 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
   let post : Pattern Conf := post_R_P (.rule enterR) invP Us
   have hpost : isPost (.rule enterR) invP (post) :=
     certifyPost_R_P _ _ Us
-      ⟨⟨by maude_certify_comp, sorry⟩,     -- initial:  complete, sound
-       ⟨by maude_certify_comp, sorry⟩,     -- waiting:  complete, sound
-       ⟨by maude_certify_comp, sorry⟩⟩     -- critical: complete, sound
+      ⟨⟨initial_complete, sorry⟩,     -- initial:  complete, sound
+       ⟨waiting_complete, sorry⟩,     -- waiting:  complete, sound
+       ⟨critical_complete, sorry⟩⟩    -- critical: complete, sound
   have hsub : subsumes post invP := by
     sorry
   exact over_of_subsumes hpost.1 hsub -- TODO: completeness & soundness instead of 1 & 2
