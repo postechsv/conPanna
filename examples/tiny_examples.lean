@@ -6,6 +6,7 @@ import Tiny.conPanna.Unification.Certification.Multiset
 import Tiny.conPanna.Narrowing.Narrowing
 import Tiny.conPanna.Dumper
 import Tiny.conPanna.Unification.Tactics.maudeUnify
+import Tiny.conPanna.Unification.Tactics.maudeCertifyComp
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 
@@ -79,8 +80,8 @@ def bakerySystem : System Conf :=
 /-! ## N processes: `enter` preserves the invariant
 The process bag now has a rest variable, so unification is genuinely modulo ACU.
 Conditions follow the legacy `bakery.lean`, stated through `ACU.toMultiset`.
-The unifiers are computed by Maude (`maude_unify`); every certificate and the
-containment are left as `sorry`.
+The unifiers are computed by Maude (`maude_unify`) and their completeness is
+certified (`maude_certify_comp`); soundness and the containment are left as `sorry`.
 -/
 namespace NProc
 
@@ -130,9 +131,9 @@ theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
   let post : Pattern Conf := post_R_P (.rule enterR) invP Us
   have hpost : isPost (.rule enterR) invP (post) :=
     certifyPost_R_P _ _ Us
-      ⟨⟨sorry, sorry⟩,     -- initial:  complete, sound
-       ⟨sorry, sorry⟩,     -- waiting:  complete, sound
-       ⟨sorry, sorry⟩⟩     -- critical: complete, sound
+      ⟨⟨by maude_certify_comp, sorry⟩,     -- initial:  complete, sound
+       ⟨by maude_certify_comp, sorry⟩,     -- waiting:  complete, sound
+       ⟨by maude_certify_comp, sorry⟩⟩     -- critical: complete, sound
   have hsub : subsumes post invP := by
     sorry
   exact over_of_subsumes hpost.1 hsub -- TODO: completeness & soundness instead of 1 & 2

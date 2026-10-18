@@ -159,13 +159,31 @@ def proj (z : Expr) : Nat → Nat → MetaM Expr
   | 0, _ => mkAppM ``Prod.fst #[z]
   | i + 1, n => do proj (← mkAppM ``Prod.snd #[z]) i (n - 1)
 
-/-! ## Problems -/
+/-- The components of a tuple `z` of shape `s`, as projections. -/
+def Shape.projections : Shape → Expr → MetaM (List Expr)
+  | .leaf _, z => return [z]
+  | .pair l r, z => do
+    return (← l.projections (← mkAppM ``Prod.fst #[z])) ++ (← r.projections (← mkAppM ``Prod.snd #[z]))
 
-/-- Open a problem `P : Problem α Γ`: one fresh variable `X1, X2, …` per leaf of `Γ`,
-and both sides encoded. `k` gets the shape of `Γ`, the variables, their names, and
-the encoded sides. -/
-def encodeProblem {β} [Inhabited β] (P : Expr) (k : Shape → Array Expr → (FVarId → Option String) →
-    Json → Json → MetaM β) : MetaM β := do
+/-- The components of a value `e` of shape `s`, reducing it to tuples. -/
+def Shape.split : Shape → Expr → MetaM (List Expr)
+  | .leaf _, e => return [e]
+  | .pair l r, e => do
+    let e ← whnf e
+    unless e.isAppOfArity ``Prod.mk 4 do throwError "maude: {e} is not a tuple"
+    return (← l.split e.appFn!.appArg!) ++ (← r.split e.appArg!)
+
+/-- The shape as JSON over `names`: a leaf's name, or a pair `[left, right]`. -/
+def Shape.toJson : Shape → List String → Json
+  | .leaf _, ns => .str ns.head!
+  | .pair l r, ns => .arr #[l.toJson ns, r.toJson (ns.drop l.leaves.length)]
+
+/-! ## Problems and unifiers -/
+
+/-- Open a problem `P : Problem α Γ`: one fresh variable `X1, X2, …` per leaf of `Γ`.
+`k` gets the shape of `Γ`, the variables, their names, and the two sides. -/
+def openProblem {β} [Inhabited β] (P : Expr) (k : Shape → Array Expr → (FVarId → Option String) →
+    Expr → Expr → MetaM β) : MetaM β := do
   let Pw ← whnf P
   unless Pw.isAppOfArity ``Problem.bind 3 do throwError "maude: cannot read the problem {P}"
   let shape ← shapeOf Pw.appFn!.appArg!
@@ -175,7 +193,34 @@ def encodeProblem {β} [Inhabited β] (P : Expr) (k : Shape → Array Expr → (
       (xs.findIdx? (· == .fvar id)).map fun i => s!"X{i + 1}"
     let sides ← whnf (mkApp Pw.appArg! (← shape.tuple xs.toList))
     unless sides.isAppOfArity ``Prod.mk 4 do throwError "maude: cannot read the sides of {P}"
-    k shape xs names (← encodeTerm st names sides.appFn!.appArg!) (← encodeTerm st names sides.appArg!)
+    k shape xs names sides.appFn!.appArg! sides.appArg!
+
+/-- `openProblem`, with both sides encoded. -/
+def encodeProblem {β} [Inhabited β] (P : Expr) (k : Shape → Array Expr →
+    (FVarId → Option String) → Json → Json → MetaM β) : MetaM β :=
+  openProblem P fun shape xs names lhs rhs => do
+    k shape xs names (← encodeTerm st names lhs) (← encodeTerm st names rhs)
+
+/-- Open a unifier `u : Unifier Γ` of a problem whose context has shape `shape` and
+variables named `names`: one fresh variable `#1, #2, …` per leaf of its binder. `k`
+gets the binder's shape, its variables, and the images of the problem's variables. -/
+def openUnifier {β} [Inhabited β] (shape : Shape) (u : Expr)
+    (k : Shape → Array Expr → List Expr → MetaM β) : MetaM β := do
+  let uw ← whnf u
+  unless uw.isAppOfArity ``Unifier.bind 3 do throwError "maude: cannot read the unifier {u}"
+  let binder ← shapeOf uw.appFn!.appArg!
+  let decls := binder.leaves.toArray.mapIdx fun i t => (s!"#{i + 1}".toName, fun _ => pure t)
+  withLocalDeclsD decls fun zs => do
+    k binder zs (← shape.split (mkApp uw.appArg! (← binder.tuple zs.toList)))
+
+/-- A unifier as JSON: `{"sub": {X_i: image}, "binder": shape over #1, #2, …}`. -/
+def encodeUnifier (shape : Shape) (names : List String) (u : Expr) : MetaM Json :=
+  openUnifier shape u fun binder zs images => do
+    let zname (id : FVarId) : Option String :=
+      (zs.findIdx? (· == .fvar id)).map fun i => s!"#{i + 1}"
+    let sub ← (names.zip images).mapM fun (n, t) => return (n, ← encodeTerm st zname t)
+    return Json.mkObj [("sub", Json.mkObj sub),
+      ("binder", binder.toJson ((List.range binder.leaves.length).map (s!"#{· + 1}")))]
 
 /-! ## Tools -/
 

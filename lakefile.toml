@@ -21,7 +21,7 @@ roots = ["Expresso.Expresso"]
 
 [[lean_lib]]
 name = "Tiny"
-roots = ["Tiny.Expresso.core", "Tiny.Expresso.TermAlgebra", "Tiny.Expresso.ACU", "Tiny.conPanna.Unification.Unification", "Tiny.conPanna.Narrowing.Narrowing", "Tiny.conPanna.Unification.Certification.Multiset", "Tiny.conPanna.Unification.Certification.Judgment", "Tiny.conPanna.Unification.Certification.Calculus", "Tiny.conPanna.Unification.Certification.Solve", "Tiny.conPanna.Unification.Certification.Tactics", "Tiny.conPanna.Dumper", "Tiny.conPanna.Unification.Tactics.maudeAdapter", "Tiny.conPanna.Unification.Tactics.maudeUnify"]
+roots = ["Tiny.Expresso.core", "Tiny.Expresso.TermAlgebra", "Tiny.Expresso.ACU", "Tiny.conPanna.Unification.Unification", "Tiny.conPanna.Narrowing.Narrowing", "Tiny.conPanna.Unification.Certification.Multiset", "Tiny.conPanna.Unification.Certification.Judgment", "Tiny.conPanna.Unification.Certification.Calculus", "Tiny.conPanna.Unification.Certification.Solve", "Tiny.conPanna.Unification.Certification.Tactics", "Tiny.conPanna.Dumper", "Tiny.conPanna.Unification.Tactics.maudeAdapter", "Tiny.conPanna.Unification.Tactics.maudeUnify", "Tiny.conPanna.Unification.Tactics.maudeCertifyComp"]
 
 [[lean_lib]]
 name = "conPanna"

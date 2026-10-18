@@ -288,11 +288,34 @@ def tuple_term(items):
 
 
 class Compiler:
-    """Contexts are flat lists of variable names (`X?`, `Z3`, ...)."""
+    """Contexts are flat lists of variable names (`X?`, `Z3`, ...). The initial
+    context may be a nested tuple (`shape`, e.g. a (rule, patch) cell's variables);
+    every later context is the compiler's own and flat.
+
+    Script mode (`maude_certify_comp`) emits only the proof steps for a goal
+    `complete P U`: no names (`unfold` is empty), and answers are U's elements by
+    position, each with its binder `shape`."""
 
     def __init__(self, cfg):
         self.cfg, self.ops = cfg, cfg.get("ops", {})
+        self.initial, self.shape = list(cfg.get("vars", [])), cfg.get("shape")
+        self.unfold = cfg.get("unfold", ["problem"])
+        self.script = cfg.get("script", False)
         self.out = []
+
+    def shaped(self, ctx, items):
+        """The tuple of `items` (aligned with `ctx`); the initial context keeps its nesting."""
+        if self.shape is None or ctx != self.initial:
+            return tuple_term(items)
+        return nest(self.shape, items)
+
+    def pat(self, ctx, used=None):
+        """A lambda pattern for `ctx`; unused names become `_`."""
+        names = [x if used is None or x in used else "_" for x in ctx]
+        return self.shaped(ctx, names) if names else "_"
+
+    def free(self):
+        return f"acu_free [{', '.join(self.unfold)}]"
 
     # terms -----------------------------------------------------------------
     def lean(self, t):
@@ -320,7 +343,7 @@ class Compiler:
 
     def lam(self, ctx, body):
         used = set(re.findall(r"[A-Za-z0-9_]+[?!]?", body))
-        return f"fun {pattern(ctx, used)} => {body}"
+        return f"fun {self.pat(ctx, used)} => {body}"
 
     # output ----------------------------------------------------------------
     def emit(self, ind, text):
@@ -336,17 +359,17 @@ class Compiler:
             nxt = n.children[0]
             self.emit(ind, f"-- {n.rule} {self.eq(eqs[0])}")
             self.emit(ind, f"refine decomp ({self.lam(ctx, self.conj(nxt.judgment[1]))})")
-            self.emit(ind + 2, f"(fun {pattern(ctx)} h => by acu_free [problem]) ?_")
+            self.emit(ind + 2, f"(fun {self.pat(ctx)} h => by {self.free()}) ?_")
             self.node(nxt, ctx, ind)
         elif n.rule == "elim":
             v, t = n.data["var"], self.lean(n.data["term"])
             new = [x for x in ctx if x != v]
             nxt = n.children[0]
             self.emit(ind, f"-- elim {v} := {t}")
-            self.emit(ind, f"refine elim (fun {pattern(new)} => {tuple_term([t if x == v else x for x in ctx])})")
+            self.emit(ind, f"refine elim (fun {self.pat(new)} => {self.shaped(ctx, [t if x == v else x for x in ctx])})")
             self.emit(ind + 2, f"({self.lam(new, self.conj(nxt.judgment[1]))})")
-            self.emit(ind + 2, f"(fun {pattern(ctx)} h => ⟨{tuple_term(new)}, by acu_free [problem], "
-                               f"by acu_free [problem]⟩) ?_")
+            self.emit(ind + 2, f"(fun {self.pat(ctx)} h => ⟨{tuple_term(new)}, by {self.free()}, "
+                               f"by {self.free()}⟩) ?_")
             self.node(nxt, new, ind)
         elif n.rule == "identify":
             aa, bb = self.lean(n.data["a"]), self.lean(n.data["b"])
@@ -362,7 +385,7 @@ class Compiler:
             self.cover(n, ctx, ind)
         else:  # clash, occurs, distinct
             self.emit(ind, f"-- {n.rule}")
-            self.emit(ind, f"exact clash fun {pattern(ctx)} h hD => by acu_free [problem]")
+            self.emit(ind, f"exact clash fun {self.pat(ctx)} h hD => by {self.free()}")
 
     def solve(self, n, ctx, ind, at_start):
         d = n.data
@@ -383,20 +406,20 @@ class Compiler:
         compat = set(d["compatible"]) | {(j, i) for i, j in d["compatible"]}
         cliques = [list(g) for r in range(1, m + 1) for g in combinations(range(m), r)
                    if all((i, j) in compat for i, j in combinations(g, 2))]
-        unfold = "try simp only [State.start, unifiedBy, problem] at h; "
+        unfold = "try simp only [" + ", ".join(["State.start", "unifiedBy"] + self.unfold) + "] at h; "
         if remaining:
             hE = f"⟨by {unfold}acu_side h.1, h.2, by acu_distinct⟩"
         else:
             hE = f"⟨by {unfold}acu_side h, trivial, by acu_distinct⟩"
-        glue = tuple_term([f"V {bag.index(x)}" if x in bag else x for x in ctx])
+        glue = self.shaped(ctx, [f"V {bag.index(x)}" if x in bag else x for x in ctx])
         self.emit(ind, f"-- solve {self.eq(solved)}")
         self.emit(ind, f"refine solve (V := {self.lam(ctx, vec(bag))}) (rest := {self.lam(ctx, tuple_term(rest))})")
-        self.emit(ind + 2, f"(glue := fun {pattern(rest)} V => {glue}) (hglue := fun _ => rfl)")
+        self.emit(ind + 2, f"(glue := fun {self.pat(rest)} V => {glue}) (hglue := fun _ => rfl)")
         self.emit(ind + 2, f"(a := {self.lam(rest, aliens)}) (L := {vec(d['L'])}) (R := {vec(d['R'])})"
                            f" (La := {vec(d['La'])}) (Ra := {vec(d['Ra'])})")
         self.emit(ind + 2, f"(E' := {self.lam(ctx, self.conj(remaining))}) (cp := {cp})")
         self.emit(ind + 2, f"(P := {P}) (B := {B})")
-        self.emit(ind + 2, f"(fun {pattern(ctx)} h hD => {hE})")
+        self.emit(ind + 2, f"(fun {self.pat(ctx)} h hD => {hE})")
         self.emit(ind + 2, "(by decide) (by decide) (by decide)")
         self.emit(ind + 2, f"(S2_of_list _ _ _ _ _ _ {cliques} (by decide) (by acu_cliques))"
                            f" (by acu_basis) ?_")
@@ -426,10 +449,16 @@ class Compiler:
     def cover(self, n, ctx, ind):
         i, w = n.data["answer"], n.data["witness"]
         binders = self.binders[i]
-        wit = [self.lean(w[b]) for b in binders]
+        # a binder the answer's images do not use (e.g. a `Unit` binder) gets `()`
+        wit = [self.lean(w[b]) if b in w else "()" for b in binders]
         self.emit(ind, f"-- cover answer {i} with " + ", ".join(f"{b} := {wit[j]}" for j, b in enumerate(binders)))
-        proof = f"⟨{tuple_term(wit) if wit else '()'}, by acu_cover⟩"
-        self.emit(ind, f"exact cover answer{i} (by simp [answers]) fun {pattern(ctx)} _ _ => {proof}")
+        if self.script:
+            shape = self.cfg["answer_binders"][i]
+            proof = f"⟨{nest(shape, wit)}, by acu_cover⟩"
+            self.emit(ind, f"exact cover _ (List.getElem_mem (by decide : {i} < _)) fun {self.pat(ctx)} _ _ => {proof}")
+        else:
+            proof = f"⟨{tuple_term(wit) if wit else '()'}, by acu_cover⟩"
+            self.emit(ind, f"exact cover answer{i} (by simp [answers]) fun {self.pat(ctx)} _ _ => {proof}")
 
     # answers ---------------------------------------------------------------
     def answers(self, answers):
@@ -444,6 +473,19 @@ class Compiler:
             self.out.append(f"def answer{i} : Unifier ({ctx_type}) :=\n  {body}")
             names.append(f"answer{i}")
         self.out.append(f"def answers : UnifierSet ({ctx_type}) :=\n  [{', '.join(names)}]")
+
+
+def nest(shape, items):
+    """`items` as a tuple nested like `shape` (a name, or a pair `[left, right]`)."""
+    it = iter(items)
+
+    def go(s):
+        return next(it) if isinstance(s, str) else "(" + go(s[0]) + ", " + go(s[1]) + ")"
+    return go(shape)
+
+
+def leaves(shape):
+    return [shape] if isinstance(shape, str) else leaves(shape[0]) + leaves(shape[1])
 
 
 def paren(s):
@@ -470,7 +512,7 @@ def main():
         # The Lean claim states a system as one equation between tuples; split it.
         c.emit(1, "-- decomp of the tuple equation into the system")
         c.emit(1, f"refine decomp ({c.lam(ctx, c.conj(eqs))})")
-        c.emit(3, f"(fun {pattern(ctx)} h => by acu_free [problem]) ?_")
+        c.emit(3, f"(fun {c.pat(ctx)} h => by {c.free()}) ?_")
     c.node(root, ctx, 1, at_start=len(eqs) == 1)
     c.out.append(f"\nend {cfg['namespace']}\n")
     target = deriv_path.with_suffix(".lean")

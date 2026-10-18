@@ -207,6 +207,11 @@ fmod SHOW is
       runWith(Q, BIs, F, TL, eqn(T1, T2), dropAt(allUnifs(upModule(Q, false), T1 =? T2, 0), N))) .
   op certify : Qid BagInfos Qid TermList Term Term -> String .
   eq certify(Q, BIs, F, TL, T1, T2) = certify(Q, BIs, F, TL, eqn(T1, T2)) .
+  *** Certify given answers (no unify): the entry of producer/tools/certify.py.
+  op certifyWith : Qid BagInfos Qid TermList Term Term Answers -> String .
+  eq certifyWith(Q, BIs, F, TL, T1, T2, AS) =
+    show(ctx(upModule(Q, false), BIs, F, TL, noAns), eqn(T1, T2),
+      runWith(Q, BIs, F, TL, eqn(T1, T2), AS)) .
   op show : Ctx Eqns Result -> String .
   eq show(X, E, result(AS, Tr)) =
     "problem " + showEqns(X, E) + nl + "answers" + nl + showAnswers(X, AS, 0)
