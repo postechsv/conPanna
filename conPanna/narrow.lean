@@ -42,7 +42,7 @@ namespace NarrowTactic
 
 /-! ## `narrow`
 One narrowing step as one tactic (illustrated step by step in the Bakery example,
-`examples/Bakery/bakery_pf_uncertain.lean`):
+`examples/Bakery/bakery_pf_draft_demo.lean`):
 
   `narrow R from S using [lemmas] as post hpost`
 
@@ -82,8 +82,15 @@ open Lean Meta Elab Tactic Expresso Narrowing in
   let cert ← mkFreshExprSyntheticOpaqueMVar (← mkAppM ``certificates_R_P #[R, S, Us])
   let main ← getMainGoal
   setGoals [cert.mvarId!]
+  -- the cells are read off `R` and `S` as lists, so unfold their names (only theirs: the
+  -- rules and patches stay folded, as the obligations state them)
+  let mut lists : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+  for e in [R, S] do
+    if let some c := e.getAppFn.constName? then
+      unless c == ``List.cons || c == ``List.nil do
+        lists := lists.push (← `(Lean.Parser.Tactic.simpLemma| $(mkIdent c):ident))
   evalTactic (← `(tactic| (
-    simp only [certificates_R_P, certificates_r_P, certificates_r_p]
+    simp only [certificates_R_P, certificates_r_P, certificates_r_p, $lists,*]
     repeat' (first | exact trivial | constructor)
     all_goals later)))
   setGoals [main]
