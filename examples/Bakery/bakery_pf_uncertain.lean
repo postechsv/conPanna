@@ -4,6 +4,7 @@ import conPanna.Narrowing.Narrowing
 import conPanna.Unification.Tactics.maudeUnify
 import conPanna.Later
 import conPanna.Subsumption
+import conPanna.Unification.Tactics.maudeMatch
 
 /-!
 Bakery: `enter` preserves the invariant, proved top-down. Maude computes the
@@ -144,16 +145,11 @@ theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
   refine over_of_subsumes hpost.1 (subsumes_of_patches fun a ha => ?_)
   simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
   rcases ha with rfl | rfl
-  · -- ⟨N, M, {crit M}⟩ | M < N   ⊑  criticalP, with PS := ∅
-    refine ⟨criticalP, by simp [invP], ?_⟩
-    unfold criticalP
-    refine subsumes_of_match (fun x => (x.1, x.2, ∅)) fun x hc => ⟨?_, ?_⟩
-    · simp [ACU.plus_unit]
-    · simpa [noCrit_unit, tickets_unit] using hc
-  · -- ⟨N, M, {crit M} + R⟩ | …   ⊑  criticalP, with PS := R
-    refine ⟨criticalP, by simp [invP], ?_⟩
-    unfold criticalP
-    refine subsumes_of_match (fun x => (x.2.1, x.2.2, x.1)) fun x hc => ⟨rfl, ?_⟩
+  · -- ⟨N, M, {crit M}⟩ | M < N   ⊑  criticalP (Maude finds PS := ∅)
+    maude_match criticalP
+    simpa [noCrit_unit, tickets_unit] using hc
+  · -- ⟨N, M, {crit M} + R⟩ | …   ⊑  criticalP (Maude finds PS := R)
+    maude_match criticalP
     -- the one real step: M ≤ t and t ≠ M (M is not a ticket of R) give M < t
     obtain ⟨hMN, hnc, ⟨hle, hlt, -⟩, hnd, hnot⟩ := hc
     exact ⟨hMN, hnc, fun t ht => ⟨lt_of_le_of_ne (hle t ht) (fun h => hnot (h ▸ ht)), hlt t ht⟩,

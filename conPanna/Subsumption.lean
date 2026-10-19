@@ -8,6 +8,7 @@ patch by patch, by matching.
 * `subsumes_of_match`: a patch `∃x. ⟨s x | c x⟩` is subsumed by `∃y. ⟨t y | d y⟩`
   if a matching substitution `σ` sends each `x` satisfying `c` to a `y = σ x` with
   `t y = s x` and `d y`.
+* `subsumes_of_empty`: a patch whose condition never holds is subsumed by anything.
 
 Remark: these are sufficient conditions, not necessary ones. A patch can lie in the
 union of several patches of `B` without lying in any single one (e.g. `n` arbitrary
@@ -40,5 +41,14 @@ theorem subsumes_of_match {A B : Type u} {f : A → PatchBody α} {g : B → Pat
     PatchBody.holds] at hs ⊢
   obtain ⟨x, rfl, hc⟩ := hs
   exact ⟨σ x, h x hc⟩
+
+/-- A patch whose condition never holds is subsumed by any pattern. -/
+theorem subsumes_of_empty {A : Type u} {f : A → PatchBody α} {B : Pattern α}
+    (h : ∀ x, ¬ (f x).cond) : subsumes [.bind f] B := by
+  intro s hs
+  simp only [Pattern.holds_cons, Pattern.holds_nil, or_false, Patch.holds,
+    PatchBody.holds] at hs
+  obtain ⟨x, -, hc⟩ := hs
+  exact (h x hc).elim
 
 end Subsumption

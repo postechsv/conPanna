@@ -1,5 +1,6 @@
 import conPanna.Dumper
 import conPanna.Unification.Unification
+import Expresso.core
 
 /-!
 The adapter between Lean goals and the producer's Maude tools: it encodes problems
@@ -221,6 +222,25 @@ def encodeUnifier (shape : Shape) (names : List String) (u : Expr) : MetaM Json 
     let sub ← (names.zip images).mapM fun (n, t) => return (n, ← encodeTerm st zname t)
     return Json.mkObj [("sub", Json.mkObj sub),
       ("binder", binder.toJson ((List.range binder.leaves.length).map (s!"#{· + 1}")))]
+
+/-! ## Patches -/
+
+/-- Open a patch `p = ∃x. ⟨s x | c x⟩`: one fresh variable `<pre>1, <pre>2, …` per leaf
+of its binder. `k` gets the binder type, its shape, the variables, their names, the
+body `f` (with `p = .bind f`), and the state `s x`. -/
+def openPatch {β} [Inhabited β] (pre : String) (p : Expr)
+    (k : Expr → Shape → Array Expr → (FVarId → Option String) → Expr → Expr → MetaM β) :
+    MetaM β := do
+  let pw ← whnf p
+  unless pw.isAppOfArity ``Expresso.Patch.bind 3 do throwError "maude: cannot read the patch {p}"
+  let (A, f) := (pw.appFn!.appArg!, pw.appArg!)
+  let shape ← shapeOf A
+  let decls := shape.leaves.toArray.mapIdx fun i t => (s!"{pre}{i + 1}".toName, fun _ => pure t)
+  withLocalDeclsD decls fun xs => do
+    let names (id : FVarId) : Option String :=
+      (xs.findIdx? (· == .fvar id)).map fun i => s!"{pre}{i + 1}"
+    let state ← mkAppM ``Expresso.PatchBody.state #[mkApp f (← shape.tuple xs.toList)]
+    k A shape xs names f state
 
 /-! ## Tools -/
 
