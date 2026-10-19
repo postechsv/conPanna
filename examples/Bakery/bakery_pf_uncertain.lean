@@ -28,6 +28,35 @@ macro_rules
                   List.cons_append, List.nil_append, List.append_nil, and_true,
                   ACU.plus_unit, ACU.unit_plus, $defs,*])
 
+/-! ## Dropping empty patches
+A patch whose condition is `False` holds for no state. `drop_empty at h` removes such
+patches from the post of `h : isPost R S P`: the shorter list is a different term but
+holds for the same states, so `isPost` carries over (`isPost_of_holds_iff`). -/
+
+theorem Expresso.isPost_of_holds_iff {α : Type _} {R : Expresso.System α}
+    {S P Q : Expresso.Pattern α} (h : Expresso.isPost R S P)
+    (e : ∀ s, P.holds s ↔ Q.holds s) : Expresso.isPost R S Q :=
+  ⟨fun a b ha hs => (e b).1 (h.1 a b ha hs), fun b hb => h.2 b ((e b).2 hb)⟩
+
+open Lean Meta Elab Tactic in
+/-- Remove the patches with condition `False` from the post of `h : isPost R S P`. -/
+elab "drop_empty" " at " h:ident : tactic => withMainContext do
+  let ty ← instantiateMVars (← getLocalDeclFromUserName h.getId).type
+  unless ty.isAppOfArity ``Expresso.isPost 4 do
+    throwError "drop_empty: {h} is not `isPost R S P`"
+  let some (T, ps) := ty.appArg!.listLit? | throwError "drop_empty: the post is not a list"
+  -- `Patch.bind fun x => { state := …, cond := False }`
+  let empty (p : Expr) : Bool := p.isAppOfArity ``Expresso.Patch.bind 3 &&
+    match p.appArg! with
+    | .lam _ _ b _ => b.isAppOfArity ``Expresso.PatchBody.mk 3 && b.appArg!.isConstOf ``False
+    | _ => false
+  let keep := ps.filter (!empty ·)
+  if keep.length == ps.length then return
+  let Q ← Term.exprToSyntax (← mkListLit T keep)
+  evalTactic (← `(tactic| replace $h:ident := Expresso.isPost_of_holds_iff $h:ident (Q := $Q)
+    (fun _ => by simp only [Expresso.Pattern.holds_cons, Expresso.Pattern.holds_nil,
+      Expresso.Patch.holds, Expresso.PatchBody.holds, and_false, exists_false, false_or])))
+
 namespace Bakery
 
 open Expresso Unification Narrowing
@@ -84,9 +113,7 @@ theorem noCrit_plus (X Y : ProcSet) : noCrit (X + Y) ↔ noCrit X ∧ noCrit Y :
 theorem noCrit_wait (n : Nat) : noCrit {Mode.wait n} := by
   simp [noCrit]
 
-/-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
-from `waiting` (lands in `critical`), and from `critical`: two processes in the
-critical section, refuted by the ticket range. -/
+/- enterR(invP) ⊆ invP -/
 theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
   -- narrowing start --
   let Us : unifiers_R_P [enterR] invP := by maude_unify  -- compactify Us
@@ -101,6 +128,7 @@ theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
   -- domain simplification: the domain lemmas, plus logic and multiset facts
   simp [tickets_plus, tickets_wait, allIdle_plus, allIdle_wait, noCrit_plus, noCrit_wait,
     or_imp, forall_and, Multiset.nodup_add, Multiset.disjoint_singleton] at hpost
+  drop_empty at hpost
   -- narrowing end --
 
   -- what remains: the (simplified) post is contained in the invariant
