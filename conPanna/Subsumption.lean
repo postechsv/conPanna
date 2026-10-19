@@ -9,6 +9,9 @@ patch by patch, by matching.
   if a matching substitution `σ` sends each `x` satisfying `c` to a `y = σ x` with
   `t y = s x` and `d y`.
 * `subsumes_of_empty`: a patch whose condition never holds is subsumed by anything.
+* `subsumes_of_cover`, `subsumes_one`, `subsumes_of_split`: when a patch is covered
+  by several patches of `B` together, split its condition on a predicate `q` and
+  cover each half on its own.
 
 Remark: these are sufficient conditions, not necessary ones. A patch can lie in the
 union of several patches of `B` without lying in any single one (e.g. `n` arbitrary
@@ -50,5 +53,32 @@ theorem subsumes_of_empty {A : Type u} {f : A → PatchBody α} {B : Pattern α}
     PatchBody.holds] at hs
   obtain ⟨x, -, hc⟩ := hs
   exact (h x hc).elim
+
+/-- Each patch of `A` is subsumed by `B` (as a whole). -/
+theorem subsumes_of_cover {A B : Pattern α} (h : ∀ a ∈ A, subsumes [a] B) : subsumes A B := by
+  intro s ⟨a, ha, hs⟩
+  exact h a ha s ⟨a, List.mem_singleton_self a, hs⟩
+
+/-- A patch subsumed by one patch of `B` is subsumed by `B`. -/
+theorem subsumes_one {a : Patch α} {B : Pattern α} (h : ∃ b ∈ B, subsumes [a] [b]) :
+    subsumes [a] B := by
+  obtain ⟨b, hb, hab⟩ := h
+  intro s hs
+  obtain ⟨b', hb', hs'⟩ := hab s hs
+  exact ⟨b, hb, (List.mem_singleton.1 hb') ▸ hs'⟩
+
+/-- Case split on `q`: the patch is subsumed if both halves, with `q` and with `¬ q`
+added to its condition, are. -/
+theorem subsumes_of_split {A : Type u} {f : A → PatchBody α} {B : Pattern α} (q : A → Prop)
+    (h₁ : subsumes [.bind fun x => ⟨(f x).state, (f x).cond ∧ q x⟩] B)
+    (h₂ : subsumes [.bind fun x => ⟨(f x).state, (f x).cond ∧ ¬ q x⟩] B) :
+    subsumes [.bind f] B := by
+  intro s hs
+  simp only [Pattern.holds_cons, Pattern.holds_nil, or_false, Patch.holds,
+    PatchBody.holds] at hs
+  obtain ⟨x, hx, hc⟩ := hs
+  by_cases hq : q x
+  · exact h₁ s ⟨_, List.mem_singleton_self _, x, hx, hc, hq⟩
+  · exact h₂ s ⟨_, List.mem_singleton_self _, x, hx, hc, hq⟩
 
 end Subsumption

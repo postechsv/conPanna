@@ -98,14 +98,17 @@ syntax (name := maudeMatch) "maude_match " term (ppSpace num)? : tactic
     -- `x` and `hc` are for the user (unhygienic)
     let (x, hc) := (mkIdent `x, mkIdent `hc)
     evalTactic (← `(tactic| refine Subsumption.subsumes_of_match $σs fun $x $hc => ⟨?_, ?_⟩))
-    -- the state equation
-    evalTactic (← `(tactic| first
+    -- the state equation (`dsimp` reduces the target's `match`, if any; then rfl, or ACU
+    -- normalization, also of sums inside constructors)
+    evalTactic (← `(tactic| focus
+      try dsimp only  -- may already close it
+      first
+      | done
       | rfl
-      | (dsimp only; first
-          | rfl
-          | ac_rfl
-          | (simp only [ACU.plus_unit, ACU.unit_plus]; done)
-          | (simp only [ACU.plus_unit, ACU.unit_plus]; ac_rfl))
+      | ac_rfl
+      | (simp only [ACU.plus_unit, ACU.unit_plus]; done)
+      | (simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm,
+          ACU.plus_assoc]; done)
       | fail "maude_match: could not close the state equation"))
     evalTactic (← `(tactic| try dsimp only at $hc:ident ⊢))
 
