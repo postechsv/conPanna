@@ -60,27 +60,28 @@ def criticalP : Patch Conf := .bind fun ((N, M, PS) : Nat × Nat × ProcSet) =>
 def invP : Pattern Conf := [initialP, waitingP, criticalP]
 
 /-! ## Domain lemmas
-How the predicates act on bags of no, one, or several processes. -/
+How the predicates act on sums and single processes. Not `@[simp]`: they are passed
+explicitly where the post is simplified (later, to `narrow`). -/
 
-@[simp] theorem tickets_plus (X Y : ProcSet) : tickets (X + Y) = tickets X + tickets Y := by
+theorem tickets_plus (X Y : ProcSet) : tickets (X + Y) = tickets X + tickets Y := by
   simp only [tickets, ACU.toMultiset_plus]
   induction X.toMultiset, Y.toMultiset using Quotient.inductionOn₂ with
   | h l₁ l₂ => simp [List.filterMap_append]
 
-@[simp] theorem tickets_wait (n : Nat) : tickets {Mode.wait n} = {n} := by
+theorem tickets_wait (n : Nat) : tickets {Mode.wait n} = {n} := by
   simp only [tickets, ACU.toMultiset_elem]
   exact Multiset.filterMap_cons_some _ _ 0 rfl
 
-@[simp] theorem allIdle_plus (X Y : ProcSet) : allIdle (X + Y) ↔ allIdle X ∧ allIdle Y := by
+theorem allIdle_plus (X Y : ProcSet) : allIdle (X + Y) ↔ allIdle X ∧ allIdle Y := by
   simp [allIdle, or_imp, forall_and]
 
-@[simp] theorem allIdle_wait (n : Nat) : allIdle {Mode.wait n} ↔ False := by
+theorem allIdle_wait (n : Nat) : allIdle {Mode.wait n} ↔ False := by
   simp [allIdle]
 
-@[simp] theorem noCrit_plus (X Y : ProcSet) : noCrit (X + Y) ↔ noCrit X ∧ noCrit Y := by
+theorem noCrit_plus (X Y : ProcSet) : noCrit (X + Y) ↔ noCrit X ∧ noCrit Y := by
   simp [noCrit, or_imp, forall_and]
 
-@[simp] theorem noCrit_wait (n : Nat) : noCrit {Mode.wait n} := by
+theorem noCrit_wait (n : Nat) : noCrit {Mode.wait n} := by
   simp [noCrit]
 
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
@@ -97,7 +98,9 @@ theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
         ⟨by later, by later⟩,     -- critical: complete, sound
         trivial⟩, trivial⟩
   post_simp [post, Us, invP, enterR, initialP, waitingP, criticalP] at hpost
-  simp [or_imp, forall_and, Multiset.nodup_add, Multiset.disjoint_singleton] at hpost  -- domain
+  -- domain simplification: the domain lemmas, plus logic and multiset facts
+  simp [tickets_plus, tickets_wait, allIdle_plus, allIdle_wait, noCrit_plus, noCrit_wait,
+    or_imp, forall_and, Multiset.nodup_add, Multiset.disjoint_singleton] at hpost
   -- narrowing end --
 
   -- what remains: the (simplified) post is contained in the invariant
