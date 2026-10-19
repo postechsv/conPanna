@@ -8,7 +8,8 @@ Deferred obligations: prove a theorem top-down now, its obligations elsewhere la
 * `#obligations thm` prints `thm`'s holes as theorem statements
   `thm.obligation_k`, ready to be pasted into another file and proved.
 * `#link thm` rebuilds `thm`'s proof as `thm.linked`, with each such hole replaced by
-  the theorem proving it. The kernel re-checks the result.
+  the theorem proving it; holes without one stay open (with a warning). The kernel
+  re-checks the result.
 
 The holes are ordinary `sorry`s (Lean's warning applies); `#print axioms` shows
 whether a theorem still depends on any.
@@ -27,12 +28,21 @@ elab "later" : tactic => withMainContext do
   goal.assign (← mkSorry P false)
   replaceMainGoal []
 
+/-- A plain `sorry` written in a proof is labeled: `sorryAx (Name → P) _ tag`.
+The statement without the label, if `T` is such a type. -/
+def unlabel? (T : Expr) : Option Expr :=
+  match T with
+  | .forallE _ (.const ``Lean.Name []) P _ => if P.hasLooseBVars then none else some P
+  | _ => none
+
 /-- The statements of the holes (`sorry`s) of proof term `v`, in order. A statement
 with loose bound variables is a plain `sorry` depending on the proof's context. -/
 def holes (v : Expr) : MetaM (Array Expr) := do
   let r ← IO.mkRef #[]
   v.forEach fun e => do
-    if e.isAppOfArity ``sorryAx 2 then r.modify (·.push e.appFn!.appArg!)
+    if e.isAppOfArity ``sorryAx 2 then
+      let T := e.appFn!.appArg!
+      r.modify (·.push ((unlabel? T).getD T))
   r.get
 
 def proofOf (n : Name) : MetaM Expr := do
@@ -70,9 +80,15 @@ elab "#link " id:ident : command => liftTermElabM do
     let some c ← (match named with
         | some ci => pure (some ci)
         | none => local_.findM? fun ci => isDefEq ci.type P)
-      | throwError "#link: no theorem proves hole {i + 1}{indentExpr P}"
+      | logWarning m!"#link: hole {i + 1} stays open, no theorem proves{indentExpr P}"
+        continue
+    -- a labeled hole `sorryAx (Name → P) _` becomes `fun _ => c`
     v := v.replace fun e =>
-      if e.isAppOfArity ``sorryAx 2 && e.appFn!.appArg! == P then some (mkConst c.name) else none
+      if !e.isAppOfArity ``sorryAx 2 then none
+      else if e.appFn!.appArg! == P then some (mkConst c.name)
+      else if unlabel? e.appFn!.appArg! == some P then
+        some (.lam `tag (mkConst ``Lean.Name) (mkConst c.name) .default)
+      else none
     used := used.push c.name
   addDecl <| .thmDecl
     { name := n ++ `linked, levelParams := info.levelParams, type := info.type, value := v }
