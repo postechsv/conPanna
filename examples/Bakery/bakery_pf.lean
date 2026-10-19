@@ -1,13 +1,13 @@
 import examples.Bakery.bakery_obligation
 
 /-!
-Bakery: the proof of `enter_preserves_inv` with its obligations linked in.
+Bakery: the proof of `bakery_preserves_inv` (the whole system) with its obligations linked in.
 -/
 
 namespace Bakery
 
-#link enter_preserves_inv
+#link bakery_preserves_inv
 
-#print axioms enter_preserves_inv.linked
+#print axioms bakery_preserves_inv.linked
 
 end Bakery
