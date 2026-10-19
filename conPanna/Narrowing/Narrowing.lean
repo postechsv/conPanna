@@ -7,8 +7,8 @@ One-step narrowing, reduced to unification.
 The specification is `isPost` from `core.lean`: `isOverPost` (no missing successor) and
 `isUnderPost` (no junk successor) play the roles of `complete` and `sound`. For one
 rule and one patch, the post is read off the unifiers of their `mayFire` problem
-(`certifyPost_r_p`); patterns and systems then compose by `disj` and `choice`
-(`certifyPost_r_P`, `certifyPost_R_P`).
+(`certifyPost_r_p`); patterns and systems are lists, and their posts are the
+concatenations of the cells' posts (`certifyPost_r_P`, `certifyPost_R_P`).
 -/
 
 namespace Narrowing
@@ -45,87 +45,82 @@ def post_r_p_u : (r : Rule α) → (p : Patch α) → unifier_r_p r p → Patch 
 
 /-- One successor patch per unifier. -/
 -- `post_r_p r p U` = ⊔_u∈U {u(r.rhs) | u(p.cond) ∧ u(r.cond)}
-def post_r_p (r : Rule α) (p : Patch α) : unifiers_r_p r p → Pattern α
-  | [] => .bott
-  | u :: U => .disj (.patch (post_r_p_u r p u)) (post_r_p r p U)
+def post_r_p (r : Rule α) (p : Patch α) (U : unifiers_r_p r p) : Pattern α :=
+  U.map (post_r_p_u r p)
 
 theorem post_r_p_holds {r : Rule α} {p : Patch α} {U : unifiers_r_p r p} {s : α} :
     (post_r_p r p U).holds s ↔ ∃ u ∈ U, (post_r_p_u r p u).holds s := by
-  induction U with
-  | nil => simp [post_r_p, Pattern.holds]
-  | cons u U ih => simp [post_r_p, Pattern.holds, ih]
+  simp only [post_r_p, Pattern.holds, List.mem_map]
+  exact ⟨fun ⟨_, ⟨u, hu, rfl⟩, h⟩ => ⟨u, hu, h⟩, fun ⟨u, hu, h⟩ => ⟨_, ⟨u, hu, rfl⟩, h⟩⟩
 
 /-- Completeness of the unifiers gives `isOverPost`. -/
 theorem isOverPost_of_complete {r : Rule α} {p : Patch α} {U : unifiers_r_p r p}
-    (h : complete (mayFire r p) U) : isOverPost (.rule r) (.patch p) (post_r_p r p U) := by
+    (h : complete (mayFire r p) U) : isOverPost [r] [p] (post_r_p r p U) := by
   obtain ⟨g⟩ := r
   obtain ⟨f⟩ := p
-  rintro _ after ⟨a, rfl, hc⟩ ⟨b, hl, rfl, hd⟩
+  intro _ after hs hstep
+  simp only [Pattern.holds_cons, Pattern.holds_nil, or_false, System.step_cons,
+    System.step_nil] at hs hstep
+  obtain ⟨a, rfl, hc⟩ := hs
+  obtain ⟨b, hl, rfl, hd⟩ := hstep
   obtain ⟨⟨u⟩, hmem, x, hx⟩ := h (b, a) hl
   refine post_r_p_holds.2 ⟨.bind u, hmem, x, ?_⟩
   simp [PatchBody.holds, ← hx, hc, hd]
 
 /-- Soundness of the unifiers gives `isUnderPost`. -/
 theorem isUnderPost_of_sound {r : Rule α} {p : Patch α} {U : unifiers_r_p r p}
-    (h : sound (mayFire r p) U) : isUnderPost (.rule r) (.patch p) (post_r_p r p U) := by
+    (h : sound (mayFire r p) U) : isUnderPost [r] [p] (post_r_p r p U) := by
   obtain ⟨g⟩ := r
   obtain ⟨f⟩ := p
   intro after hpost
   obtain ⟨⟨u⟩, hmem, x, rfl, hc, hd⟩ := post_r_p_holds.1 hpost
-  exact ⟨_, ⟨_, rfl, hc⟩, _, h _ hmem (u x) ⟨x, rfl⟩, rfl, hd⟩
+  exact ⟨_, (Pattern.holds_cons ..).2 (.inl ⟨_, rfl, hc⟩),
+    (System.step_cons ..).2 (.inl ⟨_, h _ hmem (u x) ⟨x, rfl⟩, rfl, hd⟩)⟩
 
 theorem certifyPost_r_p (r : Rule α) (p : Patch α) (U : unifiers_r_p r p)
-    (h : certificates_r_p r p U) : isPost (.rule r) (.patch p) (post_r_p r p U) :=
+    (h : certificates_r_p r p U) : isPost [r] [p] (post_r_p r p U) :=
   ⟨isOverPost_of_complete h.1, isUnderPost_of_sound h.2⟩
 
 /-! ## One rule, a pattern: one unifier set per patch -/
 
 def unifiers_r_P (r : Rule α) : Pattern α → Type (u + 1)
-  | .bott => PUnit.{u + 2}
-  | .patch p => unifiers_r_p r p
-  | .disj P₁ P₂ => unifiers_r_P r P₁ × unifiers_r_P r P₂
+  | [] => PUnit.{u + 2}
+  | p :: P => unifiers_r_p r p × unifiers_r_P r P
 
 def certificates_r_P (r : Rule α) : (P : Pattern α) → unifiers_r_P r P → Prop
-  | .bott, _ => True
-  | .patch p, U => certificates_r_p r p U
-  | .disj P₁ P₂, (Us₁, Us₂) => certificates_r_P r P₁ Us₁ ∧ certificates_r_P r P₂ Us₂
+  | [], _ => True
+  | p :: P, (U, Us) => certificates_r_p r p U ∧ certificates_r_P r P Us
 
 def post_r_P (r : Rule α) : (P : Pattern α) → unifiers_r_P r P → Pattern α
-  | .bott, _ => .bott
-  | .patch p, U => post_r_p r p U
-  | .disj P₁ P₂, (Us₁, Us₂) => .disj (post_r_P r P₁ Us₁) (post_r_P r P₂ Us₂)
+  | [], _ => []
+  | p :: P, (U, Us) => post_r_p r p U ++ post_r_P r P Us
 
 theorem certifyPost_r_P (r : Rule α) : (P : Pattern α) → (Us : unifiers_r_P r P) →
-    certificates_r_P r P Us → isPost (.rule r) P (post_r_P r P Us)
-  | .bott, _, _ => isPost_bott _
-  | .patch p, U, h => certifyPost_r_p r p U h
-  | .disj P₁ P₂, (Us₁, Us₂), ⟨h₁, h₂⟩ =>
-      isPost_disj (certifyPost_r_P r P₁ Us₁ h₁) (certifyPost_r_P r P₂ Us₂ h₂)
+    certificates_r_P r P Us → isPost [r] P (post_r_P r P Us)
+  | [], _, _ => isPost_bott _
+  | p :: P, (U, Us), ⟨h₁, h₂⟩ =>
+      isPost_disj (S₁ := [p]) (certifyPost_r_p r p U h₁) (certifyPost_r_P r P Us h₂)
 
 /-! ## A system, a pattern: one row per rule -/
 
 def unifiers_R_P : System α → Pattern α → Type (u + 1)
-  | .empty, _ => PUnit.{u + 2}
-  | .rule r, P => unifiers_r_P r P
-  | .choice R₁ R₂, P => unifiers_R_P R₁ P × unifiers_R_P R₂ P
+  | [], _ => PUnit.{u + 2}
+  | r :: R, P => unifiers_r_P r P × unifiers_R_P R P
 
 def certificates_R_P : (R : System α) → (P : Pattern α) → unifiers_R_P R P → Prop
-  | .empty, _, _ => True
-  | .rule r, P, Us => certificates_r_P r P Us
-  | .choice R₁ R₂, P, (Us₁, Us₂) => certificates_R_P R₁ P Us₁ ∧ certificates_R_P R₂ P Us₂
+  | [], _, _ => True
+  | r :: R, P, (Us₁, Us₂) => certificates_r_P r P Us₁ ∧ certificates_R_P R P Us₂
 
 def post_R_P : (R : System α) → (P : Pattern α) → unifiers_R_P R P → Pattern α
-  | .empty, _, _ => .bott
-  | .rule r, P, Us => post_r_P r P Us
-  | .choice R₁ R₂, P, (Us₁, Us₂) => .disj (post_R_P R₁ P Us₁) (post_R_P R₂ P Us₂)
+  | [], _, _ => []
+  | r :: R, P, (Us₁, Us₂) => post_r_P r P Us₁ ++ post_R_P R P Us₂
 
 /-- One narrowing step: if every (rule, patch) pair has a certified unifier set,
 `post_R_P` is exactly the set of successors. -/
 theorem certifyPost_R_P : (R : System α) → (P : Pattern α) → (Us : unifiers_R_P R P) →
     certificates_R_P R P Us → isPost R P (post_R_P R P Us)
-  | .empty, P, _, _ => isPost_empty P
-  | .rule r, P, Us, h => certifyPost_r_P r P Us h
-  | .choice R₁ R₂, P, (Us₁, Us₂), ⟨h₁, h₂⟩ =>
-      isPost_choice (certifyPost_R_P R₁ P Us₁ h₁) (certifyPost_R_P R₂ P Us₂ h₂)
+  | [], P, _, _ => isPost_empty P
+  | r :: R, P, (Us₁, Us₂), ⟨h₁, h₂⟩ =>
+      isPost_choice (R₁ := [r]) (certifyPost_r_P r P Us₁ h₁) (certifyPost_R_P R P Us₂ h₂)
 
 end Narrowing

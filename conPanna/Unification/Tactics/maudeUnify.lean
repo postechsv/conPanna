@@ -55,22 +55,21 @@ def unifiersOf (P : Expr) : MetaM Expr := do
           mkAppOptM ``Unifier.bind #[Γ, Z, ← mkLambdaFVars #[z] body]
     mkListLit elemTy us.toList
 
-/-- A value of `unifiers_R_P R P`, following the trees of `R` and `P`. -/
+/-- A value of `unifiers_R_P R P`: for each rule of `R` (a list), for each patch of
+`P` (a list), the unifiers of that cell; `unit` closes each list. -/
 partial def forSystem (unit : Expr) (R P : Expr) : MetaM Expr := do
   let R ← whnf R
-  if R.isAppOfArity ``System.empty 1 then return unit
-  if R.isAppOfArity ``System.choice 3 then
-    return ← mkAppM ``Prod.mk #[← forSystem unit R.appFn!.appArg! P, ← forSystem unit R.appArg! P]
-  if R.isAppOfArity ``System.rule 2 then return ← forRule unit R.appArg! P
+  if R.isAppOfArity ``List.nil 1 then return unit
+  if R.isAppOfArity ``List.cons 3 then
+    return ← mkAppM ``Prod.mk #[← forRule unit R.appFn!.appArg! P, ← forSystem unit R.appArg! P]
   throwError "maude_unify: cannot read the system {R}"
 where
   forRule (unit r P : Expr) : MetaM Expr := do
     let P ← whnf P
-    if P.isAppOfArity ``Pattern.bott 1 then return unit
-    if P.isAppOfArity ``Pattern.disj 3 then
-      return ← mkAppM ``Prod.mk #[← forRule unit r P.appFn!.appArg!, ← forRule unit r P.appArg!]
-    if P.isAppOfArity ``Pattern.patch 2 then
-      return ← unifiersOf st (← mkAppM ``mayFire #[r, P.appArg!])
+    if P.isAppOfArity ``List.nil 1 then return unit
+    if P.isAppOfArity ``List.cons 3 then
+      return ← mkAppM ``Prod.mk
+        #[← unifiersOf st (← mkAppM ``mayFire #[r, P.appFn!.appArg!]), ← forRule unit r P.appArg!]
     throwError "maude_unify: cannot read the pattern {P}"
 
 /-- Close a goal `unifiers_R_P R P` with the unifiers Maude computes for every cell. -/

@@ -12,56 +12,9 @@ Conditions are stated through `ACU.toMultiset`.
 -/
 
 /-! ## Simplifying a post
-`Pattern.flatten` lists a pattern's disjuncts without `⊥`, right-associated. It is not
-the same term, but it holds for the same states (`holds_flatten`), so `isPost` carries
-over (`isPost_flatten`). `post_simp [defs] at h` turns `h : isPost R S P` into the same
-statement about `P` computed, flattened, with `∧ True` and `+ ∅` dropped; only `P` is
-rewritten, `R` and `S` stay folded. `defs` are the definitions to unfold in `P`. -/
-
-namespace Expresso
-
-universe u
-variable {α : Type u}
-
-/-- The disjuncts of a pattern, in order, without `⊥`. -/
-def Pattern.disjuncts : Pattern α → List (Patch α)
-  | .bott => []
-  | .patch p => [p]
-  | .disj l r => l.disjuncts ++ r.disjuncts
-
-/-- A right-associated disjunction; `⊥` only when empty. -/
-def Pattern.ofList : List (Patch α) → Pattern α
-  | [] => .bott
-  | [p] => .patch p
-  | p :: ps => .disj (.patch p) (ofList ps)
-
-def Pattern.flatten (P : Pattern α) : Pattern α := ofList P.disjuncts
-
-theorem Pattern.holds_ofList (ps : List (Patch α)) (s : α) :
-    (ofList ps).holds s ↔ ∃ p ∈ ps, p.holds s := by
-  induction ps with
-  | nil => simp [ofList, Pattern.holds]
-  | cons p ps ih =>
-    cases ps with
-    | nil => simp [ofList, Pattern.holds]
-    | cons q qs => simp only [ofList, Pattern.holds] at ih ⊢; simp [ih]
-
-theorem Pattern.holds_disjuncts (P : Pattern α) (s : α) :
-    P.holds s ↔ ∃ p ∈ P.disjuncts, p.holds s := by
-  induction P with
-  | bott => simp [disjuncts, Pattern.holds]
-  | patch p => simp [disjuncts, Pattern.holds]
-  | disj l r ihl ihr => simp [disjuncts, Pattern.holds, ihl, ihr, or_and_right, exists_or]
-
-theorem Pattern.holds_flatten (P : Pattern α) (s : α) : P.flatten.holds s ↔ P.holds s := by
-  rw [flatten, holds_ofList, holds_disjuncts]
-
-theorem isPost_flatten {R : System α} {S P : Pattern α} (h : isPost R S P) :
-    isPost R S P.flatten :=
-  ⟨fun a b ha hs => (P.holds_flatten b).2 (h.1 a b ha hs),
-   fun b hb => h.2 b ((P.holds_flatten b).1 hb)⟩
-
-end Expresso
+`post_simp [defs] at h` turns `h : isPost R S P` into the same statement about `P`
+computed: the cells' posts concatenated, with `∧ True` and `+ ∅` dropped. Only `P`
+is rewritten; `R` and `S` stay folded. `defs` are the definitions to unfold in `P`. -/
 
 syntax "post_simp " "[" ident,* "]" " at " ident : tactic
 
@@ -69,12 +22,11 @@ open Expresso Narrowing Lean.Parser.Tactic in
 macro_rules
   | `(tactic| post_simp [$defs,*] at $h) => do
     let defs ← defs.getElems.mapM fun d => `(simpLemma| $d:ident)
-    `(tactic| (replace $h:ident := isPost_flatten $h:ident
-               conv at $h:ident =>
-                 arg 3
-                 simp only [Pattern.flatten, Pattern.disjuncts, Pattern.ofList, post_R_P,
-                   post_r_P, post_r_p, post_r_p_u, List.cons_append, List.nil_append,
-                   List.append_nil, and_true, ACU.plus_unit, ACU.unit_plus, $defs,*]))
+    `(tactic| conv at $h:ident =>
+                arg 3
+                simp only [post_R_P, post_r_P, post_r_p, List.map, post_r_p_u,
+                  List.cons_append, List.nil_append, List.append_nil, and_true,
+                  ACU.plus_unit, ACU.unit_plus, $defs,*])
 
 namespace Bakery
 
@@ -105,21 +57,21 @@ def criticalP : Patch Conf := .bind fun ((N, M, PS) : Nat × Nat × ProcSet) =>
   ⟨⟨N, M, {Mode.crit M} + PS⟩,
     M < N ∧ noCrit PS ∧ (∀ t ∈ tickets PS, M < t ∧ t < N) ∧ (tickets PS).Nodup⟩
 
-def invP : Pattern Conf :=
-  .disj (.patch initialP) (.disj (.patch waitingP) (.patch criticalP))
+def invP : Pattern Conf := [initialP, waitingP, criticalP]
 
 /-- The post has three candidates: from `initial` (refuted: `wait(c)` is not idle),
 from `waiting` (lands in `critical`), and from `critical`: two processes in the
 critical section, refuted by the ticket range. -/
-theorem enter_preserves_inv : isOverPost (.rule enterR) invP invP := by
+theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
   -- narrowing start --
-  let Us : unifiers_R_P (.rule enterR) invP := by maude_unify
-  let post : Pattern Conf := post_R_P (.rule enterR) invP Us
-  have hpost : isPost (.rule enterR) invP (post) :=
+  let Us : unifiers_R_P [enterR] invP := by maude_unify
+  let post : Pattern Conf := post_R_P [enterR] invP Us
+  have hpost : isPost [enterR] invP post :=
     certifyPost_R_P _ _ Us
-      ⟨⟨by later, by later⟩,     -- initial:  complete, sound
-       ⟨by later, by later⟩,     -- waiting:  complete, sound
-       ⟨by later, by later⟩⟩    -- critical: complete, sound
+      ⟨⟨⟨by later, by later⟩,     -- initial:  complete, sound
+        ⟨by later, by later⟩,     -- waiting:  complete, sound
+        ⟨by later, by later⟩,     -- critical: complete, sound
+        trivial⟩, trivial⟩
   post_simp [post, Us, invP, enterR, initialP, waitingP, criticalP] at hpost
   -- compactify Us e.g. ...
   -- narrowing end --

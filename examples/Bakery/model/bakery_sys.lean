@@ -23,6 +23,6 @@ def exitR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
   { lhs := ⟨N, M, {Mode.crit M} + R⟩, rhs := ⟨N, M + 1, {Mode.idle} + R⟩ }
 
 /-- One step of any process: a choice, not a sequence. -/
-def bakery : System Conf := .choice (.rule wakeR) (.choice (.rule enterR) (.rule exitR))
+def bakery : System Conf := [wakeR, enterR, exitR]
 
 end Bakery

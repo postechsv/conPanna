@@ -10,7 +10,8 @@ those axioms.
 
 Three levels: a patch body has no variables; a patch binds them once, over one
 type `A` (several variables go in a tuple); a pattern is a finite disjunction of
-patches. Rule bodies, rules and systems follow the same shape. -/
+patches, a list: `[]` is `⊥` and `++` is `∨`. Rule bodies, rules and systems follow
+the same shape. Order and duplicates do not matter to the meaning (`holds`, `step`). -/
 
 variable {α : Type u}
 
@@ -23,10 +24,8 @@ structure PatchBody (α : Type u) where
 inductive Patch (α : Type u) : Type (u + 1) where
   | bind {A : Type u} (body : A → PatchBody α) : Patch α
 
-inductive Pattern (α : Type u) : Type (u + 1) where
-  | bott : Pattern α
-  | patch (p : Patch α) : Pattern α
-  | disj (left right : Pattern α) : Pattern α
+/-- A pattern: the disjunction of its patches. -/
+abbrev Pattern (α : Type u) := List (Patch α)
 
 def PatchBody.holds (p : PatchBody α) (actual : α) : Prop :=
   p.state = actual ∧ p.cond
@@ -37,10 +36,19 @@ def Patch.Vars : Patch α → Type u
 def Patch.holds : Patch α → α → Prop
   | .bind body, state => ∃ a, (body a).holds state
 
-def Pattern.holds : Pattern α → α → Prop
-  | .bott, _ => False
-  | .patch p, state => p.holds state
-  | .disj left right, state => left.holds state ∨ right.holds state
+def Pattern.holds (P : Pattern α) (state : α) : Prop :=
+  ∃ p ∈ P, p.holds state
+
+@[simp] theorem Pattern.holds_nil (s : α) : Pattern.holds [] s ↔ False := by
+  simp [Pattern.holds]
+
+@[simp] theorem Pattern.holds_cons (p : Patch α) (P : Pattern α) (s : α) :
+    Pattern.holds (p :: P) s ↔ p.holds s ∨ P.holds s := by
+  simp [Pattern.holds]
+
+@[simp] theorem Pattern.holds_append (P Q : Pattern α) (s : α) :
+    Pattern.holds (P ++ Q) s ↔ P.holds s ∨ Q.holds s := by
+  simp [Pattern.holds, or_and_right, exists_or]
 
 /-- A rule body `lhs => rhs if cond`. -/
 structure RuleBody (α : Type u) where
@@ -52,10 +60,8 @@ structure RuleBody (α : Type u) where
 inductive Rule (α : Type u) : Type (u + 1) where
   | bind {A : Type u} (body : A → RuleBody α) : Rule α
 
-inductive System (α : Type u) : Type (u + 1) where
-  | empty : System α
-  | rule (r : Rule α) : System α
-  | choice (left right : System α) : System α
+/-- A system: a choice of its rules. -/
+abbrev System (α : Type u) := List (Rule α)
 
 def RuleBody.step (r : RuleBody α) (before after : α) : Prop :=
   r.lhs = before ∧ r.rhs = after ∧ r.cond
@@ -66,11 +72,19 @@ def Rule.Vars : Rule α → Type u
 def Rule.step : Rule α → α → α → Prop
   | .bind body, before, after => ∃ a, (body a).step before after
 
-def System.step : System α → α → α → Prop
-  | .empty, _, _ => False
-  | .rule r, before, after => r.step before after
-  | .choice left right, before, after =>
-      left.step before after ∨ right.step before after
+def System.step (R : System α) (before after : α) : Prop :=
+  ∃ r ∈ R, r.step before after
+
+@[simp] theorem System.step_nil (a b : α) : System.step [] a b ↔ False := by
+  simp [System.step]
+
+@[simp] theorem System.step_cons (r : Rule α) (R : System α) (a b : α) :
+    System.step (r :: R) a b ↔ r.step a b ∨ R.step a b := by
+  simp [System.step]
+
+@[simp] theorem System.step_append (R₁ R₂ : System α) (a b : α) :
+    System.step (R₁ ++ R₂) a b ↔ R₁.step a b ∨ R₂.step a b := by
+  simp [System.step, or_and_right, exists_or]
 
 /-! ## Semantic judgments and universal/existential decomposition
 These describe ONE-STEP transitions. Choice is nondeterminism, not sequencing.
@@ -107,28 +121,37 @@ def isPost (R : System α) (A B : Pattern α) : Prop :=
 /-! ## Patterns and systems compose -/
 
 -- R(⊥) = ⊥
-theorem isPost_bott (R : System α) : isPost R .bott .bott :=
-  ⟨fun _ _ h => h.elim, fun _ h => h.elim⟩
+theorem isPost_bott (R : System α) : isPost R [] [] :=
+  ⟨fun _ _ h => by simp at h, fun _ h => by simp at h⟩
 
 -- ⊥(S) = ⊥
-theorem isPost_empty (S : Pattern α) : isPost .empty S .bott :=
-  ⟨fun _ _ _ h => h.elim, fun _ h => h.elim⟩
+theorem isPost_empty (S : Pattern α) : isPost [] S [] :=
+  ⟨fun _ _ _ h => by simp at h, fun _ h => by simp at h⟩
 
 -- R(S₁) = P₁, R(S₂) = P₂ ⇒ R(S₁ ⊔ S₂) = P₁ ⊔ P₂
 theorem isPost_disj {R : System α} {S₁ S₂ P₁ P₂ : Pattern α}
-    (h₁ : isPost R S₁ P₁) (h₂ : isPost R S₂ P₂) : isPost R (.disj S₁ S₂) (.disj P₁ P₂) :=
-  ⟨fun before after hs hstep => hs.imp (h₁.1 before after · hstep) (h₂.1 before after · hstep),
-   fun after hp => hp.elim
-     (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, .inl hs, hstep⟩)
-     (fun hp => let ⟨b, hs, hstep⟩ := h₂.2 after hp; ⟨b, .inr hs, hstep⟩)⟩
+    (h₁ : isPost R S₁ P₁) (h₂ : isPost R S₂ P₂) : isPost R (S₁ ++ S₂) (P₁ ++ P₂) := by
+  refine ⟨fun before after hs hstep => ?_, fun after hp => ?_⟩
+  · rw [Pattern.holds_append] at hs ⊢
+    exact hs.imp (h₁.1 before after · hstep) (h₂.1 before after · hstep)
+  · rcases (Pattern.holds_append _ _ _).1 hp with hp | hp
+    · obtain ⟨b, hs, hstep⟩ := h₁.2 after hp
+      exact ⟨b, (Pattern.holds_append _ _ _).2 (.inl hs), hstep⟩
+    · obtain ⟨b, hs, hstep⟩ := h₂.2 after hp
+      exact ⟨b, (Pattern.holds_append _ _ _).2 (.inr hs), hstep⟩
 
 -- R₁(S) = P₁, R₂(S) = P₂ ⇒ (R₁ ⊔ R₂)(S) = P₁ ⊔ P₂
 theorem isPost_choice {R₁ R₂ : System α} {S P₁ P₂ : Pattern α}
-    (h₁ : isPost R₁ S P₁) (h₂ : isPost R₂ S P₂) : isPost (.choice R₁ R₂) S (.disj P₁ P₂) :=
-  ⟨fun before after hs hstep => hstep.imp (h₁.1 before after hs) (h₂.1 before after hs),
-   fun after hp => hp.elim
-     (fun hp => let ⟨b, hs, hstep⟩ := h₁.2 after hp; ⟨b, hs, .inl hstep⟩)
-     (fun hp => let ⟨b, hs, hstep⟩ := h₂.2 after hp; ⟨b, hs, .inr hstep⟩)⟩
+    (h₁ : isPost R₁ S P₁) (h₂ : isPost R₂ S P₂) : isPost (R₁ ++ R₂) S (P₁ ++ P₂) := by
+  refine ⟨fun before after hs hstep => ?_, fun after hp => ?_⟩
+  · rw [Pattern.holds_append]
+    rw [System.step_append] at hstep
+    exact hstep.imp (h₁.1 before after hs) (h₂.1 before after hs)
+  · rcases (Pattern.holds_append _ _ _).1 hp with hp | hp
+    · obtain ⟨b, hs, hstep⟩ := h₁.2 after hp
+      exact ⟨b, hs, (System.step_append _ _ _ _).2 (.inl hstep)⟩
+    · obtain ⟨b, hs, hstep⟩ := h₂.2 after hp
+      exact ⟨b, hs, (System.step_append _ _ _ _).2 (.inr hstep)⟩
 
 
 -- R(A) ⊑ B ∧ C ⊑ B → R(A) ⊑ C
