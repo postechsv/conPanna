@@ -7,7 +7,8 @@ import conPanna.Unification.Tactics.maudeCertifyComp
 import conPanna.Unification.Tactics.maudeMatch
 import conPanna.Later
 import conPanna.Subsumption
+import conPanna.narrow
 
-/-! Everything: unification and its certification calculus, narrowing, the model
-dumper, the Maude tactics (unify, certify, match), deferred obligations (`later`), and subsumption by
-matching. -/
+/-! Everything: unification and its certification calculus, narrowing and the `narrow`
+tactic, the model dumper, the Maude tactics (unify, certify, match), deferred
+obligations (`later`), and subsumption by matching. -/

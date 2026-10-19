@@ -7,7 +7,8 @@ Prototype framework and tactics for constrained-pattern unification and narrowin
 - `conPanna/` is unification and narrowing on top of it: the unification problem and
   its certification calculus (`Unification/`), narrowing reduced to unification
   (`Narrowing/`), the model dumper (`Dumper.lean`), and the Maude tactics
-  `maude_unify` and `maude_certify_comp` (`Unification/Tactics/`).
+  `maude_unify`, `maude_certify_comp` and `maude_match` (`Unification/Tactics/`), and
+  the `narrow` tactic (`narrow.lean`).
   `conPanna/conPanna.lean` imports all of it.
 - `producer/` is the Maude side: it computes unifiers and derives certificates that
   Lean checks (see `producer/README.md`).
