@@ -3,6 +3,7 @@ import conPanna.Unification.Certification.Multiset
 import conPanna.Narrowing.Narrowing
 import conPanna.Unification.Tactics.maudeUnify
 import conPanna.Later
+import conPanna.Subsumption
 
 /-!
 Bakery: `enter` preserves the invariant, proved top-down. Maude computes the
@@ -33,6 +34,8 @@ A patch whose condition is `False` holds for no state. `drop_empty at h` removes
 patches from the post of `h : isPost R S P`: the shorter list is a different term but
 holds for the same states, so `isPost` carries over (`isPost_of_holds_iff`). -/
 
+-- should appear near isPost at core.lean
+-- used by drop_empty tactic
 theorem Expresso.isPost_of_holds_iff {α : Type _} {R : Expresso.System α}
     {S P Q : Expresso.Pattern α} (h : Expresso.isPost R S P)
     (e : ∀ s, P.holds s ↔ Q.holds s) : Expresso.isPost R S Q :=
@@ -59,7 +62,7 @@ elab "drop_empty" " at " h:ident : tactic => withMainContext do
 
 namespace Bakery
 
-open Expresso Unification Narrowing
+open Expresso Unification Narrowing Subsumption
 
 def Mode.ticket? : Mode → Option Nat
   | .idle => none
@@ -113,6 +116,12 @@ theorem noCrit_plus (X Y : ProcSet) : noCrit (X + Y) ↔ noCrit X ∧ noCrit Y :
 theorem noCrit_wait (n : Nat) : noCrit {Mode.wait n} := by
   simp [noCrit]
 
+theorem tickets_unit : tickets ∅ = 0 := by
+  simp [tickets]
+
+theorem noCrit_unit : noCrit ∅ := by
+  simp [noCrit]
+
 /- enterR(invP) ⊆ invP -/
 theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
   -- narrowing start --
@@ -132,8 +141,23 @@ theorem enter_preserves_inv : isOverPost [enterR] invP invP := by
   -- narrowing end --
 
   -- what remains: the (simplified) post is contained in the invariant
-  refine over_of_subsumes hpost.1 ?_
-  sorry -- TODO: completeness & soundness instead of 1 & 2
+  refine over_of_subsumes hpost.1 (subsumes_of_patches fun a ha => ?_)
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+  rcases ha with rfl | rfl
+  · -- ⟨N, M, {crit M}⟩ | M < N   ⊑  criticalP, with PS := ∅
+    refine ⟨criticalP, by simp [invP], ?_⟩
+    unfold criticalP
+    refine subsumes_of_match (fun x => (x.1, x.2, ∅)) fun x hc => ⟨?_, ?_⟩
+    · simp [ACU.plus_unit]
+    · simpa [noCrit_unit, tickets_unit] using hc
+  · -- ⟨N, M, {crit M} + R⟩ | …   ⊑  criticalP, with PS := R
+    refine ⟨criticalP, by simp [invP], ?_⟩
+    unfold criticalP
+    refine subsumes_of_match (fun x => (x.2.1, x.2.2, x.1)) fun x hc => ⟨rfl, ?_⟩
+    -- the one real step: M ≤ t and t ≠ M (M is not a ticket of R) give M < t
+    obtain ⟨hMN, hnc, ⟨hle, hlt, -⟩, hnd, hnot⟩ := hc
+    exact ⟨hMN, hnc, fun t ht => ⟨lt_of_le_of_ne (hle t ht) (fun h => hnot (h ▸ ht)), hlt t ht⟩,
+      hnd⟩
 
 -- TODOs
 -- filter bot
