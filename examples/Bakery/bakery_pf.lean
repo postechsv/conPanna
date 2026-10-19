@@ -10,4 +10,6 @@ namespace Bakery
 
 #print axioms bakery_preserves_inv.linked
 
+#print bakery_preserves_inv.linked
+
 end Bakery
