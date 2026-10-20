@@ -171,4 +171,33 @@ theorem overlapsPost_of_isUnderPost_overlaps
     match hunder after hpost with
     | ⟨before, hsource, hstep⟩ => ⟨before, after, hsource, hstep, htarget⟩
 
+/-! ## Multistep and invariance
+`a =>* b`: zero or more steps. One closure for any step relation; a system's and a rule's
+multisteps are its instances. -/
+
+/-- `Steps step a b`: zero or more `step`s from `a` to `b` (reflexive-transitive closure). -/
+inductive Steps (step : α → α → Prop) : α → α → Prop
+  | refl (a : α) : Steps step a a
+  | tail {a b c : α} : Steps step a b → step b c → Steps step a c
+
+/-- `R.steps a b`: `a =>* b` under system `R`. -/
+abbrev System.steps (R : System α) : α → α → Prop := Steps R.step
+
+/-- `r.steps a b`: `a =>* b` under rule `r` alone. -/
+abbrev Rule.steps (r : Rule α) : α → α → Prop := Steps r.step
+
+-- I ⊑ A ∧ R(A) ⊑ A → every state reachable from I is in A
+theorem invariant {R : System α} {I A : Pattern α}
+    (hinit : subsumes I A) (hind : isOverPost R A A)
+    {x y : α} (hx : I.holds x) (hxy : R.steps x y) : A.holds y := by
+  induction hxy with
+  | refl => exact hinit x hx
+  | tail _ hstep ih => exact hind _ _ ih hstep
+
+-- I ⊑ A ∧ R(A) ⊑ A ∧ A ⊑ P → every state reachable from I is in P
+theorem invariant_safe {R : System α} {I A P : Pattern α}
+    (hinit : subsumes I A) (hind : isOverPost R A A) (hsafe : subsumes A P)
+    {x y : α} (hx : I.holds x) (hxy : R.steps x y) : P.holds y :=
+  hsafe y (invariant hinit hind hx hxy)
+
 end Expresso
