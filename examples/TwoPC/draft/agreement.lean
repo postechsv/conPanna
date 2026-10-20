@@ -4,8 +4,8 @@ import examples.TwoPC.draft.obligation
 # Two-phase commit: atomic-commit agreement
 
 `twoPC_inv` with its obligations linked in: `inv` is inductive. Initial states lie in it
-(`inv_init`), and each of its patches excludes a committed participant next to an aborted
-one, so no reachable state has both (`twoPC_agreement`).
+(`init_inv`) and it lies in the agreement pattern (`inv_safe`), so every reachable state is
+in agreement (`twoPC_agreement`, by `invariant_safe`).
 -/
 
 namespace TwoPC
@@ -46,13 +46,6 @@ theorem inv_init {C : Oid} {PS : Oids} {CF : Items}
   obtain ⟨hw, hid⟩ := hp o ho
   simp [hw, hid, hv]
 
-/-- The invariant at every state reachable from one in it. -/
-theorem inv_reach {s s' : Conf} (h : inv.holds s)
-    (hr : Relation.ReflTransGen (System.step twoPC) s s') : inv.holds s' := by
-  induction hr with
-  | refl => exact h
-  | tail _ hst ih => exact twoPC_inv.linked _ _ ih hst
-
 /-- Each patch of the invariant: no committed participant next to an aborted one. -/
 theorem agree_inv {s : Conf} (h : inv.holds s) {p q : Participant}
     (hp : Item.part p ∈ s.cf.toMultiset) (hq : Item.part q ∈ s.cf.toMultiset)
@@ -66,15 +59,34 @@ theorem agree_inv {s : Conf} (h : inv.holds s) {p q : Participant}
   · exact agree_comm h q (mem_parts hq) hqa
   · exact agree_abrt h p (mem_parts hp) hpc
 
-/-- Atomic-commit agreement: in no state reachable from an initial one has a participant
-committed while another aborted. -/
-theorem twoPC_agreement {C : Oid} {PS : Oids} {CF : Items}
-    (hCF : ∀ it ∈ CF.toMultiset, ∃ o, it = .part o ∧ o.state = .working ∧ o.id ∈ PS.toMultiset)
-    (hids : ((parts CF).map (·.id)).Nodup) {s : Conf}
-    (hr : Relation.ReflTransGen (System.step twoPC) ⟨{Item.coord ⟨C, .collecting, PS, PS⟩} + CF⟩ s)
-    {p q : Participant} (hp : Item.part p ∈ s.cf.toMultiset) (hq : Item.part q ∈ s.cf.toMultiset)
-    (hpc : p.state = .committed) (hqa : q.state = .aborted) : False :=
-  agree_inv (inv_reach (inv_init hCF hids) hr) hp hq hpc hqa
+/-- Initial states: the coordinator collects, waiting for all participants; every
+participant works, with distinct ids among the coordinator's; there are no messages. -/
+def initP : Patch Conf := .bind fun ((C, PS, CF) : Oid × Oids × Items) =>
+  ⟨⟨{Item.coord ⟨C, .collecting, PS, PS⟩} + CF⟩,
+    (∀ it : Item, it ∈ CF.toMultiset → ∃ o : Participant, it = Item.part o ∧
+      o.state = PState.working ∧ o.id ∈ PS.toMultiset) ∧
+      ((parts CF).map fun o : Participant => o.id).Nodup⟩
+
+/-- Agreement: no participant committed while another aborted. -/
+def safeP : Pattern Conf := [.bind fun (s : Conf) => ⟨s, ∀ p q : Participant,
+  Item.part p ∈ s.cf.toMultiset → Item.part q ∈ s.cf.toMultiset →
+    p.state = .committed → q.state ≠ .aborted⟩]
+
+theorem init_inv : subsumes [initP] inv := fun s hs => by
+  simp only [initP, Pattern.holds_cons, Pattern.holds_nil, or_false, Patch.holds,
+    PatchBody.holds] at hs
+  obtain ⟨⟨C, PS, CF⟩, rfl, hCF, hids⟩ := hs
+  exact inv_init hCF hids
+
+theorem inv_safe : subsumes inv safeP := fun s hs => by
+  simp only [safeP, Pattern.holds_cons, Pattern.holds_nil, or_false, Patch.holds,
+    PatchBody.holds]
+  exact ⟨s, rfl, fun p q hp hq hpc hqa => agree_inv hs hp hq hpc hqa⟩
+
+/-- Atomic-commit agreement in every state reachable from an initial one. -/
+theorem twoPC_agreement {x y : Conf} (hx : Pattern.holds [initP] x) (hxy : twoPC.steps x y) :
+    safeP.holds y :=
+  invariant_safe init_inv twoPC_inv.linked inv_safe hx hxy
 
 #print axioms twoPC_agreement
 

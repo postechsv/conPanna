@@ -200,4 +200,9 @@ theorem invariant_safe {R : System α} {I A P : Pattern α}
     {x y : α} (hx : I.holds x) (hxy : R.steps x y) : P.holds y :=
   hsafe y (invariant hinit hind hx hxy)
 
+-- R₁(S) ⊑ P ∧ R₂(S) ⊑ P → (R₁ ∪ R₂)(S) ⊑ P
+theorem isOverPost_choice {R₁ R₂ : System α} {S P : Pattern α}
+    (h₁ : isOverPost R₁ S P) (h₂ : isOverPost R₂ S P) : isOverPost (R₁ ++ R₂) S P :=
+  fun a b ha hab => ((System.step_append _ _ _ _).1 hab).elim (h₁ a b ha) (h₂ a b ha)
+
 end Expresso
