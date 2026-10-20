@@ -50,7 +50,7 @@ def prepare (st : Dumper.State) (ty : Expr) : MetaM (Expr × Json) := do
       let sort ← sortOfType st (← inferType x)
       return Json.mkObj [("name", .str s!"X{i + 1}"), ("sort", .str sort)]
     let request := Json.mkObj [
-      ("model", .str ((← Dumper.outPath) / "ctor.maude").toString),
+      ("model", .str (← Dumper.modelPath st).toString),
       ("vars", .arr vars), ("shape", shape.toJson ns),
       ("lhs", ← encodeTerm st names lhs), ("rhs", ← encodeTerm st names rhs),
       ("answers", .arr (← us.toArray.mapM (encodeUnifier st shape ns)))]

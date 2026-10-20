@@ -4,7 +4,7 @@
   python3 producer/tools/certify.py request.json > reply.json
 
 The entry of the Lean tactic `maude_certify_comp`. Request (terms as in unify.py):
-  {"model": ".../ctor.maude",
+  {"model": ".../ctor-<hash>.maude",   (its name table: the .json next to it)
    "vars": [{"name": "X1", "sort": "Nat"}, ...],   the problem's variables
    "shape": [["X1", ["X2", "X3"]], ["X4", "X5"]],  their nesting in the Lean context
    "lhs": T, "rhs": T,
@@ -26,7 +26,7 @@ def main():
     path = pathlib.Path(sys.argv[1])  # its .maude and .deriv go next to it
     req = json.load(open(path))
     model = pathlib.Path(os.path.abspath(req["model"]))
-    table = json.load(open(model.with_name("ctor.json")))
+    table = json.load(open(model.with_suffix(".json")))  # its name table, next to it
     sorts = {v["name"]: v["sort"] for v in req["vars"]}
     bags = " &b ".join(f"bag('{s}, '{u}, '{z}.{s})" for s, u, z in table["bags"]) or "noBag"
     tl = ", ".join(f"'{v['name']}:{v['sort']}" for v in req["vars"])

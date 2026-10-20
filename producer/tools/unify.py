@@ -3,7 +3,7 @@
 
   python3 producer/tools/unify.py request.json > reply.json     (or the request on stdin)
 
-Request: {"model": "producer/.cache/ctor.maude", "problems": [{"lhs": T, "rhs": T}, ...]}
+Request: {"model": "producer/.cache/ctor-<hash>.maude", "problems": [{"lhs": T, "rhs": T}, ...]}
 Reply:   {"unifiers": [[{"X": T, ...}, ...], ...]}   one list of substitutions per problem
 
 A term T is {"var": name, "sort": S} or {"op": name, "sort": S, "args": [T, ...]}.

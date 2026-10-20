@@ -95,8 +95,8 @@ fmod SHOW is
   eq tlen(Ty TyL) = 1 + tlen(TyL) .
   eq showSum(X, T) = showSummand(X, T) .
   eq showSum(X, (T, T', TL)) = showSummand(X, T) + " + " + showSum(X, (T', TL)) .
-  eq showSummand(X, T) =
-    if T :: Variable and isBagVarAny(bis(X), T) then showTerm(X, T) else "{" + showTerm(X, T) + "}" fi .
+  *** a summand that is itself a bag (a variable, a nested sum, the unit) needs no braces
+  eq showSummand(X, T) = showBag(X, T) .
 
   op showList : Ctx TermList -> String .
   eq showList(X, empty) = "-" .

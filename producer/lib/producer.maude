@@ -152,10 +152,14 @@ fmod PRODUCER is
   eq nth((T, TL), s N) = nth(TL, N) .
 
   *** Flatten a bag term into its summands.
+  *** (recursively: a sum's terms need not be normalized, e.g. the request's nested sums)
   op flat : BagInfo Term -> TermList .
-  eq flat(bag(S, F, C), F[TL]) = TL .
+  op flatL : BagInfo TermList -> TermList .
+  eq flat(bag(S, F, C), F[TL]) = flatL(bag(S, F, C), TL) .
   eq flat(bag(S, F, C), C) = empty .
   eq flat(BI, T) = T [owise] .
+  eq flatL(BI, empty) = empty .
+  eq flatL(BI, (T, TL)) = flat(BI, T), flatL(BI, TL) .
 
   *** Rebuild a bag term from summands.
   op mk : BagInfo TermList -> Term .
@@ -215,6 +219,11 @@ fmod PRODUCER is
   *** DELETE.
   eq derive1(X, st(Al, eqn(T, T) ;; E, D, K), s Fu) =
     delete(eqn(T, T), derive(X, st(Al, E, D, K), Fu)) .
+
+  *** ELIM of a variable by a variable, in any sort (a bag one included: no SOLVE needed);
+  *** the right one is eliminated, as by freeStep.
+  ceq derive1(X, st(Al, eqn(V, V') ;; E, D, K), s Fu) = elimOrOccurs(X, V', V, st(Al, E, D, K), Fu)
+    if V =/= V' .
 
   eq derive1(X, st(Al, eqn(T1, T2) ;; E, D, K), s Fu) =
     if isBagAny(bis(X), T1) or isBagAny(bis(X), T2)

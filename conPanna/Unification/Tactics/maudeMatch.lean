@@ -54,7 +54,7 @@ def matchSigma (st : Dumper.State) (a b : Expr) (k : Nat) : MetaM (Expr × Expr)
   openPatch "Y" b fun _ shapeB ys ynames _ stateB =>
   openPatch "X" a fun A shapeA xs xnames _ stateA => do
     let reply ← callTool tool (Json.mkObj [
-      ("model", .str ((← Dumper.outPath) / "ctor.maude").toString),
+      ("model", .str (← Dumper.modelPath st).toString),
       ("problems", .arr #[Json.mkObj [("pattern", ← encodeTerm st ynames stateB),
         ("subject", ← encodeTerm st xnames stateA)]])])
     let ms := (← IO.ofExcept (reply.getObjValAs? (Array (Array Json)) "matches"))[0]!
@@ -104,11 +104,12 @@ syntax (name := maudeMatch) "maude_match " term (ppSpace num)? : tactic
       try dsimp only  -- may already close it
       first
       | done
-      | rfl
+      | with_reducible rfl
       | ac_rfl
       | (simp only [ACU.plus_unit, ACU.unit_plus]; done)
       | (simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm,
           ACU.plus_assoc]; done)
+      | rfl  -- last: unfolding the ACU sums can be costly
       | fail "maude_match: could not close the state equation"))
     evalTactic (← `(tactic| try dsimp only at $hc:ident ⊢))
 

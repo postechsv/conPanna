@@ -51,12 +51,13 @@ partial def encodeTerm (names : FVarId → Option String) (e : Expr) : MetaM Jso
     return Json.mkObj [("var", .str n), ("sort", .str s)]
   match (← sortInfo st s).kind with
   | .acu _ =>
+    let (u, z) := st.bagOps s
     if e.isAppOfArity ``HAdd.hAdd 6 || e.isAppOfArity ``ACU.plus 3 then
-      return node "__" #[← go e.appFn!.appArg!, ← go e.appArg!]
+      return node u #[← go e.appFn!.appArg!, ← go e.appArg!]
     if e.isAppOfArity ``Singleton.singleton 4 || e.isAppOfArity ``ACU.elem 2 then
       return ← go e.appArg!
     if e.isAppOfArity ``EmptyCollection.emptyCollection 2 || e.isAppOfArity ``ACU.unit 1 then
-      return node "none" #[]
+      return node z #[]
   | .nat =>
     if let some k := natLit? e then return succs k (node "0" #[])
     if e.isAppOfArity ``HAdd.hAdd 6 || e.isAppOfArity ``Nat.add 2 then
@@ -84,14 +85,22 @@ partial def peel (j : Json) (k : Nat) : Json × Nat :=
 partial def decodeTerm (vars : String → Option Expr) (j : Json) (T : Expr) : MetaM Expr := do
   if let .ok n := j.getObjValAs? String "var" then
     let some x := vars n | throwError "maude: unknown variable {n} in a reply"
+    -- a variable of an ACU sort's element sort, where a bag is expected: the singleton
+    if let .acu e := (← sortInfo st (← sortOfType st T)).kind then
+      if (← sortOfType st (← inferType x)) == e then
+        return ← mkAppOptM ``Singleton.singleton #[(← sortInfo st e).type, T, none, x]
     return x
   let op ← IO.ofExcept (j.getObjValAs? String "op")
   let args ← IO.ofExcept (j.getObjValAs? (Array Json) "args")
   let s ← sortOfType st T
   match (← sortInfo st s).kind, op with
-  | .acu _, "__" => mkAppM ``HAdd.hAdd #[← decodeTerm vars args[0]! T, ← decodeTerm vars args[1]! T]
-  | .acu _, "none" => mkAppOptM ``EmptyCollection.emptyCollection #[T, none]
   | .acu e, _ =>
+    let (u, z) := st.bagOps s
+    if op == u then
+      -- Maude prints associative operators flattened: `__(t₁, …, tₙ)`, n ≥ 2
+      let ts ← args.mapM (decodeTerm vars · T)
+      return ← ts[1:].foldlM (fun acc t => mkAppM ``HAdd.hAdd #[acc, t]) ts[0]!
+    if op == z then return ← mkAppOptM ``EmptyCollection.emptyCollection #[T, none]
     let E := (← sortInfo st e).type
     mkAppOptM ``Singleton.singleton #[E, T, none, ← decodeTerm vars j E]
   | .nat, _ =>

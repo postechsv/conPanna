@@ -5,11 +5,11 @@ import Expresso.ACU
 Dump the constructor model of a state type as the Maude module the certification
 producer works in.
 
-  `#dump_model Conf`  writes `ctor.maude` and `ctor.json` into `outDir` below.
+  `#dump_model Conf`  writes `ctor-<hash>.maude` and `.json` into `outDir` below.
 
-`ctor.maude` holds a hardcoded prelude for `Nat` (when used) and `fmod CTOR`: one
+The `.maude` file holds a hardcoded prelude for `Nat` (when used) and `fmod CTOR`: one
 sort per type reachable from the state type through constructor fields, and one
-`ctor` operator per constructor. `ctor.json` is the name table the tools read:
+`ctor` operator per constructor. The `.json` file is the name table the tools read:
 each Maude operator's Lean counterpart, and the ACU sorts.
 
 | Lean | Maude |
@@ -50,7 +50,7 @@ structure Op where
   attrs : String := "ctor"
   /-- Lean counterpart; `{i}` is the i-th argument. -/
   lean : String
-  /-- Lean declaration, for the comment in `ctor.maude`. -/
+  /-- Lean declaration, for the comment in the `.maude` file. -/
   origin : String := ""
 
 structure State where
@@ -133,19 +133,27 @@ def collect (root : Expr) : M Unit := do
     set { st with todo := st.todo.pop }
     ctorsOf c
 
+/-- The union and unit operators of ACU sort `s`: `__` and `none` when the model has one
+ACU sort; otherwise `_+S_` and `emptyS`, since the producer tells bags apart by their
+operators' names. -/
+def State.bagOps (st : State) (s : String) : String × String :=
+  if (st.sorts.filter (·.kind matches .acu _)).size ≤ 1 then ("__", "none")
+  else (s!"_+{s}_", s!"empty{s}")
+
 /-- Operators of the ACU sorts and the prelude; then check that names do not clash. -/
 def finish : M Unit := do
   for s in (← get).sorts do
     match s.kind with
     | .acu _ =>
-      let unit : Op := { name := "none", args := [], result := s.name, lean := "∅" }
-      let union : Op := { name := "__", args := [s.name, s.name], result := s.name,
-                          attrs := "ctor assoc comm id: none", lean := "{0} + {1}" }
+      let (u, z) := (← get).bagOps s.name
+      let unit : Op := { name := z, args := [], result := s.name, lean := "∅" }
+      let union : Op := { name := u, args := [s.name, s.name], result := s.name,
+                          attrs := s!"ctor assoc comm id: {z}", lean := "{0} + {1}" }
       modify fun st => { st with ops := st.ops ++ #[unit, union] }
     | _ => pure ()
   let ops := (← get).ops
   for o in ops do
-    if ops.any fun o' => o'.name == o.name && o'.result != o.result && o.name != "none" && o.name != "__" then
+    if ops.any fun o' => o'.name == o.name && o'.result != o.result && o.origin != "" then
       throwError "dump: operator name {o.name} is used by two constructors ({o.origin})"
     if ["0", "s_", "true", "false", "none", "__"].contains o.name && o.origin != "" then
       throwError "dump: constructor {o.origin} clashes with a reserved Maude name"
@@ -181,13 +189,14 @@ def table (st : State) : String := Id.run do
   if st.sorts.any (·.kind matches .nat) then ops := ops ++ #[("0", "0"), ("s_", "({0} + 1)")]
   if st.sorts.any (·.kind matches .bool) then ops := ops ++ #[("true", "true"), ("false", "false")]
   for o in st.ops do
-    if !(o.name == "none" || o.name == "__") then
+    if o.origin != "" then  -- constructors; the ACU operators are under `bags`
       let lean := if o.args.isEmpty then o.lean else
         " ".intercalate (o.lean :: (List.range o.args.length).map fun i => s!"\{{i}}")
       ops := ops.push (o.name, lean)
   let bags := st.sorts.filterMap fun s => if s.kind matches .acu _ then some s.name else none
   let opsJ := ",\n".intercalate (ops.map fun (m, l) => s!"    {jstr m}: {jstr l}").toList
-  let bagsJ := ", ".intercalate (bags.map fun b => s!"[{jstr b}, \"__\", \"none\"]").toList
+  let bagsJ := ", ".intercalate (bags.map fun b =>
+    let (u, z) := st.bagOps b; s!"[{jstr b}, {jstr u}, {jstr z}]").toList
   return s!"\{\n  \"module\": \"CTOR\",\n  \"ops\": \{\n{opsJ}\n  },\n  \"bags\": [{bagsJ}]\n}\n"
 
 /-- The constructor model of state type `root`. -/
@@ -210,26 +219,33 @@ def projectRoot : CoreM System.FilePath := do
 /-- The absolute output directory. -/
 def outPath : CoreM System.FilePath := return (← projectRoot) / outDir
 
-/-- Write `ctor.maude` and `ctor.json` into `outDir`. -/
+/-- The model's file in `outDir`: `ctor-<hash>.maude`, named by its content, so that
+files of different models (elaborated in parallel) never overwrite each other. Its name
+table is the `.json` next to it. -/
+def modelPath (st : State) : CoreM System.FilePath :=
+  return (← outPath) / s!"ctor-{hash (render st)}.maude"
+
+/-- Write the model's `.maude` and `.json` files (`modelPath`). -/
 def write (st : State) : CoreM Unit := do
   let out ← outPath
   IO.FS.createDirAll out
+  let path ← modelPath st
   -- atomically (write, then rename): Lean elaborates proofs in parallel, and
   -- concurrent tactics may write and read the model at the same time
   let tag := toString (← IO.monoNanosNow)
-  for (name, text) in [("ctor.maude", render st), ("ctor.json", table st)] do
-    let tmp := out / s!"{name}.{tag}.tmp"
+  for (file, text) in [(path, render st), (path.withExtension "json", table st)] do
+    let tmp := out / s!"{file.fileName.get!}.{tag}.tmp"
     IO.FS.writeFile tmp text
-    IO.FS.rename tmp (out / name)
+    IO.FS.rename tmp file
 
-/-- `#dump_model T`: write `ctor.maude` and `ctor.json` for state type `T` into `outDir`. -/
+/-- `#dump_model T`: write the model files of state type `T` into `outDir`. -/
 syntax (name := dumpModel) "#dump_model " term : command
 
 @[command_elab dumpModel] def elabDumpModel : CommandElab
   | `(#dump_model $t) => do
     let st ← liftTermElabM do model (← Term.elabType t)
     liftCoreM (write st)
-    logInfo m!"{render st}\nwrote {outDir / "ctor.maude"} and {outDir / "ctor.json"}"
+    logInfo m!"{render st}\nwrote {← liftCoreM (modelPath st)} and its .json"
   | _ => throwUnsupportedSyntax
 
 end Dumper

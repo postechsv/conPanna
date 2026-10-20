@@ -3,7 +3,7 @@
 
   python3 producer/tools/match.py request.json > reply.json     (or the request on stdin)
 
-Request: {"model": "producer/.cache/ctor.maude", "problems": [{"pattern": T, "subject": T}, ...]}
+Request: {"model": "producer/.cache/ctor-<hash>.maude", "problems": [{"pattern": T, "subject": T}, ...]}
 Reply:   {"matches": [[{"Y": T, ...}, ...], ...]}   one list of substitutions per problem
 
 Only the pattern's variables are instantiated; the subject's variables stay fixed (Maude's

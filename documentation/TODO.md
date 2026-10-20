@@ -725,3 +725,13 @@ an infeasible residual constraint denotes an empty successor.
 - Investigate batching queries or reusing a persistent Maude process, so
   multiple queries can share one loaded module instead of launching Maude for
   every query.
+
+## Open: replay of a SOLVE answer inside an alien
+
+- A bag variable solved by SOLVE (`X := theta … i`) and later occurring inside an alien
+  is replayed as differently indexed `theta` terms on the two sides, which do not match
+  syntactically in Lean ("Application type mismatch" in `maude_certify_comp`).
+- Seen in two-phase commit with `X2? = X6?` (two `Oids` variables); now avoided because
+  an equation between two variables is eliminated directly (`derive1`, any sort), but a
+  nontrivial SOLVE whose variables end up inside aliens may still hit it.
+

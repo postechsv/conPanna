@@ -27,7 +27,7 @@ def unifiersOf (P : Expr) : MetaM Expr := do
   let elemTy := mkApp (mkConst ``Unifier [v, v]) Γ
   encodeProblem st P fun shape xs names lhs rhs => do
     let reply ← callTool tool (Json.mkObj [
-      ("model", .str ((← Dumper.outPath) / "ctor.maude").toString),
+      ("model", .str (← Dumper.modelPath st).toString),
       ("problems", .arr #[Json.mkObj [("lhs", lhs), ("rhs", rhs)]])])
     let substs := (← IO.ofExcept (reply.getObjValAs? (Array (Array Json)) "unifiers"))[0]!
     let us ← substs.mapM fun sub => do
