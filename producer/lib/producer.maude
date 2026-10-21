@@ -220,10 +220,15 @@ fmod PRODUCER is
   eq derive1(X, st(Al, eqn(T, T) ;; E, D, K), s Fu) =
     delete(eqn(T, T), derive(X, st(Al, E, D, K), Fu)) .
 
-  *** ELIM of a variable by a variable, in any sort (a bag one included: no SOLVE needed);
-  *** the right one is eliminated, as by freeStep.
-  ceq derive1(X, st(Al, eqn(V, V') ;; E, D, K), s Fu) = elimOrOccurs(X, V', V, st(Al, E, D, K), Fu)
-    if V =/= V' .
+  *** ELIM of a bag variable by a term without it, whose sort fits the variable's: that is
+  *** the equation's single most general unifier, in any theory, so no SOLVE is needed (a
+  *** variable on the right first, as by freeStep).
+  ceq derive1(X, st(Al, eqn(T, V) ;; E, D, K), s Fu) = elimOrOccurs(X, V, T, st(Al, E, D, K), Fu)
+    if isBagAny(bis(X), V) /\ T =/= V /\ not occ(V, T)
+       /\ sortLeq(mod(X), leastSort(mod(X), T), getType(V)) .
+  ceq derive1(X, st(Al, eqn(V, T) ;; E, D, K), s Fu) = elimOrOccurs(X, V, T, st(Al, E, D, K), Fu)
+    if isBagAny(bis(X), V) /\ not (T :: Variable and isBagAny(bis(X), T)) /\ not occ(V, T)
+       /\ sortLeq(mod(X), leastSort(mod(X), T), getType(V)) .
 
   eq derive1(X, st(Al, eqn(T1, T2) ;; E, D, K), s Fu) =
     if isBagAny(bis(X), T1) or isBagAny(bis(X), T2)

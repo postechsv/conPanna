@@ -408,7 +408,7 @@ class Compiler:
                    if all((i, j) in compat for i, j in combinations(g, 2))]
         unfold = "try simp only [" + ", ".join(["State.start", "unifiedBy"] + self.unfold) + "] at h; "
         if remaining:
-            hE = f"⟨by {unfold}acu_side h.1, h.2, by acu_distinct⟩"
+            hE = f"⟨by {unfold}acu_side h.1, by acu_rest h.2, by acu_distinct⟩"
         else:
             hE = f"⟨by {unfold}acu_side h, trivial, by acu_distinct⟩"
         glue = self.shaped(ctx, [f"V {bag.index(x)}" if x in bag else x for x in ctx])
@@ -455,7 +455,9 @@ class Compiler:
         if self.script:
             shape = self.cfg["answer_binders"][i]
             proof = f"⟨{nest(shape, wit)}, by acu_cover⟩"
-            self.emit(ind, f"exact cover _ (List.getElem_mem (by decide : {i} < _)) fun {self.pat(ctx)} _ _ => {proof}")
+            # pick the answer out of the list by rewriting (unfolding the indexing is costly)
+            self.emit(ind, f"exact cover _ (List.getElem_mem (by decide : {i} < _)) fun {self.pat(ctx)} _ _ => by")
+            self.emit(ind + 2, f"simp only [List.getElem_cons_succ, List.getElem_cons_zero]; exact {proof}")
         else:
             proof = f"⟨{tuple_term(wit) if wit else '()'}, by acu_cover⟩"
             self.emit(ind, f"exact cover answer{i} (by simp [answers]) fun {self.pat(ctx)} _ _ => {proof}")

@@ -17,7 +17,12 @@ macro_rules
   | `(tactic| acu_free) => `(tactic| acu_free [])
   | `(tactic| acu_free [$xs,*]) => `(tactic| (
       try simp only [State.start, unifiedBy, theta, sum, copies, Function.comp_apply,
-        ACU.plus_unit, ACU.unit_plus, $xs,*] at *
+        List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero,
+        Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one,
+        copies_zero, copies_one, ACU.plus_unit, ACU.unit_plus, $xs,*] at *
+      -- cheap first: after substitution the goal is often a hypothesis or reflexive
+      try (casesm* _ ∧ _; try subst_vars; first | rfl | assumption |
+        (constructor <;> first | rfl | assumption); done)
       iterate 2 (
         try casesm* _ ∧ _
         try subst_vars
@@ -36,12 +41,36 @@ macro "acu_side " h:term : tactic => `(tactic| (
   try ac_nf at hb ⊢
   try exact hb))
 
+/-- The remaining equations after SOLVE, read off a proof `h` of them: SOLVE's answer
+`θ_π` may occur anywhere in them (e.g. inside a constructor), so evaluate it and normalize
+modulo ACU on both sides before comparing. -/
+macro "acu_rest " h:term : tactic => `(tactic| (
+  have hb := $h
+  try simp only [theta, Function.comp_apply, sum, copies, List.ofFn_succ, List.ofFn_zero,
+    List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero, Matrix.cons_val_one,
+    Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one, copies_zero, copies_one, ACU.plus_unit,
+    ACU.unit_plus] at hb ⊢
+  try ac_nf at hb ⊢
+  try exact hb))
+
+set_option hygiene false in
 /-- Distinctness of incompatible alien classes: by constructor disjointness,
-recorded disequations, or arithmetic. -/
+recorded disequations, or arithmetic. Cheap cases first; the bag equations `h` of the
+SOLVE step are not needed for distinctness, and simplifying them can be very costly, so
+they are dropped before `simp_all` (the full context is the last resort). -/
 macro "acu_distinct" : tactic => `(tactic| (
   intro c c' hcc hcp
   fin_cases c <;> fin_cases c' <;>
     first
+      | exact absurd rfl hcc
+      | (simp at hcp; done)
+      | (simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (clear h; simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      -- the disequation recorded the other way round (`fin_cases` gives both orders):
+      -- flip the goal rather than rewrite with `eq_comm`, which is costly
+      | (clear h; refine Ne.symm ?_; simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus];
+         done)
+      | (clear h; simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
       | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
       | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
       | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
@@ -65,8 +94,16 @@ macro "acu_basis" : tactic => `(tactic| (
 /-- The equality checked by COVER, once fresh variables are named. -/
 macro "acu_cover" : tactic => `(tactic| (
   show _ = _
-  simp [State.start, theta, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
-  try constructorm* _ ∧ _
-  all_goals ac_rfl))
+  first
+    -- cheap first: evaluate the answer, then compare modulo AC
+    | (simp only [State.start, theta, sum, copies, Function.comp_apply, List.ofFn_succ,
+        List.ofFn_zero, List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero,
+        Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one,
+        copies_zero, copies_one, Prod.mk.injEq, ACU.plus_unit, ACU.unit_plus]
+       try constructorm* _ ∧ _
+       all_goals ac_rfl)
+    | (simp [State.start, theta, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
+       try constructorm* _ ∧ _
+       all_goals ac_rfl)))
 
 end Unification.Certification

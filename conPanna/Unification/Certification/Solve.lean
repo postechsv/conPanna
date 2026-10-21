@@ -32,6 +32,11 @@ def copies : ℕ → ACU El → ACU El
   | 0, _ => ∅
   | k + 1, X => X + copies k X
 
+@[simp] theorem copies_zero (X : ACU El) : copies 0 X = ∅ := rfl
+
+@[simp] theorem copies_one (X : ACU El) : copies 1 X = X := by
+  simp [copies, ACU.plus_unit]
+
 /-- `Σ_j f j`. -/
 def sum {k : ℕ} (f : Fin k → ACU El) : ACU El :=
   (List.ofFn f).foldr (· + ·) ∅

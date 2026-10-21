@@ -155,7 +155,7 @@ fmod SHOW is
   eq showTree(X, clash(eqn(T1, T2)), N) = ind(N) + "clash " + showEqn(X, eqn(T1, T2)) + nl .
   eq showTree(X, occurs(eqn(T1, T2)), N) = ind(N) + "occurs " + showEqn(X, eqn(T1, T2)) + nl .
   eq showTree(X, elim(V, T, Tr), N) =
-    ind(N) + "elim " + showTerm(X, V) + " := " + showTerm(X, T) + nl + showTree(X, Tr, N) .
+    ind(N) + "elim " + showBind(X, V, T) + nl + showTree(X, Tr, N) .
   eq showTree(X, identify(T1, T2, Tr1, Tr2), N) =
     ind(N) + "identify " + showTerm(X, T1) + " ~ " + showTerm(X, T2) + nl
     + ind(s N) + "equal:" + nl + showTree(X, Tr1, s s N)

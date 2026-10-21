@@ -85,16 +85,41 @@ on German and dropped: 166 pre-image patches for the two coherence patterns alon
 
 - Forward invariant, one patch per directory situation (free; owner exclusive / grant in
   flight / being invalidated / acknowledged), owner linked to the sharer set `{I}`.
-  Checked outside the framework by explicit-state enumeration: inductive for 2 caches;
-  every state reachable with 3 caches satisfies it.
-- Narrowing rule by rule: 102 post patches; 96 route to their patch by `maude_match`.
-- Open: the condition proofs (`sorry`), `init_inv`, and `inv_bad`.
+  The free situation is stated with summaries (`SH = shrIds CF`, `invIds CF` disjoint
+  from `IV`, invalidations only while serving an exclusive request) and a parameter-free
+  per-cache predicate, so the rest of the bag needs no transfer when the directory moves.
+- Checked outside the framework by explicit-state enumeration (a Python script, as a
+  hint): inductive for 2 caches; every state reachable with 3 caches satisfies it. The
+  first version was true but not inductive; the check found the two missing facts.
+- Narrowing rule by rule: 102 post patches; 96 route to their patch by `maude_match`;
+  78 conditions close by one generic closer (`cond_close`).
+- Done: all 15 rules (the remaining conditions by explicit multiset bookkeeping; the 6
+  patches whose values only their conditions fix by a case split and an explicit match),
+  `init_inv`, and the chain to `german_coherent`. `German/draft/coherence.lean` links the
+  certified obligations; its theorem depends on `sorryAx` only through:
+  - `inv_bad` (disjointness from the bad patterns), and
+  - the soundness obligations (left `sorry`).
+- Certification (completeness obligations, `German/draft/obligation.lean`; soundness left
+  `sorry`): 78 cells. Fixed on the way (general producer/replay bugs): ill-sorted variable
+  elimination; bag variables now eliminated by a term without them (no SOLVE); elimination
+  printed with bag braces; SOLVE answers (`theta`) evaluated in later steps (`acu_rest`,
+  `acu_free`, `copies_zero`/`copies_one`). Performance fixes found by profiling one large
+  certificate (18 min → 2.5 min): `acu_distinct` fell back to `simp_all [eq_comm]` when a
+  disequation was recorded the other way round (912 s in one call; now it flips the goal
+  and drops the bag equations it never needs); COVER picks its answer by rewriting.
+  All 75 completeness certificates now check (full chain ~29 min wall-clock), but the large ones (owned patterns × rules
+  touching both the directory and a cache) need a raised heartbeat budget and the file
+  takes ~25 min (one certificate alone ~13 min). The remaining cost is structural: each
+  step's state composes the previous steps' functions over the tuple context, and
+  elaborating a step unfolds the stack. Remedy: have the compiler restate the state in
+  reduced form at checkpoints. Marked `EXPENSIVE` above each such obligation.
+- Performance: the draft checks in about 1.5 minutes (rules elaborate in parallel); each
+  rule needs a raised heartbeat limit for routing. Each `maude_match` attempt starts a
+  fresh Python and Maude process (no caching); batching or a persistent process would cut
+  wall-clock time.
 - Framework improvements it points to:
-  - *Solving conditions in narrowing*: 6 patches do not route because a condition fixes
-    a constructor value (a cache state known to be `invalid`, `IV = ∅`) that the target
-    states literally. A post-narrowing step that instantiates such variables would route
-    them by matching.
+  - *Solving conditions in narrowing*: instantiate variables a condition fixes, so the 6
+    patches route by matching.
   - *Certified disjointness* `¬ overlaps A B`: unify the two patterns (certified as for
     narrowing) and refute each unifier's conditions. Needed for `inv_bad`, and would let
     Bakery's mutex be stated against a bad pattern too.
-
