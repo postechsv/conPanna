@@ -39,6 +39,7 @@ def answers : UnifierSet (Bag × Bag × Nat × Nat) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | X? + {Elem.w N?} = X? + {Elem.w (N? + 1)} | -
+  checkpoint
   -- solve X? + {Elem.w N?} = X? + {Elem.w (N? + 1)}
   refine solve (V := fun (X?, _, _, _) => ![X?]) (rest := fun (_, Y?, N?, M?) => (Y?, N?, M?))
       (glue := fun (Y?, N?, M?) V => (V 0, Y?, N?, M?)) (hglue := fun _ => rfl)

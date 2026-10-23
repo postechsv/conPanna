@@ -74,23 +74,28 @@ def answers : UnifierSet (Nat × ProcSet × Nat × Nat × Nat × Nat × ProcSet)
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?) | -
+  checkpoint
   -- decomp Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?)
   refine decomp (fun (K?, P?, N?, M1?, M2?, M3?, Q?) => (K? + 1) = (N? + 1) ∧ K? = N? ∧ {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?)
       (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | (K? + 1) = (N? + 1); K? = N?; {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q? | -
+  checkpoint
   -- decomp (K? + 1) = (N? + 1)
   refine decomp (fun (K?, P?, N?, M1?, M2?, M3?, Q?) => K? = N? ∧ K? = N? ∧ {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?)
       (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | K? = N?; K? = N?; {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q? | -
+  checkpoint
   -- elim N? := K?
   refine elim (fun (K?, P?, M1?, M2?, M3?, Q?) => (K?, P?, K?, M1?, M2?, M3?, Q?))
       (fun (K?, P?, M1?, M2?, M3?, Q?) => K? = K? ∧ P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?})
       (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => ⟨(K?, P?, M1?, M2?, M3?, Q?), by acu_free [problem], by acu_free [problem]⟩) ?_
   -- ⊢ N? := K? | K? = K?; P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} | -
+  checkpoint
   -- delete K? = K?
   refine decomp (fun (K?, P?, M1?, M2?, M3?, Q?) => P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?})
       (fun (K?, P?, M1?, M2?, M3?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ N? := K? | P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} | -
+  checkpoint
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?}
   refine solve (V := fun (_, P?, _, _, _, Q?) => ![P?, Q?]) (rest := fun (K?, _, M1?, M2?, M3?, _) => (K?, M1?, M2?, M3?))
       (glue := fun (K?, M1?, M2?, M3?) V => (K?, V 0, M1?, M2?, M3?, V 1)) (hglue := fun _ => rfl)
@@ -106,6 +111,7 @@ theorem complete : Unification.complete problem answers := by
       (fun ((K?, M1?, M2?, M3?), Z) => (K?, M1?, M2?, M3?, Z 0))
       (fun ((K?, M1?, M2?, M3?), Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
   -- ⊢ N? := K?, P? := {Mode.idle} + Z1 + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?}, Q? := Z1 | - | -
+  checkpoint
   -- cover answer 3 with U1! := K?, U2! := Z1, U3! := M1?, U4! := M2?, U5! := M3?
   exact cover answer3 (by simp [answers]) fun (K?, M1?, M2?, M3?, Z1) _ _ => ⟨(K?, Z1, M1?, M2?, M3?), by acu_cover⟩
 

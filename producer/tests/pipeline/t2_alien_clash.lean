@@ -53,6 +53,7 @@ def answers : UnifierSet (Nat × ProcSet × ProcSet) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | P? + {Mode.wait N?} = Q? + {Mode.idle} | -
+  checkpoint
   -- solve P? + {Mode.wait N?} = Q? + {Mode.idle}
   refine solve (V := fun (_, P?, Q?) => ![P?, Q?]) (rest := fun (N?, _, _) => N?)
       (glue := fun N? V => (N?, V 0, V 1)) (hglue := fun _ => rfl)
@@ -68,6 +69,7 @@ theorem complete : Unification.complete problem answers := by
       (fun (N?, Z) => (N?, Z 0))
       (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
   -- ⊢ P? := {Mode.idle} + Z1, Q? := Z1 + {Mode.wait N?} | - | -
+  checkpoint
   -- cover answer 1 with U1! := N?, U2! := Z1
   exact cover answer1 (by simp [answers]) fun (N?, Z1) _ _ => ⟨(N?, Z1), by acu_cover⟩
 

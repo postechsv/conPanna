@@ -63,6 +63,7 @@ def answers : UnifierSet (Nat × ProcSet × ProcSet × ProcSet) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | P? + Q? = {Mode.wait N?} + R? | -
+  checkpoint
   -- solve P? + Q? = {Mode.wait N?} + R?
   refine solve (V := fun (_, P?, Q?, R?) => ![P?, Q?, R?]) (rest := fun (N?, _, _, _) => N?)
       (glue := fun N? V => (N?, V 0, V 1, V 2)) (hglue := fun _ => rfl)
@@ -78,6 +79,7 @@ theorem complete : Unification.complete problem answers := by
         (fun (N?, Z) => (N?, Z 0, Z 1))
         (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i <;> rfl)) ?_
     -- ⊢ P? := Z1 + {Mode.wait N?}, Q? := Z2, R? := Z1 + Z2 | - | -
+    checkpoint
     -- cover answer 7 with U1! := Z2, U2! := N?, U3! := Z1
     exact cover answer7 (by simp [answers]) fun (N?, Z1, Z2) _ _ => ⟨(Z2, N?, Z1), by acu_cover⟩
   · -- branch (0,1,0)
@@ -85,6 +87,7 @@ theorem complete : Unification.complete problem answers := by
         (fun (N?, Z) => (N?, Z 0, Z 1))
         (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i <;> rfl)) ?_
     -- ⊢ P? := Z1, Q? := Z2 + {Mode.wait N?}, R? := Z1 + Z2 | - | -
+    checkpoint
     -- cover answer 3 with U1! := Z1, U2! := N?, U3! := Z2
     exact cover answer3 (by simp [answers]) fun (N?, Z1, Z2) _ _ => ⟨(Z1, N?, Z2), by acu_cover⟩
 

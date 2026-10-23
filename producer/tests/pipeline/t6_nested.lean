@@ -54,29 +54,23 @@ def answers : UnifierSet (Bag × Bag × Boxes) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | -
+  checkpoint
   -- identify Box.box X? ~ Box.box {Elem.b}
   refine identify (fun (X?, _, _) => Box.box X?) (fun (_, _, _) => Box.box {Elem.b}) ?_ ?_
   · -- equal:
     -- ⊢ - | Box.box X? = Box.box {Elem.b}; {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | -
+    checkpoint
     -- decomp Box.box X? = Box.box {Elem.b}
     refine decomp (fun (X?, Y?, R?) => X? = {Elem.b} ∧ {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}})
         (fun (X?, Y?, R?) h => by acu_free [problem]) ?_
     -- ⊢ - | X? = {Elem.b}; {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | -
-    -- solve X? = {Elem.b}
-    refine solve (V := fun (X?, _, _) => ![X?]) (rest := fun (_, Y?, R?) => (Y?, R?))
-        (glue := fun (Y?, R?) V => (V 0, Y?, R?)) (hglue := fun _ => rfl)
-        (a := fun (_, _) => ![Elem.b]) (L := ![1]) (R := ![0]) (La := ![0]) (Ra := ![1])
-        (E' := fun (X?, Y?, R?) => {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}}) (cp := fun _ _ => false)
-        (P := ![[![1]]]) (B := ![])
-        (fun (X?, Y?, R?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, h.2, by acu_distinct⟩)
-        (by decide) (by decide) (by decide)
-        (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
-    intro π hπ; simp [choices] at hπ; subst hπ
-    -- branch (1)
-    refine rename (fun (Y?, R?) => ((Y?, R?), ![]))
-        (fun ((Y?, R?), Z) => (Y?, R?))
-        (fun ((Y?, R?), Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
+    checkpoint
+    -- elim X? := {Elem.b}
+    refine elim (fun (Y?, R?) => ({Elem.b}, Y?, R?))
+        (fun (Y?, R?) => R? + {Box.box {Elem.b}} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)})
+        (fun (X?, Y?, R?) h => ⟨(Y?, R?), by acu_free [problem], by acu_free [problem]⟩) ?_
     -- ⊢ X? := {Elem.b} | R? + {Box.box {Elem.b}} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)} | -
+    checkpoint
     -- solve R? + {Box.box {Elem.b}} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)}
     refine solve (V := fun (_, R?) => ![R?]) (rest := fun (Y?, _) => Y?)
         (glue := fun Y? V => (Y?, V 0)) (hglue := fun _ => rfl)
@@ -92,52 +86,49 @@ theorem complete : Unification.complete problem answers := by
         (fun (Y?, Z) => Y?)
         (fun (Y?, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
     -- ⊢ R? := {Box.box ({Elem.a} + Y?)}, X? := {Elem.b} | - | -
+    checkpoint
     -- cover answer 1 with U1! := Y?
     exact cover answer1 (by simp [answers]) fun Y? _ _ => ⟨Y?, by acu_cover⟩
   · -- distinct:
     -- ⊢ - | {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | Box.box X? ≠ Box.box {Elem.b}
+    checkpoint
     -- identify Box.box X? ~ Box.box ({Elem.a} + Y?)
     refine identify (fun (X?, _, _) => Box.box X?) (fun (_, Y?, _) => Box.box ({Elem.a} + Y?)) ?_ ?_
     · -- equal:
       -- ⊢ - | Box.box X? = Box.box ({Elem.a} + Y?); {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | Box.box X? ≠ Box.box {Elem.b}
+      checkpoint
       -- decomp Box.box X? = Box.box ({Elem.a} + Y?)
       refine decomp (fun (X?, Y?, R?) => X? = {Elem.a} + Y? ∧ {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}})
           (fun (X?, Y?, R?) h => by acu_free [problem]) ?_
       -- ⊢ - | X? = {Elem.a} + Y?; {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | Box.box X? ≠ Box.box {Elem.b}
-      -- solve X? = {Elem.a} + Y?
-      refine solve (V := fun (X?, Y?, _) => ![X?, Y?]) (rest := fun (_, _, R?) => R?)
-          (glue := fun R? V => (V 0, V 1, R?)) (hglue := fun _ => rfl)
-          (a := fun _ => ![Elem.a]) (L := ![1, 0]) (R := ![0, 1]) (La := ![0]) (Ra := ![1])
-          (E' := fun (X?, Y?, R?) => {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}}) (cp := fun _ _ => false)
-          (P := ![[![1, 0]]]) (B := ![![1, 1]])
-          (fun (X?, Y?, R?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, h.2, by acu_distinct⟩)
-          (by decide) (by decide) (by decide)
-          (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
-      intro π hπ; simp [choices] at hπ; subst hπ
-      -- branch (1,0)
-      refine rename (fun (R?, Z1) => (R?, ![Z1]))
-          (fun (R?, Z) => (R?, Z 0))
-          (fun (R?, Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
-      -- ⊢ X? := {Elem.a} + Z1, Y? := Z1 | R? + {Box.box ({Elem.a} + Z1)} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Z1)} | Box.box ({Elem.a} + Z1) ≠ Box.box {Elem.b}
-      -- solve R? + {Box.box ({Elem.a} + Z1)} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Z1)}
-      refine solve (V := fun (R?, _) => ![R?]) (rest := fun (_, Z1) => Z1)
-          (glue := fun Z1 V => (V 0, Z1)) (hglue := fun _ => rfl)
-          (a := fun Z1 => ![Box.box ({Elem.a} + Z1), Box.box {Elem.b}]) (L := ![1]) (R := ![0]) (La := ![1, 0]) (Ra := ![1, 1])
+      checkpoint
+      -- elim X? := {Elem.a} + Y?
+      refine elim (fun (Y?, R?) => ({Elem.a} + Y?, Y?, R?))
+          (fun (Y?, R?) => R? + {Box.box ({Elem.a} + Y?)} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)})
+          (fun (X?, Y?, R?) h => ⟨(Y?, R?), by acu_free [problem], by acu_free [problem]⟩) ?_
+      -- ⊢ X? := {Elem.a} + Y? | R? + {Box.box ({Elem.a} + Y?)} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)} | Box.box ({Elem.a} + Y?) ≠ Box.box {Elem.b}
+      checkpoint
+      -- solve R? + {Box.box ({Elem.a} + Y?)} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)}
+      refine solve (V := fun (_, R?) => ![R?]) (rest := fun (Y?, _) => Y?)
+          (glue := fun Y? V => (Y?, V 0)) (hglue := fun _ => rfl)
+          (a := fun Y? => ![Box.box ({Elem.a} + Y?), Box.box {Elem.b}]) (L := ![1]) (R := ![0]) (La := ![1, 0]) (Ra := ![1, 1])
           (E' := fun (_, _) => True) (cp := fun _ _ => false)
           (P := ![[![0]], [![1]]]) (B := ![])
-          (fun (R?, Z1) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
+          (fun (Y?, R?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
           (by decide) (by decide) (by decide)
           (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
       intro π hπ; simp [choices] at hπ; subst hπ
       -- branch (0) (1)
-      refine rename (fun Z1 => (Z1, ![]))
-          (fun (Z1, Z) => Z1)
-          (fun (Z1, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
-      -- ⊢ R? := {Box.box {Elem.b}}, X? := {Elem.a} + Z1, Y? := Z1 | - | Box.box ({Elem.a} + Z1) ≠ Box.box {Elem.b}
-      -- cover answer 3 with U1! := Z1
-      exact cover answer3 (by simp [answers]) fun Z1 _ _ => ⟨Z1, by acu_cover⟩
+      refine rename (fun Y? => (Y?, ![]))
+          (fun (Y?, Z) => Y?)
+          (fun (Y?, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
+      -- ⊢ R? := {Box.box {Elem.b}}, X? := {Elem.a} + Y? | - | Box.box ({Elem.a} + Y?) ≠ Box.box {Elem.b}
+      checkpoint
+      -- cover answer 3 with U1! := Y?
+      exact cover answer3 (by simp [answers]) fun Y? _ _ => ⟨Y?, by acu_cover⟩
     · -- distinct:
       -- ⊢ - | {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | Box.box X? ≠ Box.box {Elem.b}; Box.box X? ≠ Box.box ({Elem.a} + Y?)
+      checkpoint
       -- solve {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}}
       refine solve (V := fun (_, _, R?) => ![R?]) (rest := fun (X?, Y?, _) => (X?, Y?))
           (glue := fun (X?, Y?) V => (X?, Y?, V 0)) (hglue := fun _ => rfl)

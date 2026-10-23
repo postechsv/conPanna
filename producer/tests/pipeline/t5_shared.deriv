@@ -15,12 +15,9 @@ derivation
     compatible - | P [(1,0,0) (0,1,0)] | B [(1,0,1) (0,1,1)]
     branch [(1,0,0)]: X? := {a} + Z1, Y? := Z2, Z? := Z1 + Z2
       ⊢ X? := {a} + Z1, Y? := Z2, Z? := Z1 + Z2 | Z2 = {b} + W? | -
-      solve Z2 = {b} + W?
-        vars Z2 W? | aliens b | L (1,0) R (0,1) La (0) Ra (1)
-        compatible - | P [(1,0)] | B [(1,1)]
-        branch [(1,0)]: Z2 := {b} + Z3, W? := Z3
-          ⊢ W? := Z3, X? := {a} + Z1, Y? := {b} + Z3, Z? := {b} + Z1 + Z3 | - | -
-          cover answer 3 with U1! := Z3, U2! := Z1
+      elim Z2 := {b} + W?
+      ⊢ X? := {a} + Z1, Y? := {b} + W?, Z? := {b} + W? + Z1 | - | -
+      cover answer 3 with U1! := W?, U2! := Z1
     branch [(0,1,0)]: X? := Z1, Y? := {a} + Z2, Z? := Z1 + Z2
       ⊢ X? := Z1, Y? := {a} + Z2, Z? := Z1 + Z2 | {a} + Z2 = {b} + W? | -
       solve {a} + Z2 = {b} + W?

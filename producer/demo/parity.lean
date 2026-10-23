@@ -38,6 +38,7 @@ def answers : UnifierSet (Bag × Bag) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | X? + X? = Y? + Y? + {Elem.a} | -
+  checkpoint
   -- solve X? + X? = Y? + Y? + {Elem.a}
   refine solve (V := fun (X?, Y?) => ![X?, Y?]) (rest := fun (_, _) => ())
       (glue := fun _ V => (V 0, V 1)) (hglue := fun _ => rfl)

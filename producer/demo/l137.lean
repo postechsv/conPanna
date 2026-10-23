@@ -57,18 +57,22 @@ def answers : UnifierSet (Nat × ProcSet × ProcSet) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (N? + 1) N? (P? + Q?) = Conf.mk (N? + 1) N? {Mode.wait N?} | -
+  checkpoint
   -- decomp Conf.mk (N? + 1) N? (P? + Q?) = Conf.mk (N? + 1) N? {Mode.wait N?}
   refine decomp (fun (N?, P?, Q?) => (N? + 1) = (N? + 1) ∧ N? = N? ∧ P? + Q? = {Mode.wait N?})
       (fun (N?, P?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | (N? + 1) = (N? + 1); N? = N?; P? + Q? = {Mode.wait N?} | -
+  checkpoint
   -- delete (N? + 1) = (N? + 1)
   refine decomp (fun (N?, P?, Q?) => N? = N? ∧ P? + Q? = {Mode.wait N?})
       (fun (N?, P?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | N? = N?; P? + Q? = {Mode.wait N?} | -
+  checkpoint
   -- delete N? = N?
   refine decomp (fun (N?, P?, Q?) => P? + Q? = {Mode.wait N?})
       (fun (N?, P?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | P? + Q? = {Mode.wait N?} | -
+  checkpoint
   -- solve P? + Q? = {Mode.wait N?}
   refine solve (V := fun (_, P?, Q?) => ![P?, Q?]) (rest := fun (N?, _, _) => N?)
       (glue := fun N? V => (N?, V 0, V 1)) (hglue := fun _ => rfl)
@@ -84,6 +88,7 @@ theorem complete : Unification.complete problem answers := by
         (fun (N?, Z) => N?)
         (fun (N?, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
     -- ⊢ P? := {Mode.wait N?}, Q? := ∅ | - | -
+    checkpoint
     -- cover answer 1 with U1! := N?
     exact cover answer1 (by simp [answers]) fun N? _ _ => ⟨N?, by acu_cover⟩
   · -- branch (0,1)
@@ -91,6 +96,7 @@ theorem complete : Unification.complete problem answers := by
         (fun (N?, Z) => N?)
         (fun (N?, Z) => Prod.ext rfl (funext fun i => i.elim0)) ?_
     -- ⊢ P? := ∅, Q? := {Mode.wait N?} | - | -
+    checkpoint
     -- cover answer 0 with U1! := N?
     exact cover answer0 (by simp [answers]) fun N? _ _ => ⟨N?, by acu_cover⟩
 

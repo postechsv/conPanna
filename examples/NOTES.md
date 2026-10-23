@@ -107,12 +107,13 @@ on German and dropped: 166 pre-image patches for the two coherence patterns alon
   certificate (18 min → 2.5 min): `acu_distinct` fell back to `simp_all [eq_comm]` when a
   disequation was recorded the other way round (912 s in one call; now it flips the goal
   and drops the bag equations it never needs); COVER picks its answer by rewriting.
-  All 75 completeness certificates now check (full chain ~29 min wall-clock), but the large ones (owned patterns × rules
-  touching both the directory and a cache) need a raised heartbeat budget and the file
-  takes ~25 min (one certificate alone ~13 min). The remaining cost is structural: each
-  step's state composes the previous steps' functions over the tuple context, and
-  elaborating a step unfolds the stack. Remedy: have the compiler restate the state in
-  reduced form at checkpoints. Marked `EXPENSIVE` above each such obligation.
+  All 75 completeness certificates check. Two structural costs remained, both fixed in the
+  compiler: each step's state composed the previous steps' functions, so a late step
+  unfolded the whole stack (now a `checkpoint` restates the state in direct form before
+  every step); and COVER named the context variables against the whole answer list (now
+  it selects its answer first). Each fix alone gave ~3×, both together ~19× on the largest
+  certificate (12m49s → 40s); the file went from ~24 min to ~4.5 min, and 71 of 75
+  certificates fit the default heartbeat budget (4 need 5×).
 - Performance: the draft checks in about 1.5 minutes (rules elaborate in parallel); each
   rule needs a raised heartbeat limit for routing. Each `maude_match` attempt starts a
   fresh Python and Maude process (no caching); batching or a persistent process would cut

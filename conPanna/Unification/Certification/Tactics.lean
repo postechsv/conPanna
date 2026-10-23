@@ -106,4 +106,18 @@ macro "acu_cover" : tactic => `(tactic| (
        try constructorm* _ ∧ _
        all_goals ac_rfl)))
 
+open Lean Meta Elab Tactic in
+/-- Restate a goal `s ⊩ U` with the state in direct form. Each step's state is the previous
+state composed with the step's substitution, so without this a late step unfolds the whole
+stack. Unfolds `Function.comp` and the `State` fields, then reduces beta, projections and
+tuple matches; the new goal is definitionally equal. -/
+elab "checkpoint" : tactic => liftMetaTactic1 fun goal => do
+  let ty ← deltaExpand (← instantiateMVars (← goal.getType)) fun n =>
+    n == ``Function.comp || n == ``State.α || n == ``State.E || n == ``State.D
+  let ty ← Meta.transform ty (post := fun e => do
+    if e.isLambda || e.isForall || e.isMData then return .done e
+    let e' ← whnfCore e
+    return if e' == e then .done e else .visit e')
+  some <$> goal.replaceTargetDefEq ty
+
 end Unification.Certification

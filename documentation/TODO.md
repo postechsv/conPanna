@@ -735,8 +735,10 @@ an infeasible residual constraint denotes an empty successor.
   elimination prints bag braces; later steps evaluate `theta` (`acu_rest`, `acu_free`,
   `copies_zero`/`copies_one`). All German certificates replay.
 
-## Open: replay cost of large certificates
+## Fixed: replay cost of large certificates
 
-- Each step's state composes the previous steps' functions; elaborating a late step
-  (notably the COVER lambda) unfolds the stack. German's largest certificate takes ~13 min.
-- Remedy: the compiler restates the state in reduced form at checkpoints.
+- Each step's state composed the previous steps' functions, so elaborating a late step
+  unfolded the stack; COVER named the variables against the whole answer list. Fixed by a
+  `checkpoint` before every step (state restated in direct form, definitionally) and COVER
+  selecting its answer first. German's largest certificate: ~13 min → 40 s.
+- Next lever if needed: proof by reflection (a checker evaluated by the kernel).

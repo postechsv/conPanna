@@ -72,23 +72,28 @@ def answers : UnifierSet (Γ₀) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q?) | -
+  checkpoint
   -- decomp Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q?)
   refine decomp (fun (K?, P?, N?, M?, Q?) => (K? + 1) = (N? + 1) ∧ K? = N? ∧ {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q?)
       (fun (K?, P?, N?, M?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | (K? + 1) = (N? + 1); K? = N?; {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q? | -
+  checkpoint
   -- decomp (K? + 1) = (N? + 1)
   refine decomp (fun (K?, P?, N?, M?, Q?) => K? = N? ∧ K? = N? ∧ {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q?)
       (fun (K?, P?, N?, M?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | K? = N?; K? = N?; {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M?} + Q? | -
+  checkpoint
   -- elim N? := K?
   refine elim (fun (K?, P?, M?, Q?) => (K?, P?, K?, M?, Q?))
       (fun (K?, P?, M?, Q?) => K? = K? ∧ P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?})
       (fun (K?, P?, N?, M?, Q?) h => ⟨(K?, P?, M?, Q?), by acu_free [problem], by acu_free [problem]⟩) ?_
   -- ⊢ N? := K? | K? = K?; P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?} | -
+  checkpoint
   -- delete K? = K?
   refine decomp (fun (K?, P?, M?, Q?) => P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?})
       (fun (K?, P?, M?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ N? := K? | P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?} | -
+  checkpoint
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?}
   refine solve (V := fun (_, P?, _, Q?) => ![P?, Q?]) (rest := fun (K?, _, M?, _) => (K?, M?))
       (glue := fun (K?, M?) V => (K?, V 0, M?, V 1)) (hglue := fun _ => rfl)
@@ -104,6 +109,7 @@ theorem complete : Unification.complete problem answers := by
       (fun ((K?, M?), Z) => (K?, M?, Z 0))
       (fun ((K?, M?), Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
   -- ⊢ N? := K?, P? := {Mode.idle} + Z1 + {Mode.wait M?}, Q? := Z1 | - | -
+  checkpoint
   -- cover answer 3 with U1! := K?, U2! := Z1, U3! := M?
   exact cover answer3 (by simp [answers]) fun (K?, M?, Z1) _ _ => ⟨(K?, Z1, M?), by acu_cover⟩
 

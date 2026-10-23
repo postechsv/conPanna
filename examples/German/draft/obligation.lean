@@ -13,8 +13,6 @@ open Expresso Unification Narrowing
 
 -- the statements below are `#obligations`' output, pasted verbatim
 set_option linter.style.longLine false
--- the larger certificates replay beyond the default budget
-set_option maxHeartbeats 10000000
 
 theorem sendReqS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire sendReqS freeP)
@@ -904,11 +902,6 @@ theorem recvReqS_inv.obligation_2 :
                   { id := x.2.1, state := x.2.2.1, ch1 := Req.reqS, ch2 := x.2.2.2.1, ch3 := x.2.2.2.2.1 }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire recvReqS ownE)
       [Unification.Unifier.bind
@@ -1065,11 +1058,6 @@ theorem recvReqS_inv.obligation_4 :
             x.2.2.2, x.2.1, Req.reqS, x.1)] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire recvReqS ownG)
       [Unification.Unifier.bind
@@ -1226,11 +1214,6 @@ theorem recvReqS_inv.obligation_6 :
             x.2.2.2, x.2.1, Req.reqS, x.1)] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire recvReqS ownInv)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Gnt × Ack × ℕ × Bool × Oids × Oids × ℕ) =>
@@ -1375,11 +1358,6 @@ theorem recvReqS_inv.obligation_8 :
             Req.reqS, x.1)] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire recvReqS ownAck)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Gnt × Ack × ℕ × Bool × Oids × Oids × ℕ) =>
@@ -1606,11 +1584,6 @@ theorem recvReqE_inv.obligation_2 :
                   { id := x.2.1, state := x.2.2.1, ch1 := Req.reqE, ch2 := x.2.2.2.1, ch3 := x.2.2.2.2.1 }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire recvReqE ownE)
       [Unification.Unifier.bind
@@ -1767,11 +1740,6 @@ theorem recvReqE_inv.obligation_4 :
             x.2.2.2, x.2.1, Req.reqE, x.1)] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqE_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire recvReqE ownG)
       [Unification.Unifier.bind
@@ -1928,11 +1896,6 @@ theorem recvReqE_inv.obligation_6 :
             x.2.2.2, x.2.1, Req.reqE, x.1)] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqE_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire recvReqE ownInv)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Gnt × Ack × ℕ × Bool × Oids × Oids × ℕ) =>
@@ -2077,11 +2040,6 @@ theorem recvReqE_inv.obligation_8 :
             Req.reqE, x.1)] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvReqE_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire recvReqE ownAck)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Gnt × Ack × ℕ × Bool × Oids × Oids × ℕ) =>
@@ -2378,11 +2336,8 @@ theorem sendInvE_inv.obligation_2 :
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := Gnt.noGnt, ch3 := x.2.2.2.2.1 }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
+-- a large certificate: beyond the default budget
+set_option maxHeartbeats 1000000 in
 theorem sendInvE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire sendInvE ownE)
       [Unification.Unifier.bind fun (x : ℕ × Cmd × ℕ × Oids × CacheState × Req × Ack × ℕ × Bool × Oids × ℕ × Req) =>
@@ -3031,11 +2986,6 @@ theorem sendInvE_inv.obligation_8 :
                     shr := x.2.2.2.2.2.2.2.2.2.2.1, inv := {x.1} + x.2.2.2.2.2.2.2.2.2.2.2.1 }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem sendInvE_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire sendInvE ownAck)
       [Unification.Unifier.bind fun (x : ℕ × Cmd × ℕ × CacheState × Req × Ack × ℕ × Bool × Oids × ℕ × Req) =>
@@ -3338,11 +3288,8 @@ theorem sendInvS_inv.obligation_2 :
                     inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
+-- a large certificate: beyond the default budget
+set_option maxHeartbeats 1000000 in
 theorem sendInvS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire sendInvS ownE)
       [Unification.Unifier.bind fun (x : ℕ × ℕ × Oids × CacheState × Req × Ack × ℕ × Oids × ℕ × Req × Cmd) =>
@@ -3943,11 +3890,6 @@ theorem sendInvS_inv.obligation_8 :
                     inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem sendInvS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire sendInvS ownAck)
       [Unification.Unifier.bind fun (x : ℕ × ℕ × CacheState × Req × Ack × ℕ × Oids × ℕ × Req × Cmd) =>
@@ -4536,11 +4478,6 @@ theorem recvInvAckS_inv.obligation_2 :
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvInvAckS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire recvInvAckS ownE)
       [Unification.Unifier.bind
@@ -4725,11 +4662,6 @@ theorem recvInvAckS_inv.obligation_4 :
               {Item.cache { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvInvAckS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire recvInvAckS ownG)
       [Unification.Unifier.bind
@@ -4910,11 +4842,6 @@ theorem recvInvAckS_inv.obligation_6 :
               {Item.cache { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
 theorem recvInvAckS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire recvInvAckS ownInv)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Req × Gnt × Cmd × ℕ × Bool × Oids × ℕ) =>
@@ -5085,13 +5012,8 @@ theorem recvInvAckS_inv.obligation_8 :
               {Item.cache { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
--- the largest certificate: beyond the file-wide budget
-set_option maxHeartbeats 50000000 in
+-- a large certificate: beyond the default budget
+set_option maxHeartbeats 1000000 in
 theorem recvInvAckS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire recvInvAckS ownAck)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Req × Gnt × Cmd × ℕ × Bool × Oids × ℕ) =>
@@ -5758,11 +5680,8 @@ theorem recvInvAckN_inv.obligation_8 :
               {Item.cache { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := x.2.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- EXPENSIVE: a large certificate (an owned pattern against a rule that touches both the
--- directory and a cache: two identifications, nested decompositions, ~15 variables). Its
--- replay is valid but slow (2-13 min): each step's state is a composition of the previous
--- steps' functions over the tuple context, and elaborating a step against it unfolds the
--- whole stack. See NOTES.md.
+-- a large certificate: beyond the default budget
+set_option maxHeartbeats 1000000 in
 theorem recvInvAckN_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire recvInvAckN ownAck)
       [Unification.Unifier.bind

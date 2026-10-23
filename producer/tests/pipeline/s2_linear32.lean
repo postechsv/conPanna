@@ -166,6 +166,7 @@ def answers : UnifierSet (Bag × Bag × Bag × Bag × Bag) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | X1? + X2? + X3? = Y1? + Y2? | -
+  checkpoint
   -- solve X1? + X2? + X3? = Y1? + Y2?
   refine solve (V := fun (X1?, X2?, X3?, Y1?, Y2?) => ![X1?, X2?, X3?, Y1?, Y2?]) (rest := fun (_, _, _, _, _) => ())
       (glue := fun _ V => (V 0, V 1, V 2, V 3, V 4)) (hglue := fun _ => rfl)
@@ -181,6 +182,7 @@ theorem complete : Unification.complete problem answers := by
       (fun (_, Z) => (Z 0, Z 1, Z 2, Z 3, Z 4, Z 5))
       (fun (_, Z) => Prod.ext rfl (funext fun i => by fin_cases i <;> rfl)) ?_
   -- ⊢ X1? := Z1 + Z4, X2? := Z2 + Z5, X3? := Z3 + Z6, Y1? := Z1 + Z2 + Z3, Y2? := Z4 + Z5 + Z6 | - | -
+  checkpoint
   -- cover answer 63 with U1! := Z1, U2! := Z2, U3! := Z3, U4! := Z4, U5! := Z5, U6! := Z6
   exact cover answer63 (by simp [answers]) fun (Z1, Z2, Z3, Z4, Z5, Z6) _ _ => ⟨(Z1, Z2, Z3, Z4, Z5, Z6), by acu_cover⟩
 

@@ -52,19 +52,23 @@ def answers : UnifierSet (Bag × Bag × Nat × Nat) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | X? + {Elem.w N?} = Y? + {Elem.w M?} | -
+  checkpoint
   -- identify Elem.w N? ~ Elem.w M?
   refine identify (fun (_, _, N?, _) => Elem.w N?) (fun (_, _, _, M?) => Elem.w M?) ?_ ?_
   · -- equal:
     -- ⊢ - | Elem.w N? = Elem.w M?; X? + {Elem.w N?} = Y? + {Elem.w M?} | -
+    checkpoint
     -- decomp Elem.w N? = Elem.w M?
     refine decomp (fun (X?, Y?, N?, M?) => N? = M? ∧ X? + {Elem.w N?} = Y? + {Elem.w M?})
         (fun (X?, Y?, N?, M?) h => by acu_free [problem]) ?_
     -- ⊢ - | N? = M?; X? + {Elem.w N?} = Y? + {Elem.w M?} | -
+    checkpoint
     -- elim M? := N?
     refine elim (fun (X?, Y?, N?) => (X?, Y?, N?, N?))
         (fun (X?, Y?, N?) => X? + {Elem.w N?} = Y? + {Elem.w N?})
         (fun (X?, Y?, N?, M?) h => ⟨(X?, Y?, N?), by acu_free [problem], by acu_free [problem]⟩) ?_
     -- ⊢ M? := N? | X? + {Elem.w N?} = Y? + {Elem.w N?} | -
+    checkpoint
     -- solve X? + {Elem.w N?} = Y? + {Elem.w N?}
     refine solve (V := fun (X?, Y?, _) => ![X?, Y?]) (rest := fun (_, _, N?) => N?)
         (glue := fun N? V => (V 0, V 1, N?)) (hglue := fun _ => rfl)
@@ -80,10 +84,12 @@ theorem complete : Unification.complete problem answers := by
         (fun (N?, Z) => (N?, Z 0))
         (fun (N?, Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
     -- ⊢ M? := N?, X? := Z1, Y? := Z1 | - | -
+    checkpoint
     -- cover answer 3 with U1! := Z1, U2! := N?
     exact cover answer3 (by simp [answers]) fun (N?, Z1) _ _ => ⟨(Z1, N?), by acu_cover⟩
   · -- distinct:
     -- ⊢ - | X? + {Elem.w N?} = Y? + {Elem.w M?} | Elem.w N? ≠ Elem.w M?
+    checkpoint
     -- solve X? + {Elem.w N?} = Y? + {Elem.w M?}
     refine solve (V := fun (X?, Y?, _, _) => ![X?, Y?]) (rest := fun (_, _, N?, M?) => (N?, M?))
         (glue := fun (N?, M?) V => (V 0, V 1, N?, M?)) (hglue := fun _ => rfl)
@@ -99,6 +105,7 @@ theorem complete : Unification.complete problem answers := by
         (fun ((N?, M?), Z) => (N?, M?, Z 0))
         (fun ((N?, M?), Z) => Prod.ext rfl (funext fun i => by fin_cases i; rfl)) ?_
     -- ⊢ X? := Z1 + {Elem.w M?}, Y? := Z1 + {Elem.w N?} | - | Elem.w N? ≠ Elem.w M?
+    checkpoint
     -- cover answer 1 with U1! := N?, U2! := M?, U3! := Z1
     exact cover answer1 (by simp [answers]) fun (N?, M?, Z1) _ _ => ⟨(N?, M?, Z1), by acu_cover⟩
 

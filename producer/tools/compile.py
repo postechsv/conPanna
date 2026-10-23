@@ -355,6 +355,8 @@ class Compiler:
         alpha = ", ".join(f"{k} := {self.lean(t)}" for k, t in a.items()) or "-"
         self.emit(ind, f"-- ⊢ {alpha} | {'; '.join(self.eq(e) for e in eqs) or '-'}"
                        f" | {'; '.join(self.eq(e).replace(' = ', ' ≠ ') for e in dis) or '-'}")
+        # restate the state in direct form, so later steps do not unfold the previous ones
+        self.emit(ind, "checkpoint")
         if n.rule in ("decomp", "delete"):
             nxt = n.children[0]
             self.emit(ind, f"-- {n.rule} {self.eq(eqs[0])}")
@@ -455,9 +457,11 @@ class Compiler:
         if self.script:
             shape = self.cfg["answer_binders"][i]
             proof = f"⟨{nest(shape, wit)}, by acu_cover⟩"
-            # pick the answer out of the list by rewriting (unfolding the indexing is costly)
-            self.emit(ind, f"exact cover _ (List.getElem_mem (by decide : {i} < _)) fun {self.pat(ctx)} _ _ => by")
-            self.emit(ind + 2, f"simp only [List.getElem_cons_succ, List.getElem_cons_zero]; exact {proof}")
+            # pick the answer out of the list by rewriting (unfolding the indexing is costly),
+            # before naming the variables: elaborating that against the whole list is costly
+            self.emit(ind, f"refine cover _ (List.getElem_mem (by decide : {i} < _)) ?_")
+            self.emit(ind, "simp only [List.getElem_cons_succ, List.getElem_cons_zero]")
+            self.emit(ind, f"exact fun {self.pat(ctx)} _ _ => {proof}")
         else:
             proof = f"⟨{tuple_term(wit) if wit else '()'}, by acu_cover⟩"
             self.emit(ind, f"exact cover answer{i} (by simp [answers]) fun {self.pat(ctx)} _ _ => {proof}")

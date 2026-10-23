@@ -45,10 +45,12 @@ def answers : UnifierSet (Nat × ProcSet × Nat × ProcSet) :=
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
   -- ⊢ - | Conf.mk (N? + 1) N? P? = Conf.mk 0 M? Q? | -
+  checkpoint
   -- decomp Conf.mk (N? + 1) N? P? = Conf.mk 0 M? Q?
   refine decomp (fun (N?, P?, M?, Q?) => (N? + 1) = 0 ∧ N? = M? ∧ P? = Q?)
       (fun (N?, P?, M?, Q?) h => by acu_free [problem]) ?_
   -- ⊢ - | (N? + 1) = 0; N? = M?; P? = Q? | -
+  checkpoint
   -- clash
   exact clash fun (N?, P?, M?, Q?) h hD => by acu_free [problem]
 
