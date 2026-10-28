@@ -1,7 +1,8 @@
 ***( The worked example of documentation/worked-example.html:
-     {f({a} + X?)} + R? =? {f(Y? + W?)} + {f(Z?)}, with fruits a, b and baskets f(-). )
+     R? + {f({a} + X?)} + {f(Y?)} =? S? + T? + {f({a} + W?)}, with fruits a, b and baskets f(-). )
 load models.maude
 select SHOW .
 red certify('NESTED, bag('Bag, '__, 'none.Bag) &b bag('Boxes, '_|_, 'nil.Boxes), 'tup,
-        ('X:Bag, 'Y:Bag, 'W:Bag, 'Z:Bag, 'R:Boxes),
-        '_|_['`{_`}['__['a.Elem, 'X:Bag]], 'R:Boxes], '_|_['`{_`}['__['Y:Bag, 'W:Bag]], '`{_`}['Z:Bag]]) .
+        ('X:Bag, 'Y:Bag, 'W:Bag, 'R:Boxes, 'S:Boxes, 'T:Boxes),
+        '_|_['R:Boxes, '`{_`}['__['a.Elem, 'X:Bag]], '`{_`}['Y:Bag]],
+        '_|_['S:Boxes, 'T:Boxes, '`{_`}['__['a.Elem, 'W:Bag]]]) .

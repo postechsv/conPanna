@@ -1,24 +1,14 @@
 import conPanna.Unification.Certification.Tactics
 
 /-! The worked example of documentation/worked-example.html:
-{f ({a} + X?)} + R? =? {f (Y? + W?)} + {f Z?}. -/
+R? + {f ({a} + X?)} + {f Y?} =? S? + T? + {f ({a} + W?)}. -/
 
 /- certify
 {
   "namespace": "Pipeline.T7",
-  "context": "Fruits × Fruits × Fruits × Fruits × Baskets",
-  "vars": [
-    "X?",
-    "Y?",
-    "W?",
-    "Z?",
-    "R?"
-  ],
-  "ops": {
-    "a": "Fruit.a",
-    "b": "Fruit.b",
-    "{_}": "Basket.f"
-  }
+  "context": "Fruits × Fruits × Fruits × Baskets × Baskets × Baskets",
+  "vars": ["X?", "Y?", "W?", "R?", "S?", "T?"],
+  "ops": {"a": "Fruit.a", "b": "Fruit.b", "{_}": "Basket.f"}
 }
 -/
 
@@ -37,6 +27,6 @@ inductive Basket where
 
 abbrev Baskets := ACU Basket
 
-def problem : Problem Baskets (Fruits × Fruits × Fruits × Fruits × Baskets) :=
-  .bind fun (X?, Y?, W?, Z?, R?) =>
-    ({Basket.f ({Fruit.a} + X?)} + R?, {Basket.f (Y? + W?)} + {Basket.f Z?})
+def problem : Problem Baskets (Fruits × Fruits × Fruits × Baskets × Baskets × Baskets) :=
+  .bind fun (X?, Y?, W?, R?, S?, T?) =>
+    (R? + {Basket.f ({Fruit.a} + X?)} + {Basket.f Y?}, S? + T? + {Basket.f ({Fruit.a} + W?)})
