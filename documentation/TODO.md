@@ -789,6 +789,13 @@ an infeasible residual constraint denotes an empty successor.
   ground bag equations without a type, singleton injectivity, `Fin` literals from
   `fin_cases`, S2/S3 looping in `simp_all`, a trivially true count equation, an earlier
   SOLVE's fresh variables counted as new.
-- Open: three nested problems of the 160 drawn (seed 1: n00, n19; seed 2: n18) exceed the
-  default heartbeat budget (they check without a limit in 23–41 s); the cost is in
-  `acu_distinct`'s `simp_all` fallbacks.
+- Three large nested problems (seed 1: n00, n19; seed 2: n18) exceeded the default
+  heartbeat budget. Measured per tactic, not guessed: distinctness re-normalized the
+  disequations for every pair of aliens and tried AC bridging (failing `ac_rfl`s) first;
+  S2 spent half its time in one `simp only [List.forall_mem_cons]` that only splits the
+  list of cliques. Now the disequations are normalized once, cheap checks come first,
+  a normalized disequation is matched syntactically before bridging, compatibility is a
+  `decide`, the clique list is split by applying `List.forall_mem_cons`, and S2/S3 use an
+  explicit lemma list. Counting copies of an element (`acu_count`) proves distinctness that
+  no recorded disequation gives. Seeds 1–3 (240 problems) all certify; German heartbeats
+  −17% this round (every certificate 14–23% cheaper), −28% since the shared normalizer.
