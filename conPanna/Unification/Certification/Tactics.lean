@@ -10,9 +10,9 @@ and these tactics only check equalities and closed Presburger formulas.
 
 namespace Unification.Certification
 
-/-- A free step (CLASH, and the fallback of DECOMP and ELIM): split the pending
-equations, substitute solved variables, and close by constructor injectivity. Extra
-lemmas unfold the problem. -/
+/-- CLASH (and OCCURS, DISTINCT), and ELIM after SOLVE: split the pending equations,
+evaluate SOLVE's answers, substitute solved variables, and close by constructor
+injectivity and disjointness, modulo AC. Extra lemmas unfold the problem. -/
 syntax "acu_free" (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
 macro_rules
   | `(tactic| acu_free) => `(tactic| acu_free [])
@@ -34,21 +34,23 @@ macro_rules
 
 set_option hygiene false in
 /-- DECOMP `f(s⃗) = f(t⃗)`, from the first equation `h`: by the constructor's injectivity
-lemma `f.injEq`, given with the lemmas that unfold the problem. Arguments that are bags
-are compared modulo AC. -/
+lemma `f.injEq`, given with the lemmas that unfold the problem (successor `n + 1` is
+built in). Arguments that are bags are compared modulo AC. -/
 syntax "acu_decomp" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 set_option hygiene false in
 macro_rules
   | `(tactic| acu_decomp [$xs,*]) => `(tactic| (
-      simp only [Eqs, List.foldr_cons, List.foldr_nil, and_true, unifiedBy, $xs,*] at h ⊢
+      simp only [Eqs, List.foldr_cons, List.foldr_nil, and_true, unifiedBy, Nat.add_right_cancel_iff,
+        $xs,*] at h ⊢
       first
         | exact h
-        | (ac_nf at h ⊢ <;> exact h)
-        | acu_free [$xs,*]))
+        | (ac_nf at h ⊢ <;> exact h)))
 
 set_option hygiene false in
 /-- ELIM `V = t`, from the first equation `h`: substitute it, then the valuation is
-the image of the smaller one. -/
+the image of the smaller one. The lemmas unfold the problem, for an ELIM on it. After
+SOLVE, `h` may contain SOLVE's answer `θ_π`: then it is evaluated and compared modulo AC
+(`acu_free`). -/
 syntax "acu_elim" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 set_option hygiene false in
 macro_rules
@@ -78,17 +80,24 @@ macro "acu_distinct" : tactic => `(tactic| (
   fin_cases c <;> fin_cases c' <;>
     first
       | exact absurd rfl hcc
-      | (simp at hcp; done)
+      | (simp [BagEq.cp] at hcp; done)
       | (simp [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
-      | (clear h; simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (clear h; simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
       -- the disequation recorded the other way round (`fin_cases` gives both orders):
       -- flip the goal rather than rewrite with `eq_comm`, which is costly
-      | (clear h; refine Ne.symm ?_; simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus];
+      | (clear h; refine Ne.symm ?_; simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus];
          done)
-      | (clear h; simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
-      | (simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
-      | (simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
-      | (simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
+      | (clear h; simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
+      | (simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
+      | (simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
+
+/-- The premises of SOLVE, one per choice `π`: name the choice in each. -/
+macro "acu_branches" : tactic => `(tactic| (
+  intro π hπ
+  simp [choices] at hπ
+  all_goals try casesm* _ ∨ _
+  all_goals subst_vars))
 
 /-- S2 over the listed cliques: one closed Presburger formula per clique. -/
 macro "acu_cliques" : tactic => `(tactic| (

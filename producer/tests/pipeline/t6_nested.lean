@@ -73,15 +73,15 @@ theorem complete : Unification.complete problem answers := by
     -- solve R? + {Box.box {Elem.b}} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)}
     refine solve
         { V := fun (_, R?) => ![R?], rest := fun (Y?, _) => Y?,
-          glue := fun Y? V => (Y?, V 0), hglue := fun _ => rfl }
+          glue := fun Y? V => (Y?, V 0) }
         (fun Y? => ![Box.box {Elem.b}, Box.box ({Elem.a} + Y?)])
-        { L := ![1], R := ![0], La := ![1, 0], Ra := ![1, 1], cp := fun c c' => (c == 0 && c' == 1) || (c == 1 && c' == 0) }
+        { L := ![1], R := ![0], La := ![1, 0], Ra := ![1, 1], compatible := [(0, 1)] }
         { P := ![[![0]], [![1]]], B := ![] }
         ⟨by decide, by decide, by decide,
           S2_of_list _ _ _ _ _ _ [[0], [1], [0, 1]] (by decide) (by acu_cliques), by acu_basis⟩
         (fun (Y?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
         (fun (Y?, R?) h hD => by acu_distinct) ?_
-    intro π hπ; simp [choices] at hπ; subst hπ
+    acu_branches
     -- branch (0) (1)
     refine rename (fun Y? => (Y?, ![]))
         (fun (Y?, Z) => Y?)
@@ -111,15 +111,15 @@ theorem complete : Unification.complete problem answers := by
       -- solve R? + {Box.box ({Elem.a} + Y?)} = {Box.box {Elem.b}} + {Box.box ({Elem.a} + Y?)}
       refine solve
           { V := fun (_, R?) => ![R?], rest := fun (Y?, _) => Y?,
-            glue := fun Y? V => (Y?, V 0), hglue := fun _ => rfl }
+            glue := fun Y? V => (Y?, V 0) }
           (fun Y? => ![Box.box ({Elem.a} + Y?), Box.box {Elem.b}])
-          { L := ![1], R := ![0], La := ![1, 0], Ra := ![1, 1], cp := fun _ _ => false }
+          { L := ![1], R := ![0], La := ![1, 0], Ra := ![1, 1] }
           { P := ![[![0]], [![1]]], B := ![] }
           ⟨by decide, by decide, by decide,
             S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
           (fun (Y?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
           (fun (Y?, R?) h hD => by acu_distinct) ?_
-      intro π hπ; simp [choices] at hπ; subst hπ
+      acu_branches
       -- branch (0) (1)
       refine rename (fun Y? => (Y?, ![]))
           (fun (Y?, Z) => Y?)
@@ -134,14 +134,14 @@ theorem complete : Unification.complete problem answers := by
       -- solve {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}}
       refine solve
           { V := fun (_, _, R?) => ![R?], rest := fun (X?, Y?, _) => (X?, Y?),
-            glue := fun (X?, Y?) V => (X?, Y?, V 0), hglue := fun _ => rfl }
+            glue := fun (X?, Y?) V => (X?, Y?, V 0) }
           (fun (X?, Y?) => ![Box.box X?, Box.box ({Elem.a} + Y?), Box.box {Elem.b}])
-          { L := ![1], R := ![0], La := ![1, 0, 0], Ra := ![0, 1, 1], cp := fun c c' => (c == 1 && c' == 2) || (c == 2 && c' == 1) }
+          { L := ![1], R := ![0], La := ![1, 0, 0], Ra := ![0, 1, 1], compatible := [(1, 2)] }
           { P := ![[], [![1]], [![1]]], B := ![] }
           ⟨by decide, by decide, by decide,
             S2_of_list _ _ _ _ _ _ [[0], [1], [2], [1, 2]] (by decide) (by acu_cliques), by acu_basis⟩
           (fun (X?, Y?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
           (fun (X?, Y?, R?) h hD => by acu_distinct) ?_
-      intro π hπ; simp [choices] at hπ
+      acu_branches
 
 end Pipeline.T6

@@ -68,22 +68,27 @@ theorem identify {T : Sort y} (a b : Γ → T)
 /-! ## SOLVE -/
 
 /-- The context split into the bag variables `V : Fin n → ACU El` of a bag
-equation and the rest `Γr`, with `glue` putting them back together. -/
+equation and the rest `Γr`, with `glue` putting them back together. For tuples of
+variables, `hglue` holds by `rfl` and need not be given. -/
 structure Split (El : Type y) (Γ : Type w) (Γr : Type w') (n : ℕ) where
   V : Γ → Fin n → ACU El
   rest : Γ → Γr
   glue : Γr → (Fin n → ACU El) → Γ
-  hglue : ∀ ρ, glue (rest ρ) (V ρ) = ρ
+  hglue : ∀ ρ, glue (rest ρ) (V ρ) = ρ := by intro; rfl
 
 /-- A bag equation `Σᵢ L i • X i + Σ_c La c • {a c} = Σᵢ R i • X i + Σ_c Ra c • {a c}`
-over bag variables `X` and aliens `a : Fin m → El`, with `cp` telling which aliens are
-compatible (may denote the same element). -/
+over bag variables `X` and aliens `a : Fin m → El`, with the pairs of `compatible`
+aliens (which may denote the same element). -/
 structure BagEq (n m : ℕ) where
   L : Fin n → ℕ
   R : Fin n → ℕ
   La : Fin m → ℕ
   Ra : Fin m → ℕ
-  cp : Fin m → Fin m → Bool
+  compatible : List (Fin m × Fin m) := []
+
+/-- Compatibility as a relation: `c` and `c'` are listed as a pair, in either order. -/
+def BagEq.cp {n m : ℕ} (q : BagEq n m) (c c' : Fin m) : Bool :=
+  q.compatible.any fun (i, j) => (i == c && j == c') || (i == c' && j == c)
 
 /-- The bag equation holds for the bags `X` and aliens `a`. -/
 def BagEq.Holds {El : Type y} {n m : ℕ} (q : BagEq n m) (X : Fin n → ACU El)

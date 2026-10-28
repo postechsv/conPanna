@@ -762,3 +762,9 @@ an infeasible residual constraint denotes an empty successor.
   heartbeat budget.
 - Heartbeats over German's 75 certificates: −20% in total, −50% on the largest; all now
   fit the default budget (four needed 5× before).
+- Certificates read closer to the paper: SOLVE lists `compatible` alien pairs (default
+  none) instead of a Boolean function, `hglue` is proved by default, and `acu_branches`
+  opens one premise per choice. DECOMP is proved by the constructor's `injEq` (its name
+  read off the operator table) with no fallback. ELIM keeps `acu_free` as fallback: after
+  SOLVE its equation may contain `θ_π`, which must be evaluated and compared modulo AC.
+  Heartbeats unchanged (−0.15% in total).

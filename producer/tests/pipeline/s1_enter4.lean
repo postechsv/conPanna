@@ -102,15 +102,15 @@ theorem complete : Unification.complete problem answers := by
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + {Mode.wait M4?}
   refine solve
       { V := fun (_, P?, _, _, _, _, Q?) => ![P?, Q?], rest := fun (K?, _, M1?, M2?, M3?, M4?, _) => (K?, M1?, M2?, M3?, M4?),
-        glue := fun (K?, M1?, M2?, M3?, M4?) V => (K?, V 0, M1?, M2?, M3?, M4?, V 1), hglue := fun _ => rfl }
+        glue := fun (K?, M1?, M2?, M3?, M4?) V => (K?, V 0, M1?, M2?, M3?, M4?, V 1) }
       (fun (K?, M1?, M2?, M3?, M4?) => ![Mode.wait K?, Mode.idle, Mode.wait M1?, Mode.wait M2?, Mode.wait M3?, Mode.wait M4?])
-      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0, 0, 0, 0], Ra := ![1, 1, 1, 1, 1, 1], cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0) || (c == 0 && c' == 3) || (c == 3 && c' == 0) || (c == 0 && c' == 4) || (c == 4 && c' == 0) || (c == 0 && c' == 5) || (c == 5 && c' == 0) || (c == 2 && c' == 3) || (c == 3 && c' == 2) || (c == 2 && c' == 4) || (c == 4 && c' == 2) || (c == 2 && c' == 5) || (c == 5 && c' == 2) || (c == 3 && c' == 4) || (c == 4 && c' == 3) || (c == 3 && c' == 5) || (c == 5 && c' == 3) || (c == 4 && c' == 5) || (c == 5 && c' == 4) }
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0, 0, 0, 0], Ra := ![1, 1, 1, 1, 1, 1], compatible := [(0, 2), (0, 3), (0, 4), (0, 5), (2, 3), (2, 4), (2, 5), (3, 4), (3, 5), (4, 5)] }
       { P := ![[![0, 0]], [![1, 0]], [![1, 0]], [![1, 0]], [![1, 0]], [![1, 0]]], B := ![![1, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [[0], [1], [2], [3], [4], [5], [0, 2], [0, 3], [0, 4], [0, 5], [2, 3], [2, 4], [2, 5], [3, 4], [3, 5], [4, 5], [0, 2, 3], [0, 2, 4], [0, 2, 5], [0, 3, 4], [0, 3, 5], [0, 4, 5], [2, 3, 4], [2, 3, 5], [2, 4, 5], [3, 4, 5], [0, 2, 3, 4], [0, 2, 3, 5], [0, 2, 4, 5], [0, 3, 4, 5], [2, 3, 4, 5], [0, 2, 3, 4, 5]] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (K?, P?, M1?, M2?, M3?, M4?, Q?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (K?, P?, M1?, M2?, M3?, M4?, Q?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ; subst hπ
+  acu_branches
   -- branch (0,0) (1,0) (1,0) (1,0) (1,0) (1,0)
   refine rename (fun (K?, M1?, M2?, M3?, M4?, Z1) => ((K?, M1?, M2?, M3?, M4?), ![Z1]))
       (fun ((K?, M1?, M2?, M3?, M4?), Z) => (K?, M1?, M2?, M3?, M4?, Z 0))

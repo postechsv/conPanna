@@ -61,15 +61,15 @@ theorem complete : Unification.complete problem answers := by
   -- solve X? + Y? = Z? + Z?
   refine solve
       { V := fun (X?, Y?, Z?) => ![X?, Y?, Z?], rest := fun (_, _, _) => (),
-        glue := fun _ V => (V 0, V 1, V 2), hglue := fun _ => rfl }
+        glue := fun _ V => (V 0, V 1, V 2) }
       (fun _ => ![])
-      { L := ![1, 1, 0], R := ![0, 0, 2], La := ![], Ra := ![], cp := fun _ _ => false }
+      { L := ![1, 1, 0], R := ![0, 0, 2], La := ![], Ra := ![] }
       { P := ![], B := ![![2, 0, 1], ![1, 1, 1], ![0, 2, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (X?, Y?, Z?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (X?, Y?, Z?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ; subst hπ
+  acu_branches
   -- branch 
   refine rename (fun (Z1, Z2, Z3) => ((), ![Z1, Z2, Z3]))
       (fun (_, Z) => (Z 0, Z 1, Z 2))

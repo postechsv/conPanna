@@ -95,15 +95,15 @@ theorem complete : Unification.complete problem answers := by
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait M?} + {Mode.wait K?}
   refine solve
       { V := fun (_, P?, _, Q?) => ![P?, Q?], rest := fun (K?, _, M?, _) => (K?, M?),
-        glue := fun (K?, M?) V => (K?, V 0, M?, V 1), hglue := fun _ => rfl }
+        glue := fun (K?, M?) V => (K?, V 0, M?, V 1) }
       (fun (K?, M?) => ![Mode.wait K?, Mode.idle, Mode.wait M?])
-      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0], Ra := ![1, 1, 1], cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0) }
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0], Ra := ![1, 1, 1], compatible := [(0, 2)] }
       { P := ![[![0, 0]], [![1, 0]], [![1, 0]]], B := ![![1, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [[0], [1], [2], [0, 2]] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (K?, P?, M?, Q?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (K?, P?, M?, Q?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ; subst hπ
+  acu_branches
   -- branch (0,0) (1,0) (1,0)
   refine rename (fun (K?, M?, Z1) => ((K?, M?), ![Z1]))
       (fun ((K?, M?), Z) => (K?, M?, Z 0))

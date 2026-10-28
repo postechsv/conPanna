@@ -73,15 +73,15 @@ theorem complete : Unification.complete problem answers := by
   -- solve X1? + X2? = Y1? + Y2?
   refine solve
       { V := fun (X1?, X2?, Y1?, Y2?) => ![X1?, X2?, Y1?, Y2?], rest := fun (_, _, _, _) => (),
-        glue := fun _ V => (V 0, V 1, V 2, V 3), hglue := fun _ => rfl }
+        glue := fun _ V => (V 0, V 1, V 2, V 3) }
       (fun _ => ![])
-      { L := ![1, 1, 0, 0], R := ![0, 0, 1, 1], La := ![], Ra := ![], cp := fun _ _ => false }
+      { L := ![1, 1, 0, 0], R := ![0, 0, 1, 1], La := ![], Ra := ![] }
       { P := ![], B := ![![1, 0, 1, 0], ![0, 1, 1, 0], ![1, 0, 0, 1], ![0, 1, 0, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (X1?, X2?, Y1?, Y2?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (X1?, X2?, Y1?, Y2?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ; subst hπ
+  acu_branches
   -- branch 
   refine rename (fun (Z1, Z2, Z3, Z4) => ((), ![Z1, Z2, Z3, Z4]))
       (fun (_, Z) => (Z 0, Z 1, Z 2, Z 3))

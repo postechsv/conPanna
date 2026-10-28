@@ -92,15 +92,15 @@ theorem complete : Unification.complete problem answers := by
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?}
   refine solve
       { V := fun (_, P?, _, _, Q?) => ![P?, Q?], rest := fun (K?, _, M1?, M2?, _) => (K?, M1?, M2?),
-        glue := fun (K?, M1?, M2?) V => (K?, V 0, M1?, M2?, V 1), hglue := fun _ => rfl }
+        glue := fun (K?, M1?, M2?) V => (K?, V 0, M1?, M2?, V 1) }
       (fun (K?, M1?, M2?) => ![Mode.wait K?, Mode.idle, Mode.wait M1?, Mode.wait M2?])
-      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0, 0], Ra := ![1, 1, 1, 1], cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0) || (c == 0 && c' == 3) || (c == 3 && c' == 0) || (c == 2 && c' == 3) || (c == 3 && c' == 2) }
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0, 0], Ra := ![1, 1, 1, 1], compatible := [(0, 2), (0, 3), (2, 3)] }
       { P := ![[![0, 0]], [![1, 0]], [![1, 0]], [![1, 0]]], B := ![![1, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [[0], [1], [2], [3], [0, 2], [0, 3], [2, 3], [0, 2, 3]] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (K?, P?, M1?, M2?, Q?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (K?, P?, M1?, M2?, Q?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ; subst hπ
+  acu_branches
   -- branch (0,0) (1,0) (1,0) (1,0)
   refine rename (fun (K?, M1?, M2?, Z1) => ((K?, M1?, M2?), ![Z1]))
       (fun ((K?, M1?, M2?), Z) => (K?, M1?, M2?, Z 0))

@@ -51,9 +51,9 @@ example : complete problem answers := by
     --   P = {(0,0)} (the aliens cancel),  B = {(1,1)}.
     refine solve
       { V := fun (X?, Y?, _) => ![X?, Y?], rest := fun (_, _, N?) => N?,
-        glue := fun N? V => (V 0, V 1, N?), hglue := fun _ => rfl }
+        glue := fun N? V => (V 0, V 1, N?) }
       (fun N? => ![Elem.w N?])
-      { L := ![1, 0], R := ![0, 1], La := ![1], Ra := ![1], cp := fun _ _ => false }
+      { L := ![1, 0], R := ![0, 1], La := ![1], Ra := ![1] }
       { P := fun _ => [![0, 0]], B := ![![1, 1]] }
       ⟨?S0, ?S1p, ?S1b, S2_single _ _ _ _ _ ?S2, ?S3⟩ ?heq ?hdistinct ?next
     case heq =>
@@ -79,9 +79,9 @@ example : complete problem answers := by
     --   at a₁: x + 1 = y, P = {(0,1)};  at a₂: x = y + 1, P = {(1,0)};  B = {(1,1)}.
     refine solve
       { V := fun (X?, Y?, _, _) => ![X?, Y?], rest := fun (_, _, N?, M?) => (N?, M?),
-        glue := fun (N?, M?) V => (V 0, V 1, N?, M?), hglue := fun _ => rfl }
+        glue := fun (N?, M?) V => (V 0, V 1, N?, M?) }
       (fun (N?, M?) => ![Elem.w N?, Elem.w M?])
-      { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1] }
       { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
       ⟨?S0, ?S1p, ?S1b, S2_single _ _ _ _ _ ?S2, ?S3⟩ ?heq ?hdistinct ?next
     case heq =>
@@ -89,7 +89,7 @@ example : complete problem answers := by
       simpa [BagEq.Holds, side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
     case hdistinct =>
       intro ⟨X?, Y?, N?, M?⟩ _ ⟨_, hNM⟩ c c' hc _
-      fin_cases c <;> fin_cases c' <;> simp_all [eq_comm]
+      fin_cases c <;> fin_cases c' <;> simp_all [BagEq.cp, eq_comm]
     case S0 => decide
     case S1p => decide
     case S1b => decide
@@ -147,9 +147,9 @@ example : complete (problem (El := El)) answers := by
   --   each basis vector gets a fresh Z.
   refine solve
     { V := fun (X?, Y?, Z?) => ![X?, Y?, Z?], rest := fun _ => (),
-      glue := fun _ V => (V 0, V 1, V 2), hglue := fun _ => rfl }
+      glue := fun _ V => (V 0, V 1, V 2) }
     (fun _ => Fin.elim0)
-    { L := ![1, 1, 0], R := ![0, 0, 2], La := Fin.elim0, Ra := Fin.elim0, cp := fun _ _ => false }
+    { L := ![1, 1, 0], R := ![0, 0, 2], La := Fin.elim0, Ra := Fin.elim0 }
     { P := Fin.elim0, B := basis }
     ⟨?S0, ?S1p, ?S1b, S2_single _ _ _ _ _ ?S2, ?S3⟩ ?heq ?hdistinct ?next
   case heq =>

@@ -71,15 +71,15 @@ theorem complete : Unification.complete problem answers := by
     -- solve X? + {Elem.w N?} = Y? + {Elem.w N?}
     refine solve
         { V := fun (X?, Y?, _) => ![X?, Y?], rest := fun (_, _, N?) => N?,
-          glue := fun N? V => (V 0, V 1, N?), hglue := fun _ => rfl }
+          glue := fun N? V => (V 0, V 1, N?) }
         (fun N? => ![Elem.w N?])
-        { L := ![1, 0], R := ![0, 1], La := ![1], Ra := ![1], cp := fun _ _ => false }
+        { L := ![1, 0], R := ![0, 1], La := ![1], Ra := ![1] }
         { P := ![[![0, 0]]], B := ![![1, 1]] }
         ⟨by decide, by decide, by decide,
           S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques), by acu_basis⟩
         (fun (X?, Y?, N?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
         (fun (X?, Y?, N?) h hD => by acu_distinct) ?_
-    intro π hπ; simp [choices] at hπ; subst hπ
+    acu_branches
     -- branch (0,0)
     refine rename (fun (N?, Z1) => (N?, ![Z1]))
         (fun (N?, Z) => (N?, Z 0))
@@ -94,15 +94,15 @@ theorem complete : Unification.complete problem answers := by
     -- solve X? + {Elem.w N?} = Y? + {Elem.w M?}
     refine solve
         { V := fun (X?, Y?, _, _) => ![X?, Y?], rest := fun (_, _, N?, M?) => (N?, M?),
-          glue := fun (N?, M?) V => (V 0, V 1, N?, M?), hglue := fun _ => rfl }
+          glue := fun (N?, M?) V => (V 0, V 1, N?, M?) }
         (fun (N?, M?) => ![Elem.w N?, Elem.w M?])
-        { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+        { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1] }
         { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
         ⟨by decide, by decide, by decide,
           S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
         (fun (X?, Y?, N?, M?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
         (fun (X?, Y?, N?, M?) h hD => by acu_distinct) ?_
-    intro π hπ; simp [choices] at hπ; subst hπ
+    acu_branches
     -- branch (0,1) (1,0)
     refine rename (fun (N?, M?, Z1) => ((N?, M?), ![Z1]))
         (fun ((N?, M?), Z) => (N?, M?, Z 0))

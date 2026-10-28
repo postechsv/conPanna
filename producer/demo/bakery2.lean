@@ -67,15 +67,15 @@ theorem complete : Unification.complete problem answers := by
   -- solve P? + Q? = {Mode.wait N?} + R?
   refine solve
       { V := fun (_, P?, Q?, R?) => ![P?, Q?, R?], rest := fun (N?, _, _, _) => N?,
-        glue := fun N? V => (N?, V 0, V 1, V 2), hglue := fun _ => rfl }
+        glue := fun N? V => (N?, V 0, V 1, V 2) }
       (fun N? => ![Mode.wait N?])
-      { L := ![1, 1, 0], R := ![0, 0, 1], La := ![0], Ra := ![1], cp := fun _ _ => false }
+      { L := ![1, 1, 0], R := ![0, 0, 1], La := ![0], Ra := ![1] }
       { P := ![[![1, 0, 0], ![0, 1, 0]]], B := ![![1, 0, 1], ![0, 1, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (N?, P?, Q?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (N?, P?, Q?, R?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ; rcases hπ with rfl | rfl
+  acu_branches
   · -- branch (1,0,0)
     refine rename (fun (N?, Z1, Z2) => (N?, ![Z1, Z2]))
         (fun (N?, Z) => (N?, Z 0, Z 1))

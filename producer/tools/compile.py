@@ -321,7 +321,9 @@ class Compiler:
         """The injectivity lemma of the constructor on both sides of `eq`, if it has a name."""
         lhs = eq[0]
         op = self.ops.get(lhs.op) if isinstance(lhs, App) and lhs.args else None
-        return [f"{op}.injEq"] if op and re.fullmatch(r"[A-Za-z0-9_.']+", op) else []
+        # a name, or a template applying a name to the arguments (`German.Cache.mk {0} {1}`)
+        m = op and re.fullmatch(r"([A-Za-z0-9_.']+)( \{\d+\})*", op)
+        return [f"{m.group(1)}.injEq"] if m else []
 
     # terms -----------------------------------------------------------------
     def lean(self, t):
@@ -413,11 +415,8 @@ class Compiler:
         m = len(d["aliens"])
         vec = lambda xs: "![" + ", ".join(str(x) for x in xs) + "]"
         aliens = "![" + ", ".join(self.lean(a) for a in d["aliens"]) + "]"
-        if d["compatible"]:
-            cp = "fun c c' => " + " || ".join(f"(c == {i} && c' == {j}) || (c == {j} && c' == {i})"
-                                             for i, j in d["compatible"])
-        else:
-            cp = "fun _ _ => false"
+        compatible = (", compatible := [" + ", ".join(f"({i}, {j})" for i, j in d["compatible"]) + "]"
+                      if d["compatible"] else "")
         P = "![" + ", ".join("[" + ", ".join(vec(p) for p in ps) + "]" for ps in d["P"]) + "]"
         B = "![" + ", ".join(vec(b) for b in d["B"]) + "]"
         compat = set(d["compatible"]) | {(j, i) for i, j in d["compatible"]}
@@ -428,19 +427,17 @@ class Compiler:
         self.emit(ind, f"-- solve {self.eq(solved)}")
         self.emit(ind, "refine solve")
         self.emit(ind + 2, f"{{ V := {self.lam(ctx, vec(bag))}, rest := {self.lam(ctx, tuple_term(rest))},")
-        self.emit(ind + 3, f"glue := fun {self.pat(rest)} V => {glue}, hglue := fun _ => rfl }}")
+        self.emit(ind + 3, f"glue := fun {self.pat(rest)} V => {glue} }}")
         self.emit(ind + 2, f"({self.lam(rest, aliens)})")
         self.emit(ind + 2, f"{{ L := {vec(d['L'])}, R := {vec(d['R'])}, La := {vec(d['La'])},"
-                           f" Ra := {vec(d['Ra'])}, cp := {cp} }}")
+                           f" Ra := {vec(d['Ra'])}{compatible} }}")
         self.emit(ind + 2, f"{{ P := {P}, B := {B} }}")
         self.emit(ind + 2, f"⟨by decide, by decide, by decide,")
         self.emit(ind + 3, f"S2_of_list _ _ _ _ _ _ {cliques} (by decide) (by acu_cliques), by acu_basis⟩")
         self.emit(ind + 2, f"(fun {self.pat(ctx)} h => by {unfold}acu_side h)")
         self.emit(ind + 2, f"(fun {self.pat(ctx)} h hD => by acu_distinct) ?_")
         branches = d["branches"]
-        self.emit(ind, "intro π hπ; simp [choices] at hπ" + (
-            "" if not branches else "; subst hπ" if len(branches) == 1
-            else "; rcases hπ with " + " | ".join(["rfl"] * len(branches))))
+        self.emit(ind, "acu_branches")
         k = len(d["B"])
         fresh = sorted({int(x[1:]) for _, th, _ in branches for t in th.values()
                         for x in free_vars(t) if re.fullmatch(r"Z\d+", x)})

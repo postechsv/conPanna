@@ -43,14 +43,14 @@ theorem complete : Unification.complete problem answers := by
   -- solve X? + {Elem.w N?} = X? + {Elem.w (N? + 1)}
   refine solve
       { V := fun (X?, _, _, _) => ![X?], rest := fun (_, Y?, N?, M?) => (Y?, N?, M?),
-        glue := fun (Y?, N?, M?) V => (V 0, Y?, N?, M?), hglue := fun _ => rfl }
+        glue := fun (Y?, N?, M?) V => (V 0, Y?, N?, M?) }
       (fun (_, N?, _) => ![Elem.w N?, Elem.w (N? + 1)])
-      { L := ![1], R := ![1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+      { L := ![1], R := ![1], La := ![1, 0], Ra := ![0, 1] }
       { P := ![[], []], B := ![![1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
       (fun (X?, Y?, N?, M?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
       (fun (X?, Y?, N?, M?) h hD => by acu_distinct) ?_
-  intro π hπ; simp [choices] at hπ
+  acu_branches
 
 end Pipeline.T3
