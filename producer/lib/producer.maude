@@ -550,6 +550,16 @@ fmod PRODUCER is
   *** run(module, bag sorts, tuple op, original variables, equations)
   op run : Qid BagInfos Qid TermList Eqns -> Result .
   eq run(Q, BIs, F, TL, E) = runWith(Q, BIs, F, TL, E, allUnifs(upModule(Q, false), prob(E), 0)) .
+  *** the same, against Maude's filtered unifiers (none an instance of another)
+  op runFiltered : Qid BagInfos Qid TermList Eqns -> Result .
+  eq runFiltered(Q, BIs, F, TL, E) =
+    runWith(Q, BIs, F, TL, E, filteredUnifs(upModule(Q, false), prob(E), 0)) .
+  op filteredUnifs : Module UnificationProblem Nat -> Answers .
+  eq filteredUnifs(M, UP, N) = filteredAt(M, UP, N, metaVariantUnify(M, UP, empty, '#, filter, N)) .
+  op filteredAt : Module UnificationProblem Nat UnificationPair? -> Answers .
+  *** a variant unifier comes with its variable family, not a counter
+  eq filteredAt(M, UP, N, {Sb, Q}) = Sb :: filteredUnifs(M, UP, s N) .
+  eq filteredAt(M, UP, N, noUnifier) = noAns .
   *** run against a given answer set (e.g. a deliberately incomplete one)
   op runWith : Qid BagInfos Qid TermList Eqns Answers -> Result .
   eq runWith(Q, BIs, F, TL, E, AS) =

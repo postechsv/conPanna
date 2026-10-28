@@ -4,7 +4,7 @@
   Terms are printed in prefix form with the model's operator names; bag unions
   are written  t1 + t2 + ...  with elements in braces {t} and the unit as ∅.
   Original variables end in ?, fresh variables of SOLVE in !, and the answers'
-  own variables keep Maude's names #1, #2, ...  One rule per line; children are
+  own variables keep Maude's names #1, #2, ... (@1, @2, ... when filtered)  One rule per line; children are
   indented, and IDENTIFY / SOLVE label their branches.
 )
 load producer.maude
@@ -59,6 +59,7 @@ fmod SHOW is
     else if substr(string(getName(V)), 0, 1) == "F"
       then "Z" + substr(string(getName(V)), 1, length(string(getName(V))))
     else if substr(string(getName(V)), 0, 1) == "#" or substr(string(getName(V)), 0, 1) == "%"
+         or substr(string(getName(V)), 0, 1) == "@"
       then "U" + substr(string(getName(V)), 1, length(string(getName(V)))) + "!"
     else string(getName(V)) fi fi fi .
   eq showTerm(X, C) = if isUnit(bis(X), C) then "∅" else opName(getName(C)) fi .
@@ -200,6 +201,12 @@ fmod SHOW is
   *** preceded by its judgment:  ⊢ α (nontrivial images) | E | D .
   op certify : Qid BagInfos Qid TermList Eqns -> String .
   eq certify(Q, BIs, F, TL, E) = show(ctx(upModule(Q, false), BIs, F, TL, noAns), E, run(Q, BIs, F, TL, E)) .
+  *** against Maude's filtered unifiers: selected by producer/tools/derive.py
+  op certifyFiltered : Qid BagInfos Qid TermList Eqns -> String .
+  eq certifyFiltered(Q, BIs, F, TL, E) =
+    show(ctx(upModule(Q, false), BIs, F, TL, noAns), E, runFiltered(Q, BIs, F, TL, E)) .
+  op certifyFiltered : Qid BagInfos Qid TermList Term Term -> String .
+  eq certifyFiltered(Q, BIs, F, TL, T1, T2) = certifyFiltered(Q, BIs, F, TL, eqn(T1, T2)) .
   *** The same with the N-th answer of unify removed: a negative example.
   op certifyWithout : Qid BagInfos Qid TermList Term Term Nat -> String .
   eq certifyWithout(Q, BIs, F, TL, T1, T2, N) =

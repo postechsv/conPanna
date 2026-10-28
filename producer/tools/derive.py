@@ -9,12 +9,29 @@ Untrusted: Lean checks whatever is later compiled from it.
 """
 import pathlib, re, subprocess, sys
 
+import config
+
 HERE = pathlib.Path(__file__).resolve().parent
 MAUDE = "maude"
 
 
 def run_maude(request: pathlib.Path) -> str:
-    """Return the string result of the request's  red certify(...)  command."""
+    """Return the string result of the request's  red certify(...)  command. With the
+    producer option filter_unifiers (tools/config.py) the request runs against Maude's
+    filtered unifiers instead (certifyFiltered)."""
+    text = request.read_text()
+    if config.filter_unifiers() and "red certify(" in text:
+        # a copy next to the request, so that its relative loads still resolve
+        copy = request.with_name(f".filtered-{request.name}")
+        copy.write_text(text.replace("red certify(", "red certifyFiltered("))
+        try:
+            return run_maude_file(copy)
+        finally:
+            copy.unlink()
+    return run_maude_file(request)
+
+
+def run_maude_file(request: pathlib.Path) -> str:
     script = f"load {HERE.parent / 'lib' / 'show.maude'}\nload {request.resolve()}\nquit\n"
     out = subprocess.run([MAUDE, "-no-banner", "-no-wrap"], input=script.encode(),
                          capture_output=True, check=True).stdout.decode("utf-8")

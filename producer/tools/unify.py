@@ -9,9 +9,13 @@ Reply:   {"unifiers": [[{"X": T, ...}, ...], ...]}   one list of substitutions p
 A term T is {"var": name, "sort": S} or {"op": name, "sort": S, "args": [T, ...]}.
 In replies, only variables and constants carry a sort (Maude's meta-level output
 does not annotate applications). Fresh variables are Maude's #1, #2, ...
+With the producer option filter_unifiers (tools/config.py), Maude's filtered variant
+unification drops unifiers that are instances of others; its fresh variables are @1, @2, ...
 Untrusted: the unifiers are data; Lean certifies them separately.
 """
 import json, os, re, subprocess, sys
+
+import config
 
 ALL_UNIFIERS = """
 fmod ALL-UNIFIERS is
@@ -26,6 +30,12 @@ fmod ALL-UNIFIERS is
   eq all(M, P, N) = all(M, P, N, metaUnify(M, P, 0, N)) .
   eq all(M, P, N, noUnifier) = nil .
   eq all(M, P, N, UP) = UP ;; all(M, P, s N) .
+  *** filtered: without unifiers that are instances of others
+  op allf : Module UnificationProblem Nat -> UList .
+  op allf : Module UnificationProblem Nat UnificationPair? -> UList .
+  eq allf(M, P, N) = allf(M, P, N, metaVariantUnify(M, P, empty, '#, filter, N)) .
+  eq allf(M, P, N, noUnifier) = nil .
+  eq allf(M, P, N, UP) = UP ;; allf(M, P, s N) .
 endfm
 """
 
@@ -104,8 +114,9 @@ def parse(s):
 def main():
     req = json.load(open(sys.argv[1]) if len(sys.argv) > 1 else sys.stdin)
     script = f"load {os.path.abspath(req['model'])}\n{ALL_UNIFIERS}\n"
+    op = "allf" if config.filter_unifiers() else "all"
     for p in req["problems"]:
-        script += f"red all(upModule('CTOR, false), {render(p['lhs'])} =? {render(p['rhs'])}, 0) .\n"
+        script += f"red {op}(upModule('CTOR, false), {render(p['lhs'])} =? {render(p['rhs'])}, 0) .\n"
     run = subprocess.run(["maude", "-no-banner", "-no-wrap", "-no-advise"], input=script + "quit\n",
                          capture_output=True, text=True, check=True)
     out = run.stdout
