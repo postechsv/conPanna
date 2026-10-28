@@ -112,8 +112,9 @@ on German and dropped: 166 pre-image patches for the two coherence patterns alon
   unfolded the whole stack (now a `checkpoint` restates the state in direct form before
   every step); and COVER named the context variables against the whole answer list (now
   it selects its answer first). Each fix alone gave ~3×, both together ~19× on the largest
-  certificate (12m49s → 40s); the file went from ~24 min to ~4.5 min, and 71 of 75
-  certificates fit the default heartbeat budget (4 need 5×).
+  certificate (12m49s → 40s); the file went from ~24 min to ~4.5 min. Since the Lean rules act
+  on the first pending equation (see documentation/TODO.md), all 75 certificates fit the
+  default heartbeat budget.
 - Performance: the draft checks in about 1.5 minutes (rules elaborate in parallel); each
   rule needs a raised heartbeat limit for routing. Each `maude_match` attempt starts a
   fresh Python and Maude process (no caching); batching or a persistent process would cut

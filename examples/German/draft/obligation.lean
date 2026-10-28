@@ -2336,8 +2336,6 @@ theorem sendInvE_inv.obligation_2 :
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := Gnt.noGnt, ch3 := x.2.2.2.2.1 }})] := by
   sorry
 
--- a large certificate: beyond the default budget
-set_option maxHeartbeats 1000000 in
 theorem sendInvE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire sendInvE ownE)
       [Unification.Unifier.bind fun (x : ℕ × Cmd × ℕ × Oids × CacheState × Req × Ack × ℕ × Bool × Oids × ℕ × Req) =>
@@ -3288,8 +3286,6 @@ theorem sendInvS_inv.obligation_2 :
                     inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }})] := by
   sorry
 
--- a large certificate: beyond the default budget
-set_option maxHeartbeats 1000000 in
 theorem sendInvS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire sendInvS ownE)
       [Unification.Unifier.bind fun (x : ℕ × ℕ × Oids × CacheState × Req × Ack × ℕ × Oids × ℕ × Req × Cmd) =>
@@ -5012,8 +5008,6 @@ theorem recvInvAckS_inv.obligation_8 :
               {Item.cache { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- a large certificate: beyond the default budget
-set_option maxHeartbeats 1000000 in
 theorem recvInvAckS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire recvInvAckS ownAck)
       [Unification.Unifier.bind fun (x : ℕ × Req × Cmd × ℕ × CacheState × Req × Gnt × Cmd × ℕ × Bool × Oids × ℕ) =>
@@ -5680,8 +5674,6 @@ theorem recvInvAckN_inv.obligation_8 :
               {Item.cache { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := x.2.2.2.1, ch3 := Ack.invAck }})] := by
   sorry
 
--- a large certificate: beyond the default budget
-set_option maxHeartbeats 1000000 in
 theorem recvInvAckN_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire recvInvAckN ownAck)
       [Unification.Unifier.bind

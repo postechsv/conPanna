@@ -760,3 +760,5 @@ an infeasible residual constraint denotes an empty successor.
   and SOLVE; `checkpoint` now also reduces under binders, including tuple projections
   (`(a, b).1`), or the equations accumulate them and late steps exceed the default
   heartbeat budget.
+- Heartbeats over German's 75 certificates: −20% in total, −50% on the largest; all now
+  fit the default budget (four needed 5× before).
