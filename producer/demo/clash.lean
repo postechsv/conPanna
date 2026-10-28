@@ -47,8 +47,8 @@ theorem complete : Unification.complete problem answers := by
   -- ⊢ - | Conf.mk (N? + 1) N? P? = Conf.mk 0 M? Q? | -
   checkpoint
   -- decomp Conf.mk (N? + 1) N? P? = Conf.mk 0 M? Q?
-  refine decomp (fun (N?, P?, M?, Q?) => (N? + 1) = 0 ∧ N? = M? ∧ P? = Q?)
-      (fun (N?, P?, M?, Q?) h => by acu_free [problem]) ?_
+  refine decomp [fun (N?, _, _, _) => (N? + 1) = 0, fun (N?, _, M?, _) => N? = M?, fun (_, P?, _, Q?) => P? = Q?]
+      (fun (N?, P?, M?, Q?) h => by acu_decomp [problem, Conf.mk.injEq]) ?_
   -- ⊢ - | (N? + 1) = 0; N? = M?; P? = Q? | -
   checkpoint
   -- clash

@@ -55,14 +55,16 @@ theorem complete : Unification.complete problem answers := by
   -- ⊢ - | P? + {Mode.wait N?} = Q? + {Mode.idle} | -
   checkpoint
   -- solve P? + {Mode.wait N?} = Q? + {Mode.idle}
-  refine solve (V := fun (_, P?, Q?) => ![P?, Q?]) (rest := fun (N?, _, _) => N?)
-      (glue := fun N? V => (N?, V 0, V 1)) (hglue := fun _ => rfl)
-      (a := fun N? => ![Mode.wait N?, Mode.idle]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0]) (Ra := ![0, 1])
-      (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
-      (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-      (fun (N?, P?, Q?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
-      (by decide) (by decide) (by decide)
-      (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
+  refine solve
+      { V := fun (_, P?, Q?) => ![P?, Q?], rest := fun (N?, _, _) => N?,
+        glue := fun N? V => (N?, V 0, V 1), hglue := fun _ => rfl }
+      (fun N? => ![Mode.wait N?, Mode.idle])
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+      { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
+      ⟨by decide, by decide, by decide,
+        S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
+      (fun (N?, P?, Q?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+      (fun (N?, P?, Q?) h hD => by acu_distinct) ?_
   intro π hπ; simp [choices] at hπ; subst hπ
   -- branch (0,1) (1,0)
   refine rename (fun (N?, Z1) => (N?, ![Z1]))

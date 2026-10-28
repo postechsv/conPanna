@@ -40,25 +40,26 @@ example : complete problem answers := by
   refine identify (fun (_, _, N?, _) => Elem.w N?) (fun (_, _, _, M?) => Elem.w M?) ?eq ?ne
   case eq =>
     -- ⟨id ; X? + {w N?} = Y? + {w M?}, w N? = w M? ; ∅⟩
-    -- DECOMP: w is free, so N? = M?.
-    refine decomp (fun (X?, Y?, N?, M?) => X? + {.w N?} = Y? + {.w M?} ∧ N? = M?)
-      (fun _ ⟨h, hw⟩ => ⟨h, Elem.w.inj hw⟩) ?_
+    -- DECOMP w N? = w M?: w is free, so N? = M?.
+    refine decomp [fun (_, _, N?, M?) => N? = M?] (fun _ hw => ⟨Elem.w.inj hw, trivial⟩) ?_
+    -- ⟨id ; N? = M?, X? + {w N?} = Y? + {w M?} ; ∅⟩
     -- ELIM M? := N?. The context becomes (X?, Y?, N?).
-    refine elim (fun (X?, Y?, N?) => (X?, Y?, N?, N?)) (fun (X?, Y?, N?) => X? + {.w N?} = Y? + {.w N?})
-      (fun (X?, Y?, N?, M?) ⟨h, hNM⟩ => ⟨(X?, Y?, N?), by subst hNM; rfl, by subst hNM; exact h⟩) ?_
+    refine elim (fun (X?, Y?, N?) => (X?, Y?, N?, N?))
+      (fun (X?, Y?, N?, M?) hNM => ⟨(X?, Y?, N?), by subst hNM; rfl⟩) ?_
     -- ⟨M? ↦ N? ; X? + {w N?} = Y? + {w N?} ; ∅⟩
     -- SOLVE: one alien class; per element x + 1 = y + 1 at w N?, x = y elsewhere.
     --   P = {(0,0)} (the aliens cancel),  B = {(1,1)}.
-    refine solve (V := fun (X?, Y?, _) => ![X?, Y?]) (rest := fun (_, _, N?) => N?)
-      (glue := fun N? V => (V 0, V 1, N?)) (hglue := fun _ => rfl)
-      (a := fun N? => ![Elem.w N?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1]) (Ra := ![1])
-      (E' := fun _ => True) (P := fun _ => [![0, 0]]) (B := ![![1, 1]])
-      (cp := fun _ _ => false)
-      ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
-    case hE =>
-      intro ⟨X?, Y?, N?⟩ h _
-      refine ⟨?_, trivial, fun c c' hc _ => absurd (Subsingleton.elim c c') hc⟩
-      simpa [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
+    refine solve
+      { V := fun (X?, Y?, _) => ![X?, Y?], rest := fun (_, _, N?) => N?,
+        glue := fun N? V => (V 0, V 1, N?), hglue := fun _ => rfl }
+      (fun N? => ![Elem.w N?])
+      { L := ![1, 0], R := ![0, 1], La := ![1], Ra := ![1], cp := fun _ _ => false }
+      { P := fun _ => [![0, 0]], B := ![![1, 1]] }
+      ⟨?S0, ?S1p, ?S1b, S2_single _ _ _ _ _ ?S2, ?S3⟩ ?heq ?hdistinct ?next
+    case heq =>
+      intro ⟨X?, Y?, N?⟩ h
+      simpa [BagEq.Holds, side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
+    case hdistinct => intro _ _ _ c c' hc _; exact absurd (Subsingleton.elim c c') hc
     case S0 => decide
     case S1p => decide
     case S1b => decide
@@ -71,23 +72,24 @@ example : complete problem answers := by
       intro π hπ; simp [choices] at hπ; subst hπ
       -- COVER with answer 4: U1! := Z1, U2! := N?.
       exact cover answer4 (.tail _ (.tail _ (.tail _ (.head _)))) fun (N?, Z) _ _ =>
-        ⟨(Z 0, N?), by simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; rfl⟩
+        ⟨(Z 0, N?), by simp [theta, sum, ACU.plus_unit, ACU.unit_plus]; rfl⟩
   case ne =>
     -- ⟨id ; X? + {w N?} = Y? + {w M?} ; w N? ≠ w M?⟩
     -- SOLVE: two alien classes a₁ = w N?, a₂ = w M?.
     --   at a₁: x + 1 = y, P = {(0,1)};  at a₂: x = y + 1, P = {(1,0)};  B = {(1,1)}.
-    refine solve (V := fun (X?, Y?, _, _) => ![X?, Y?]) (rest := fun (_, _, N?, M?) => (N?, M?))
-      (glue := fun (N?, M?) V => (V 0, V 1, N?, M?)) (hglue := fun _ => rfl)
-      (a := fun (N?, M?) => ![Elem.w N?, Elem.w M?]) (L := ![1, 0]) (R := ![0, 1])
-      (La := ![1, 0]) (Ra := ![0, 1]) (E' := fun _ => True)
-      (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-      (cp := fun _ _ => false)
-      ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
-    case hE =>
-      intro ⟨X?, Y?, N?, M?⟩ h ⟨_, hNM⟩
-      refine ⟨?_, trivial, fun c c' hc _ => ?_⟩
-      · simpa [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
-      · fin_cases c <;> fin_cases c' <;> simp_all [eq_comm]
+    refine solve
+      { V := fun (X?, Y?, _, _) => ![X?, Y?], rest := fun (_, _, N?, M?) => (N?, M?),
+        glue := fun (N?, M?) V => (V 0, V 1, N?, M?), hglue := fun _ => rfl }
+      (fun (N?, M?) => ![Elem.w N?, Elem.w M?])
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+      { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
+      ⟨?S0, ?S1p, ?S1b, S2_single _ _ _ _ _ ?S2, ?S3⟩ ?heq ?hdistinct ?next
+    case heq =>
+      intro ⟨X?, Y?, N?, M?⟩ h
+      simpa [BagEq.Holds, side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus] using h
+    case hdistinct =>
+      intro ⟨X?, Y?, N?, M?⟩ _ ⟨_, hNM⟩ c c' hc _
+      fin_cases c <;> fin_cases c' <;> simp_all [eq_comm]
     case S0 => decide
     case S1p => decide
     case S1b => decide
@@ -103,7 +105,7 @@ example : complete problem answers := by
       intro π hπ; simp [choices] at hπ; subst hπ
       -- COVER with answer 2: U1! := N?, U2! := M?, U3! := Z1.
       exact cover answer2 (.tail _ (.head _)) fun ((N?, M?), Z) _ _ =>
-        ⟨(N?, M?, Z 0), by simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; ac_rfl⟩
+        ⟨(N?, M?, Z 0), by simp [theta, sum, ACU.plus_unit, ACU.unit_plus]; ac_rfl⟩
 
 end Mixed
 
@@ -143,18 +145,19 @@ example : complete (problem (El := El)) answers := by
   -- SOLVE: no aliens; per element x + y = 2z.
   --   B = {(2,0,1), (1,1,1), (0,2,1)}, the multiplicities of U1! U2! U3! in answer 8;
   --   each basis vector gets a fresh Z.
-  refine solve (V := fun (X?, Y?, Z?) => ![X?, Y?, Z?]) (rest := fun _ => ())
-    (glue := fun _ V => (V 0, V 1, V 2)) (hglue := fun _ => rfl)
-    (a := fun _ => Fin.elim0) (L := ![1, 1, 0]) (R := ![0, 0, 2]) (La := Fin.elim0) (Ra := Fin.elim0)
-    (E' := fun _ => True) (P := Fin.elim0) (B := basis)
-    (cp := fun _ _ => false)
-    ?hE ?S0 ?S1p ?S1b (S2_single _ _ _ _ _ ?S2) ?S3 ?next
-  case hE =>
-    intro ⟨X?, Y?, Z?⟩ h _
+  refine solve
+    { V := fun (X?, Y?, Z?) => ![X?, Y?, Z?], rest := fun _ => (),
+      glue := fun _ V => (V 0, V 1, V 2), hglue := fun _ => rfl }
+    (fun _ => Fin.elim0)
+    { L := ![1, 1, 0], R := ![0, 0, 2], La := Fin.elim0, Ra := Fin.elim0, cp := fun _ _ => false }
+    { P := Fin.elim0, B := basis }
+    ⟨?S0, ?S1p, ?S1b, S2_single _ _ _ _ _ ?S2, ?S3⟩ ?heq ?hdistinct ?next
+  case heq =>
+    intro ⟨X?, Y?, Z?⟩ h
     have h : X? + Y? = Z? + Z? := h
-    refine ⟨?_, trivial, fun c => c.elim0⟩
-    simp [side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
+    simp [BagEq.Holds, side, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
     exact h
+  case hdistinct => intro _ _ _ c; exact c.elim0
   case S0 => decide
   case S1p => intro c; exact c.elim0
   case S1b => intro j; fin_cases j <;> decide
@@ -176,7 +179,7 @@ example : complete (problem (El := El)) answers := by
       ⟨(Z 0, Z 1, Z 2), by
         obtain ⟨Z1, Z2, Z3, rfl⟩ : ∃ a b c, Z = ![a, b, c] :=
           ⟨Z 0, Z 1, Z 2, funext fun i => by fin_cases i <;> rfl⟩
-        simp [State.start, theta, sum, copies, basis, ACU.plus_unit, ACU.unit_plus]
+        simp [State.subst, theta, sum, copies, basis, ACU.plus_unit, ACU.unit_plus]
         refine ⟨?_, ?_⟩ <;> ac_rfl⟩
 
 end Nonlinear

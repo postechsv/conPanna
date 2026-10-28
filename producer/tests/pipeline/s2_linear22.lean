@@ -71,14 +71,16 @@ theorem complete : Unification.complete problem answers := by
   -- ⊢ - | X1? + X2? = Y1? + Y2? | -
   checkpoint
   -- solve X1? + X2? = Y1? + Y2?
-  refine solve (V := fun (X1?, X2?, Y1?, Y2?) => ![X1?, X2?, Y1?, Y2?]) (rest := fun (_, _, _, _) => ())
-      (glue := fun _ V => (V 0, V 1, V 2, V 3)) (hglue := fun _ => rfl)
-      (a := fun _ => ![]) (L := ![1, 1, 0, 0]) (R := ![0, 0, 1, 1]) (La := ![]) (Ra := ![])
-      (E' := fun (_, _, _, _) => True) (cp := fun _ _ => false)
-      (P := ![]) (B := ![![1, 0, 1, 0], ![0, 1, 1, 0], ![1, 0, 0, 1], ![0, 1, 0, 1]])
-      (fun (X1?, X2?, Y1?, Y2?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
-      (by decide) (by decide) (by decide)
-      (S2_of_list _ _ _ _ _ _ [] (by decide) (by acu_cliques)) (by acu_basis) ?_
+  refine solve
+      { V := fun (X1?, X2?, Y1?, Y2?) => ![X1?, X2?, Y1?, Y2?], rest := fun (_, _, _, _) => (),
+        glue := fun _ V => (V 0, V 1, V 2, V 3), hglue := fun _ => rfl }
+      (fun _ => ![])
+      { L := ![1, 1, 0, 0], R := ![0, 0, 1, 1], La := ![], Ra := ![], cp := fun _ _ => false }
+      { P := ![], B := ![![1, 0, 1, 0], ![0, 1, 1, 0], ![1, 0, 0, 1], ![0, 1, 0, 1]] }
+      ⟨by decide, by decide, by decide,
+        S2_of_list _ _ _ _ _ _ [] (by decide) (by acu_cliques), by acu_basis⟩
+      (fun (X1?, X2?, Y1?, Y2?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+      (fun (X1?, X2?, Y1?, Y2?) h hD => by acu_distinct) ?_
   intro π hπ; simp [choices] at hπ; subst hπ
   -- branch 
   refine rename (fun (Z1, Z2, Z3, Z4) => ((), ![Z1, Z2, Z3, Z4]))

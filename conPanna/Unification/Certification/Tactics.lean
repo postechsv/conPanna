@@ -10,13 +10,14 @@ and these tactics only check equalities and closed Presburger formulas.
 
 namespace Unification.Certification
 
-/-- A free step (DECOMP, ELIM): split the pending conjunction, substitute solved
-variables, and close by constructor injectivity. Extra lemmas unfold the problem. -/
+/-- A free step (CLASH, and the fallback of DECOMP and ELIM): split the pending
+equations, substitute solved variables, and close by constructor injectivity. Extra
+lemmas unfold the problem. -/
 syntax "acu_free" (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
 macro_rules
   | `(tactic| acu_free) => `(tactic| acu_free [])
   | `(tactic| acu_free [$xs,*]) => `(tactic| (
-      try simp only [State.start, unifiedBy, theta, sum, copies, Function.comp_apply,
+      try simp only [Eqs, State.start, unifiedBy, theta, sum, copies, Function.comp_apply,
         List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero,
         Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one,
         copies_zero, copies_one, ACU.plus_unit, ACU.unit_plus, $xs,*] at *
@@ -31,49 +32,63 @@ macro_rules
       try assumption
       try simp_all))
 
+set_option hygiene false in
+/-- DECOMP `f(s⃗) = f(t⃗)`, from the first equation `h`: by the constructor's injectivity
+lemma `f.injEq`, given with the lemmas that unfold the problem. Arguments that are bags
+are compared modulo AC. -/
+syntax "acu_decomp" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+set_option hygiene false in
+macro_rules
+  | `(tactic| acu_decomp [$xs,*]) => `(tactic| (
+      simp only [Eqs, List.foldr_cons, List.foldr_nil, and_true, unifiedBy, $xs,*] at h ⊢
+      first
+        | exact h
+        | (ac_nf at h ⊢ <;> exact h)
+        | acu_free [$xs,*]))
+
+set_option hygiene false in
+/-- ELIM `V = t`, from the first equation `h`: substitute it, then the valuation is
+the image of the smaller one. -/
+syntax "acu_elim" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+set_option hygiene false in
+macro_rules
+  | `(tactic| acu_elim [$xs,*]) => `(tactic| (
+      first
+        | (subst h; rfl)
+        | (simp only [unifiedBy, $xs,*] at h; subst h; rfl)
+        | acu_free [$xs,*]))
+
 /-- The bag equation of SOLVE, read off a proof `h` of it: unfold the coefficient
 form `side`, normalize modulo ACU, compare. -/
 macro "acu_side " h:term : tactic => `(tactic| (
   have hb := $h
-  simp only [theta, Function.comp_apply, side, sum, copies, List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil,
+  simp only [BagEq.Holds, theta, Function.comp_apply, side, sum, copies, List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil,
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons,
     Fin.succ_zero_eq_one, ACU.plus_unit, ACU.unit_plus] at hb ⊢
   try ac_nf at hb ⊢
   try exact hb))
 
-/-- The remaining equations after SOLVE, read off a proof `h` of them: SOLVE's answer
-`θ_π` may occur anywhere in them (e.g. inside a constructor), so evaluate it and normalize
-modulo ACU on both sides before comparing. -/
-macro "acu_rest " h:term : tactic => `(tactic| (
-  have hb := $h
-  try simp only [theta, Function.comp_apply, sum, copies, List.ofFn_succ, List.ofFn_zero,
-    List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero, Matrix.cons_val_one,
-    Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one, copies_zero, copies_one, ACU.plus_unit,
-    ACU.unit_plus] at hb ⊢
-  try ac_nf at hb ⊢
-  try exact hb))
-
 set_option hygiene false in
 /-- Distinctness of incompatible alien classes: by constructor disjointness,
-recorded disequations, or arithmetic. Cheap cases first; the bag equations `h` of the
-SOLVE step are not needed for distinctness, and simplifying them can be very costly, so
-they are dropped before `simp_all` (the full context is the last resort). -/
+recorded disequations, or arithmetic. Cheap cases first; the pending equations `h` are
+rarely needed for distinctness, and simplifying them can be very costly, so they are
+dropped before `simp_all` (the full context is the last resort). -/
 macro "acu_distinct" : tactic => `(tactic| (
   intro c c' hcc hcp
   fin_cases c <;> fin_cases c' <;>
     first
       | exact absurd rfl hcc
       | (simp at hcp; done)
-      | (simp [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
-      | (clear h; simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (simp [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (clear h; simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
       -- the disequation recorded the other way round (`fin_cases` gives both orders):
       -- flip the goal rather than rewrite with `eq_comm`, which is costly
-      | (clear h; refine Ne.symm ?_; simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus];
+      | (clear h; refine Ne.symm ?_; simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus];
          done)
-      | (clear h; simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
-      | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
-      | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
-      | (simp_all [theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
+      | (clear h; simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
+      | (simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      | (simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
+      | (simp_all [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
 
 /-- S2 over the listed cliques: one closed Presburger formula per clique. -/
 macro "acu_cliques" : tactic => `(tactic| (
@@ -109,15 +124,30 @@ macro "acu_cover" : tactic => `(tactic| (
 open Lean Meta Elab Tactic in
 /-- Restate a goal `s ⊩ U` with the state in direct form. Each step's state is the previous
 state composed with the step's substitution, so without this a late step unfolds the whole
-stack. Unfolds `Function.comp` and the `State` fields, then reduces beta, projections and
-tuple matches; the new goal is definitionally equal. -/
+stack. Unfolds `State.subst`, `Function.comp`, the list operations of the rules and the
+fields of states and SOLVE's data, then reduces beta, tuple matches and projections of
+tuples (`(a, b).1`), also under binders: the pending equations are functions, and are
+substituted at every ELIM and SOLVE. The new goal is definitionally equal. -/
 elab "checkpoint" : tactic => liftMetaTactic1 fun goal => do
   let ty ← deltaExpand (← instantiateMVars (← goal.getType)) fun n =>
-    n == ``Function.comp || n == ``State.α || n == ``State.E || n == ``State.D
+    n == ``State.subst || n == ``State.start || n == ``Function.comp ||
+    n == ``State.α || n == ``State.E || n == ``State.D ||
+    n == ``Split.glue || n == ``SolveData.B ||
+    n == ``List.map || n == ``HAppend.hAppend || n == ``Append.append ||
+    n == ``instHAppendOfAppend || n == ``List.instAppend || n == ``List.append
   let ty ← Meta.transform ty (post := fun e => do
-    if e.isLambda || e.isForall || e.isMData then return .done e
+    if e.isMData then return .done e
     let e' ← whnfCore e
-    return if e' == e then .done e else .visit e')
+    if e' != e then return .visit e'
+    -- a structure projection applied to a constructor, e.g. `(a, b).1`; not class
+    -- projections such as `HAdd.hAdd`, which would unfold `+`
+    if let .const n _ := e.getAppFn then
+      if let some info ← getProjectionFnInfo? n then
+        unless info.fromClass do
+          if let some e' ← unfoldDefinition? e then
+            let e' ← whnfCore e'
+            unless e'.isProj do return .visit e'
+    return .done e)
   some <$> goal.replaceTargetDefEq ty
 
 end Unification.Certification

@@ -102,8 +102,8 @@ on German and dropped: 166 pre-image patches for the two coherence patterns alon
 - Certification (completeness obligations, `German/draft/obligation.lean`; soundness left
   `sorry`): 78 cells. Fixed on the way (general producer/replay bugs): ill-sorted variable
   elimination; bag variables now eliminated by a term without them (no SOLVE); elimination
-  printed with bag braces; SOLVE answers (`theta`) evaluated in later steps (`acu_rest`,
-  `acu_free`, `copies_zero`/`copies_one`). Performance fixes found by profiling one large
+  printed with bag braces; SOLVE answers (`theta`) evaluated in later steps
+  (`copies_zero`/`copies_one` in the step tactics). Performance fixes found by profiling one large
   certificate (18 min → 2.5 min): `acu_distinct` fell back to `simp_all [eq_comm]` when a
   disequation was recorded the other way round (912 s in one call; now it flips the goal
   and drops the bag equations it never needs); COVER picks its answer by rewriting.

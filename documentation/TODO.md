@@ -732,8 +732,8 @@ an infeasible residual constraint denotes an empty successor.
   was replayed as differently indexed `theta` terms on the two sides ("Application type
   mismatch" in `maude_certify_comp`; seen in 2PC and German).
 - Fixed: bag variables are eliminated directly by a term without them (no SOLVE);
-  elimination prints bag braces; later steps evaluate `theta` (`acu_rest`, `acu_free`,
-  `copies_zero`/`copies_one`). All German certificates replay.
+  elimination prints bag braces; later steps evaluate `theta` (`copies_zero`/`copies_one`
+  in the step tactics). All German certificates replay.
 
 ## Fixed: replay cost of large certificates
 
@@ -742,3 +742,21 @@ an infeasible residual constraint denotes an empty successor.
   `checkpoint` before every step (state restated in direct form, definitionally) and COVER
   selecting its answer first. German's largest certificate: ~13 min → 40 s.
 - Next lever if needed: proof by reflection (a checker evaluated by the kernel).
+
+## Done: the Lean rules act on the first pending equation, as in the paper
+
+- The pending equations of a state are a list; DELETE, DECOMP, ELIM and SOLVE act on its
+  first equation and carry the others over (`State.subst` for ELIM and SOLVE). The
+  certificate no longer restates the remaining equations: DECOMP gives only the new
+  equations (proved by the constructor's `injEq`), ELIM only the substitution (`subst`),
+  SOLVE drops its `E'` argument and `acu_rest`. SOLVE's arguments are bundled as in the
+  paper: `Split` (bag variables and the rest), `BagEq` (the coefficient form), `SolveData`
+  (P, B) and `SolveData.Valid` (S0–S3).
+- Measured on three German certificates before adopting: same replay time (within noise),
+  scripts ~18% shorter. About half of the replay time is elaborating the rule steps
+  themselves, the rest is SOLVE's checks; both are what reflection would remove.
+- The producer must keep applying each rule to the first equation (it always does).
+- Since the pending equations are no longer reprinted, they are substituted at every ELIM
+  and SOLVE; `checkpoint` now also reduces under binders, including tuple projections
+  (`(a, b).1`), or the equations accumulate them and late steps exceed the default
+  heartbeat budget.

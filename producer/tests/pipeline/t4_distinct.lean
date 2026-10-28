@@ -46,9 +46,9 @@ def answers : UnifierSet (Bag × Bag × Nat × Nat) :=
 
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
-  -- decomp of the tuple equation into the system
-  refine decomp (fun (X?, Y?, N?, M?) => X? + {Elem.w N?} = Y? + {Elem.w M?} ∧ N? = M?)
-      (fun (X?, Y?, N?, M?) h => by acu_free [problem]) ?_
+  -- decomp the tuple equation of the claim
+  refine decomp [fun (X?, Y?, N?, M?) => X? + {Elem.w N?} = Y? + {Elem.w M?}, fun (_, _, N?, M?) => N? = M?]
+      (fun (X?, Y?, N?, M?) h => by acu_decomp [problem, Prod.mk.injEq]) ?_
   -- ⊢ - | X? + {Elem.w N?} = Y? + {Elem.w M?}; N? = M? | -
   checkpoint
   -- identify Elem.w N? ~ Elem.w M?
@@ -57,25 +57,26 @@ theorem complete : Unification.complete problem answers := by
     -- ⊢ - | Elem.w N? = Elem.w M?; X? + {Elem.w N?} = Y? + {Elem.w M?}; N? = M? | -
     checkpoint
     -- decomp Elem.w N? = Elem.w M?
-    refine decomp (fun (X?, Y?, N?, M?) => N? = M? ∧ X? + {Elem.w N?} = Y? + {Elem.w M?} ∧ N? = M?)
-        (fun (X?, Y?, N?, M?) h => by acu_free [problem]) ?_
+    refine decomp [fun (_, _, N?, M?) => N? = M?]
+        (fun (X?, Y?, N?, M?) h => by acu_decomp [problem, Elem.w.injEq]) ?_
     -- ⊢ - | N? = M?; X? + {Elem.w N?} = Y? + {Elem.w M?}; N? = M? | -
     checkpoint
     -- elim M? := N?
     refine elim (fun (X?, Y?, N?) => (X?, Y?, N?, N?))
-        (fun (X?, Y?, N?) => X? + {Elem.w N?} = Y? + {Elem.w N?} ∧ N? = N?)
-        (fun (X?, Y?, N?, M?) h => ⟨(X?, Y?, N?), by acu_free [problem], by acu_free [problem]⟩) ?_
+        (fun (X?, Y?, N?, M?) h => ⟨(X?, Y?, N?), by acu_elim [problem]⟩) ?_
     -- ⊢ M? := N? | X? + {Elem.w N?} = Y? + {Elem.w N?}; N? = N? | -
     checkpoint
     -- solve X? + {Elem.w N?} = Y? + {Elem.w N?}
-    refine solve (V := fun (X?, Y?, _) => ![X?, Y?]) (rest := fun (_, _, N?) => N?)
-        (glue := fun N? V => (V 0, V 1, N?)) (hglue := fun _ => rfl)
-        (a := fun N? => ![Elem.w N?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1]) (Ra := ![1])
-        (E' := fun (_, _, N?) => N? = N?) (cp := fun _ _ => false)
-        (P := ![[![0, 0]]]) (B := ![![1, 1]])
-        (fun (X?, Y?, N?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, by acu_rest h.2, by acu_distinct⟩)
-        (by decide) (by decide) (by decide)
-        (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
+    refine solve
+        { V := fun (X?, Y?, _) => ![X?, Y?], rest := fun (_, _, N?) => N?,
+          glue := fun N? V => (V 0, V 1, N?), hglue := fun _ => rfl }
+        (fun N? => ![Elem.w N?])
+        { L := ![1, 0], R := ![0, 1], La := ![1], Ra := ![1], cp := fun _ _ => false }
+        { P := ![[![0, 0]]], B := ![![1, 1]] }
+        ⟨by decide, by decide, by decide,
+          S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques), by acu_basis⟩
+        (fun (X?, Y?, N?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+        (fun (X?, Y?, N?) h hD => by acu_distinct) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
     -- branch (0,0)
     refine rename (fun (N?, Z1) => (N?, ![Z1]))
@@ -84,8 +85,7 @@ theorem complete : Unification.complete problem answers := by
     -- ⊢ M? := N?, X? := Z1, Y? := Z1 | N? = N? | -
     checkpoint
     -- delete N? = N?
-    refine decomp (fun (_, _) => True)
-        (fun (N?, Z1) h => by acu_free [problem]) ?_
+    refine delete ?_
     -- ⊢ M? := N?, X? := Z1, Y? := Z1 | - | -
     checkpoint
     -- cover answer 3 with U1! := N?, U2! := Z1
@@ -94,14 +94,16 @@ theorem complete : Unification.complete problem answers := by
     -- ⊢ - | X? + {Elem.w N?} = Y? + {Elem.w M?}; N? = M? | Elem.w N? ≠ Elem.w M?
     checkpoint
     -- solve X? + {Elem.w N?} = Y? + {Elem.w M?}
-    refine solve (V := fun (X?, Y?, _, _) => ![X?, Y?]) (rest := fun (_, _, N?, M?) => (N?, M?))
-        (glue := fun (N?, M?) V => (V 0, V 1, N?, M?)) (hglue := fun _ => rfl)
-        (a := fun (N?, M?) => ![Elem.w N?, Elem.w M?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0]) (Ra := ![0, 1])
-        (E' := fun (_, _, N?, M?) => N? = M?) (cp := fun _ _ => false)
-        (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-        (fun (X?, Y?, N?, M?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, by acu_rest h.2, by acu_distinct⟩)
-        (by decide) (by decide) (by decide)
-        (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
+    refine solve
+        { V := fun (X?, Y?, _, _) => ![X?, Y?], rest := fun (_, _, N?, M?) => (N?, M?),
+          glue := fun (N?, M?) V => (V 0, V 1, N?, M?), hglue := fun _ => rfl }
+        (fun (N?, M?) => ![Elem.w N?, Elem.w M?])
+        { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+        { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
+        ⟨by decide, by decide, by decide,
+          S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
+        (fun (X?, Y?, N?, M?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+        (fun (X?, Y?, N?, M?) h hD => by acu_distinct) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
     -- branch (0,1) (1,0)
     refine rename (fun (N?, M?, Z1) => ((N?, M?), ![Z1]))
@@ -111,8 +113,7 @@ theorem complete : Unification.complete problem answers := by
     checkpoint
     -- elim M? := N?
     refine elim (fun (N?, Z1) => (N?, N?, Z1))
-        (fun (_, _) => True)
-        (fun (N?, M?, Z1) h => ⟨(N?, Z1), by acu_free [problem], by acu_free [problem]⟩) ?_
+        (fun (N?, M?, Z1) h => ⟨(N?, Z1), by acu_elim [problem]⟩) ?_
     -- ⊢ M? := N?, X? := Z1 + {Elem.w N?}, Y? := Z1 + {Elem.w N?} | - | Elem.w N? ≠ Elem.w N?
     checkpoint
     -- distinct

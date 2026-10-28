@@ -317,6 +317,12 @@ class Compiler:
     def free(self):
         return f"acu_free [{', '.join(self.unfold)}]"
 
+    def inj(self, eq):
+        """The injectivity lemma of the constructor on both sides of `eq`, if it has a name."""
+        lhs = eq[0]
+        op = self.ops.get(lhs.op) if isinstance(lhs, App) and lhs.args else None
+        return [f"{op}.injEq"] if op and re.fullmatch(r"[A-Za-z0-9_.']+", op) else []
+
     # terms -----------------------------------------------------------------
     def lean(self, t):
         if isinstance(t, Var):
@@ -357,22 +363,24 @@ class Compiler:
                        f" | {'; '.join(self.eq(e).replace(' = ', ' ≠ ') for e in dis) or '-'}")
         # restate the state in direct form, so later steps do not unfold the previous ones
         self.emit(ind, "checkpoint")
-        if n.rule in ("decomp", "delete"):
+        if n.rule == "delete":
+            self.emit(ind, f"-- delete {self.eq(eqs[0])}")
+            self.emit(ind, "refine delete ?_")
+            self.node(n.children[0], ctx, ind)
+        elif n.rule == "decomp":
+            # the first equation is replaced by the new ones; the others are carried over
             nxt = n.children[0]
-            self.emit(ind, f"-- {n.rule} {self.eq(eqs[0])}")
-            self.emit(ind, f"refine decomp ({self.lam(ctx, self.conj(nxt.judgment[1]))})")
-            self.emit(ind + 2, f"(fun {self.pat(ctx)} h => by {self.free()}) ?_")
+            new = nxt.judgment[1][:len(nxt.judgment[1]) - (len(eqs) - 1)]
+            self.decomp(eqs[0], new, ctx, ind)
             self.node(nxt, ctx, ind)
         elif n.rule == "elim":
             v, t = n.data["var"], self.lean(n.data["term"])
             new = [x for x in ctx if x != v]
-            nxt = n.children[0]
             self.emit(ind, f"-- elim {v} := {t}")
             self.emit(ind, f"refine elim (fun {self.pat(new)} => {self.shaped(ctx, [t if x == v else x for x in ctx])})")
-            self.emit(ind + 2, f"({self.lam(new, self.conj(nxt.judgment[1]))})")
-            self.emit(ind + 2, f"(fun {self.pat(ctx)} h => ⟨{tuple_term(new)}, by {self.free()}, "
-                               f"by {self.free()}⟩) ?_")
-            self.node(nxt, new, ind)
+            self.emit(ind + 2, f"(fun {self.pat(ctx)} h => ⟨{tuple_term(new)}, "
+                               f"by acu_elim [{', '.join(self.unfold)}]⟩) ?_")
+            self.node(n.children[0], new, ind)
         elif n.rule == "identify":
             aa, bb = self.lean(n.data["a"]), self.lean(n.data["b"])
             self.emit(ind, f"-- identify {aa} ~ {bb}")
@@ -388,6 +396,13 @@ class Compiler:
         else:  # clash, occurs, distinct
             self.emit(ind, f"-- {n.rule}")
             self.emit(ind, f"exact clash fun {self.pat(ctx)} h hD => by {self.free()}")
+
+    def decomp(self, eq, new, ctx, ind, lemmas=None):
+        """DECOMP the first equation `eq` (None: the claim's tuple equation) into `new`."""
+        lemmas = self.unfold + (self.inj(eq) if lemmas is None else lemmas)
+        self.emit(ind, f"-- decomp {self.eq(eq) if eq else 'the tuple equation of the claim'}")
+        self.emit(ind, f"refine decomp [{', '.join(self.lam(ctx, self.eq(e)) for e in new)}]")
+        self.emit(ind + 2, f"(fun {self.pat(ctx)} h => by acu_decomp [{', '.join(lemmas)}]) ?_")
 
     def solve(self, n, ctx, ind, at_start):
         d = n.data
@@ -408,23 +423,20 @@ class Compiler:
         compat = set(d["compatible"]) | {(j, i) for i, j in d["compatible"]}
         cliques = [list(g) for r in range(1, m + 1) for g in combinations(range(m), r)
                    if all((i, j) in compat for i, j in combinations(g, 2))]
-        unfold = "try simp only [" + ", ".join(["State.start", "unifiedBy"] + self.unfold) + "] at h; "
-        if remaining:
-            hE = f"⟨by {unfold}acu_side h.1, by acu_rest h.2, by acu_distinct⟩"
-        else:
-            hE = f"⟨by {unfold}acu_side h, trivial, by acu_distinct⟩"
+        unfold = "try simp only [" + ", ".join(["unifiedBy"] + self.unfold) + "] at h; "
         glue = self.shaped(ctx, [f"V {bag.index(x)}" if x in bag else x for x in ctx])
         self.emit(ind, f"-- solve {self.eq(solved)}")
-        self.emit(ind, f"refine solve (V := {self.lam(ctx, vec(bag))}) (rest := {self.lam(ctx, tuple_term(rest))})")
-        self.emit(ind + 2, f"(glue := fun {self.pat(rest)} V => {glue}) (hglue := fun _ => rfl)")
-        self.emit(ind + 2, f"(a := {self.lam(rest, aliens)}) (L := {vec(d['L'])}) (R := {vec(d['R'])})"
-                           f" (La := {vec(d['La'])}) (Ra := {vec(d['Ra'])})")
-        self.emit(ind + 2, f"(E' := {self.lam(ctx, self.conj(remaining))}) (cp := {cp})")
-        self.emit(ind + 2, f"(P := {P}) (B := {B})")
-        self.emit(ind + 2, f"(fun {self.pat(ctx)} h hD => {hE})")
-        self.emit(ind + 2, "(by decide) (by decide) (by decide)")
-        self.emit(ind + 2, f"(S2_of_list _ _ _ _ _ _ {cliques} (by decide) (by acu_cliques))"
-                           f" (by acu_basis) ?_")
+        self.emit(ind, "refine solve")
+        self.emit(ind + 2, f"{{ V := {self.lam(ctx, vec(bag))}, rest := {self.lam(ctx, tuple_term(rest))},")
+        self.emit(ind + 3, f"glue := fun {self.pat(rest)} V => {glue}, hglue := fun _ => rfl }}")
+        self.emit(ind + 2, f"({self.lam(rest, aliens)})")
+        self.emit(ind + 2, f"{{ L := {vec(d['L'])}, R := {vec(d['R'])}, La := {vec(d['La'])},"
+                           f" Ra := {vec(d['Ra'])}, cp := {cp} }}")
+        self.emit(ind + 2, f"{{ P := {P}, B := {B} }}")
+        self.emit(ind + 2, f"⟨by decide, by decide, by decide,")
+        self.emit(ind + 3, f"S2_of_list _ _ _ _ _ _ {cliques} (by decide) (by acu_cliques), by acu_basis⟩")
+        self.emit(ind + 2, f"(fun {self.pat(ctx)} h => by {unfold}acu_side h)")
+        self.emit(ind + 2, f"(fun {self.pat(ctx)} h hD => by acu_distinct) ?_")
         branches = d["branches"]
         self.emit(ind, "intro π hπ; simp [choices] at hπ" + (
             "" if not branches else "; subst hπ" if len(branches) == 1
@@ -516,9 +528,7 @@ def main():
     eqs = root.judgment[1]
     if len(eqs) > 1:
         # The Lean claim states a system as one equation between tuples; split it.
-        c.emit(1, "-- decomp of the tuple equation into the system")
-        c.emit(1, f"refine decomp ({c.lam(ctx, c.conj(eqs))})")
-        c.emit(3, f"(fun {c.pat(ctx)} h => by {c.free()}) ?_")
+        c.decomp(None, eqs, ctx, 1, lemmas=["Prod.mk.injEq"])
     c.node(root, ctx, 1, at_start=len(eqs) == 1)
     c.out.append(f"\nend {cfg['namespace']}\n")
     target = deriv_path.with_suffix(".lean")

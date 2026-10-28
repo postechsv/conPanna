@@ -76,35 +76,35 @@ theorem complete : Unification.complete problem answers := by
   -- ⊢ - | Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?) | -
   checkpoint
   -- decomp Conf.mk (K? + 1) K? ({Mode.wait K?} + P?) = Conf.mk (N? + 1) N? ({Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?)
-  refine decomp (fun (K?, P?, N?, M1?, M2?, M3?, Q?) => (K? + 1) = (N? + 1) ∧ K? = N? ∧ {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?)
-      (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => by acu_free [problem]) ?_
+  refine decomp [fun (K?, _, N?, _, _, _, _) => (K? + 1) = (N? + 1), fun (K?, _, N?, _, _, _, _) => K? = N?, fun (K?, P?, N?, M1?, M2?, M3?, Q?) => {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?]
+      (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => by acu_decomp [problem, Conf.mk.injEq]) ?_
   -- ⊢ - | (K? + 1) = (N? + 1); K? = N?; {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q? | -
   checkpoint
   -- decomp (K? + 1) = (N? + 1)
-  refine decomp (fun (K?, P?, N?, M1?, M2?, M3?, Q?) => K? = N? ∧ K? = N? ∧ {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q?)
-      (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => by acu_free [problem]) ?_
+  refine decomp [fun (K?, _, N?, _, _, _, _) => K? = N?]
+      (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => by acu_decomp [problem]) ?_
   -- ⊢ - | K? = N?; K? = N?; {Mode.wait K?} + P? = {Mode.wait N?} + {Mode.idle} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} + Q? | -
   checkpoint
   -- elim N? := K?
   refine elim (fun (K?, P?, M1?, M2?, M3?, Q?) => (K?, P?, K?, M1?, M2?, M3?, Q?))
-      (fun (K?, P?, M1?, M2?, M3?, Q?) => K? = K? ∧ P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?})
-      (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => ⟨(K?, P?, M1?, M2?, M3?, Q?), by acu_free [problem], by acu_free [problem]⟩) ?_
+      (fun (K?, P?, N?, M1?, M2?, M3?, Q?) h => ⟨(K?, P?, M1?, M2?, M3?, Q?), by acu_elim [problem]⟩) ?_
   -- ⊢ N? := K? | K? = K?; P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} | -
   checkpoint
   -- delete K? = K?
-  refine decomp (fun (K?, P?, M1?, M2?, M3?, Q?) => P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?})
-      (fun (K?, P?, M1?, M2?, M3?, Q?) h => by acu_free [problem]) ?_
+  refine delete ?_
   -- ⊢ N? := K? | P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?} | -
   checkpoint
   -- solve P? + {Mode.wait K?} = {Mode.idle} + Q? + {Mode.wait K?} + {Mode.wait M1?} + {Mode.wait M2?} + {Mode.wait M3?}
-  refine solve (V := fun (_, P?, _, _, _, Q?) => ![P?, Q?]) (rest := fun (K?, _, M1?, M2?, M3?, _) => (K?, M1?, M2?, M3?))
-      (glue := fun (K?, M1?, M2?, M3?) V => (K?, V 0, M1?, M2?, M3?, V 1)) (hglue := fun _ => rfl)
-      (a := fun (K?, M1?, M2?, M3?) => ![Mode.wait K?, Mode.idle, Mode.wait M1?, Mode.wait M2?, Mode.wait M3?]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0, 0, 0, 0]) (Ra := ![1, 1, 1, 1, 1])
-      (E' := fun (_, _, _, _, _, _) => True) (cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0) || (c == 0 && c' == 3) || (c == 3 && c' == 0) || (c == 0 && c' == 4) || (c == 4 && c' == 0) || (c == 2 && c' == 3) || (c == 3 && c' == 2) || (c == 2 && c' == 4) || (c == 4 && c' == 2) || (c == 3 && c' == 4) || (c == 4 && c' == 3))
-      (P := ![[![0, 0]], [![1, 0]], [![1, 0]], [![1, 0]], [![1, 0]]]) (B := ![![1, 1]])
-      (fun (K?, P?, M1?, M2?, M3?, Q?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
-      (by decide) (by decide) (by decide)
-      (S2_of_list _ _ _ _ _ _ [[0], [1], [2], [3], [4], [0, 2], [0, 3], [0, 4], [2, 3], [2, 4], [3, 4], [0, 2, 3], [0, 2, 4], [0, 3, 4], [2, 3, 4], [0, 2, 3, 4]] (by decide) (by acu_cliques)) (by acu_basis) ?_
+  refine solve
+      { V := fun (_, P?, _, _, _, Q?) => ![P?, Q?], rest := fun (K?, _, M1?, M2?, M3?, _) => (K?, M1?, M2?, M3?),
+        glue := fun (K?, M1?, M2?, M3?) V => (K?, V 0, M1?, M2?, M3?, V 1), hglue := fun _ => rfl }
+      (fun (K?, M1?, M2?, M3?) => ![Mode.wait K?, Mode.idle, Mode.wait M1?, Mode.wait M2?, Mode.wait M3?])
+      { L := ![1, 0], R := ![0, 1], La := ![1, 0, 0, 0, 0], Ra := ![1, 1, 1, 1, 1], cp := fun c c' => (c == 0 && c' == 2) || (c == 2 && c' == 0) || (c == 0 && c' == 3) || (c == 3 && c' == 0) || (c == 0 && c' == 4) || (c == 4 && c' == 0) || (c == 2 && c' == 3) || (c == 3 && c' == 2) || (c == 2 && c' == 4) || (c == 4 && c' == 2) || (c == 3 && c' == 4) || (c == 4 && c' == 3) }
+      { P := ![[![0, 0]], [![1, 0]], [![1, 0]], [![1, 0]], [![1, 0]]], B := ![![1, 1]] }
+      ⟨by decide, by decide, by decide,
+        S2_of_list _ _ _ _ _ _ [[0], [1], [2], [3], [4], [0, 2], [0, 3], [0, 4], [2, 3], [2, 4], [3, 4], [0, 2, 3], [0, 2, 4], [0, 3, 4], [2, 3, 4], [0, 2, 3, 4]] (by decide) (by acu_cliques), by acu_basis⟩
+      (fun (K?, P?, M1?, M2?, M3?, Q?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+      (fun (K?, P?, M1?, M2?, M3?, Q?) h hD => by acu_distinct) ?_
   intro π hπ; simp [choices] at hπ; subst hπ
   -- branch (0,0) (1,0) (1,0) (1,0) (1,0)
   refine rename (fun (K?, M1?, M2?, M3?, Z1) => ((K?, M1?, M2?, M3?), ![Z1]))

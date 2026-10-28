@@ -55,20 +55,22 @@ def answers : UnifierSet (Bag × Bag × Bag × Bag) :=
 
 theorem complete : Unification.complete problem answers := by
   rw [← start_iff]
-  -- decomp of the tuple equation into the system
-  refine decomp (fun (X?, Y?, Z?, W?) => X? + Y? = Z? + {Elem.a} ∧ Y? = W? + {Elem.b})
-      (fun (X?, Y?, Z?, W?) h => by acu_free [problem]) ?_
+  -- decomp the tuple equation of the claim
+  refine decomp [fun (X?, Y?, Z?, _) => X? + Y? = Z? + {Elem.a}, fun (_, Y?, _, W?) => Y? = W? + {Elem.b}]
+      (fun (X?, Y?, Z?, W?) h => by acu_decomp [problem, Prod.mk.injEq]) ?_
   -- ⊢ - | X? + Y? = Z? + {Elem.a}; Y? = W? + {Elem.b} | -
   checkpoint
   -- solve X? + Y? = Z? + {Elem.a}
-  refine solve (V := fun (X?, Y?, Z?, _) => ![X?, Y?, Z?]) (rest := fun (_, _, _, W?) => W?)
-      (glue := fun W? V => (V 0, V 1, V 2, W?)) (hglue := fun _ => rfl)
-      (a := fun _ => ![Elem.a]) (L := ![1, 1, 0]) (R := ![0, 0, 1]) (La := ![0]) (Ra := ![1])
-      (E' := fun (_, Y?, _, W?) => Y? = W? + {Elem.b}) (cp := fun _ _ => false)
-      (P := ![[![1, 0, 0], ![0, 1, 0]]]) (B := ![![1, 0, 1], ![0, 1, 1]])
-      (fun (X?, Y?, Z?, W?) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h.1, by acu_rest h.2, by acu_distinct⟩)
-      (by decide) (by decide) (by decide)
-      (S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques)) (by acu_basis) ?_
+  refine solve
+      { V := fun (X?, Y?, Z?, _) => ![X?, Y?, Z?], rest := fun (_, _, _, W?) => W?,
+        glue := fun W? V => (V 0, V 1, V 2, W?), hglue := fun _ => rfl }
+      (fun _ => ![Elem.a])
+      { L := ![1, 1, 0], R := ![0, 0, 1], La := ![0], Ra := ![1], cp := fun _ _ => false }
+      { P := ![[![1, 0, 0], ![0, 1, 0]]], B := ![![1, 0, 1], ![0, 1, 1]] }
+      ⟨by decide, by decide, by decide,
+        S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques), by acu_basis⟩
+      (fun (X?, Y?, Z?, W?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+      (fun (X?, Y?, Z?, W?) h hD => by acu_distinct) ?_
   intro π hπ; simp [choices] at hπ; rcases hπ with rfl | rfl
   · -- branch (1,0,0)
     refine rename (fun (W?, Z1, Z2) => (W?, ![Z1, Z2]))
@@ -78,8 +80,7 @@ theorem complete : Unification.complete problem answers := by
     checkpoint
     -- elim Z2 := {Elem.b} + W?
     refine elim (fun (W?, Z1) => (W?, Z1, {Elem.b} + W?))
-        (fun (_, _) => True)
-        (fun (W?, Z1, Z2) h => ⟨(W?, Z1), by acu_free [problem], by acu_free [problem]⟩) ?_
+        (fun (W?, Z1, Z2) h => ⟨(W?, Z1), by acu_elim [problem]⟩) ?_
     -- ⊢ X? := {Elem.a} + Z1, Y? := {Elem.b} + W?, Z? := {Elem.b} + W? + Z1 | - | -
     checkpoint
     -- cover answer 3 with U1! := W?, U2! := Z1
@@ -91,14 +92,16 @@ theorem complete : Unification.complete problem answers := by
     -- ⊢ X? := Z1, Y? := {Elem.a} + Z2, Z? := Z1 + Z2 | {Elem.a} + Z2 = {Elem.b} + W? | -
     checkpoint
     -- solve {Elem.a} + Z2 = {Elem.b} + W?
-    refine solve (V := fun (W?, _, Z2) => ![Z2, W?]) (rest := fun (_, Z1, _) => Z1)
-        (glue := fun Z1 V => (V 1, Z1, V 0)) (hglue := fun _ => rfl)
-        (a := fun _ => ![Elem.a, Elem.b]) (L := ![1, 0]) (R := ![0, 1]) (La := ![1, 0]) (Ra := ![0, 1])
-        (E' := fun (_, _, _) => True) (cp := fun _ _ => false)
-        (P := ![[![0, 1]], [![1, 0]]]) (B := ![![1, 1]])
-        (fun (W?, Z1, Z2) h hD => ⟨by try simp only [State.start, unifiedBy, problem] at h; acu_side h, trivial, by acu_distinct⟩)
-        (by decide) (by decide) (by decide)
-        (S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques)) (by acu_basis) ?_
+    refine solve
+        { V := fun (W?, _, Z2) => ![Z2, W?], rest := fun (_, Z1, _) => Z1,
+          glue := fun Z1 V => (V 1, Z1, V 0), hglue := fun _ => rfl }
+        (fun _ => ![Elem.a, Elem.b])
+        { L := ![1, 0], R := ![0, 1], La := ![1, 0], Ra := ![0, 1], cp := fun _ _ => false }
+        { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
+        ⟨by decide, by decide, by decide,
+          S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
+        (fun (W?, Z1, Z2) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+        (fun (W?, Z1, Z2) h hD => by acu_distinct) ?_
     intro π hπ; simp [choices] at hπ; subst hπ
     -- branch (0,1) (1,0)
     refine rename (fun (Z1, Z3) => (Z1, ![Z3]))
