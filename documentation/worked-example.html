@@ -67,6 +67,16 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 code { font-family: var(--mono); font-size: .88em; }
 pre { font-family: var(--mono); font-size: .86rem; line-height: 1.55; background: var(--tint); padding: .9rem 1rem; border-radius: 4px; overflow-x: auto; margin: 1rem 0; }
 pre code { font-size: inherit; }
+/* The derivation: wider than the text column, with the font sized so its longest line
+   (138 characters, about 83em in the mono face) fits; it scrolls only below a floor. */
+pre.deriv {
+  width: min(calc(100vw - 48px), 64rem); position: relative; left: 50%; transform: translateX(-50%);
+  font-size: clamp(.5rem, calc((min(100vw, 64rem) - 64px) / 84), .78rem); line-height: 1.5;
+  white-space: pre; box-sizing: border-box;
+}
+pre.deriv .sup, .deriv-key .sup { color: var(--accent); font-weight: 600; }
+pre.deriv .mech, .deriv-key .mech { color: var(--muted); }
+.deriv-key { font-size: .93rem; }
 .tablewrap { overflow-x: auto; margin: 1rem 0; }
 table { border-collapse: collapse; width: 100%; font-size: .93rem; }
 th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
@@ -232,8 +242,89 @@ One choice: $X, W := Z_1$. The answer of this inner <span class="rn">Solve</span
 <p>The tree does not need to say in advance which path a solution takes. Each rule only guarantees that some child receives it, and the leaves account for all children.</p>
 </section>
 
+<section id="search">
+<h2><span class="num">6</span>Proof construction</h2>
+<p>The tree is built by the Maude producer, not by Lean, and it is built without search. The producer follows a fixed strategy: it always works on the first pending equation; an equation between constructor terms gets the one rule its shape allows (<span class="rn">Delete</span>, <span class="rn">Elim</span>, <span class="rn">Decomp</span> or <span class="rn">Clash</span>); a multiset equation gets <span class="rn">Solve</span>, unless (S2) fails for some clique, and then <span class="rn">Identify</span> splits the first failing pair. The hard parts come from Maude's own algorithms: each <span class="rn">Solve</span>'s data $P$, $\mathcal B$ and its compatible pairs from unification (<code>metaUnify</code>), and each leaf's answer and witness from matching (<code>metaMatch</code>, taking the first answer that matches).</p>
+<p><b>Why no backtracking is needed.</b> Every rule keeps all solutions: each solution of a node reaches one of its children (§5). So no step can lead into a dead end that another order would have avoided, and nothing ever has to be undone. The construction can only stop at a leaf that no single answer covers; the producer then reports it as stuck, as for a deliberately incomplete answer set.</p>
+<p>The result is written as text, the <em>derivation</em> below (<code>producer/tests/pipeline/t7_example.deriv</code>). It is untrusted: it only states the side conditions and equalities, and Lean checks every one of them (§7).</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Line</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>⊢ α | E | D</code></td><td>the state $\langle\alpha;E;D\rangle$ ($-$: empty); the left column gives its label $J_i$ from §2</td></tr>
+<tr><td><code>identify s ~ t</code>, <code>equal:</code> / <code>distinct:</code></td><td><span class="rn">Identify</span> and its two branches, indented</td></tr>
+<tr><td><code>decomp s = t ⟹ …</code>, <code>elim V := t</code></td><td><span class="rn">Decomp</span> with its new equations; <span class="rn">Elim</span></td></tr>
+<tr><td><code>solve s = t</code></td><td><span class="rn">Solve</span> on the first equation, with its data on the next two lines:</td></tr>
+<tr><td><code>vars … | aliens … | L … R … La … Ra …</code></td><td>multiset variables, aliens, and the count equation's coefficients ($L, R$ for the variables, $La, Ra$ for the aliens, left and right)</td></tr>
+<tr><td><code>compatible i~j | P […] | B […]</code></td><td>compatible pairs of aliens (by position), particular solutions per alien, basis</td></tr>
+<tr><td><code>branch [π]: θ</code></td><td>one premise per choice $\pi$, with its substitution $\theta_\pi$</td></tr>
+<tr><td><code>cover answer i with U := …</code></td><td><span class="rn">Cover</span> with the answer $\sigma_i$ and the witness $\beta$</td></tr>
+</tbody></table></div>
+<p>For example, the <span class="rn">Solve</span> at $J_{13}$ is §4.3 in compact form: <code>L (1,0,0) R (0,1,1) La (1,1,0) Ra (0,0,1)</code> is the count equation $r + [e{=}A] + [e{=}B] = s + t + [e{=}C]$, <code>compatible 0~1</code> the clique $\{A, B\}$, and <code>P [(1,0,0)]</code> for the third alien puts $C$ in $R$. Maude's 112 answers are elided.</p>
+<p class="deriv-key"><span class="sup">Highlighted</span>: what the producer supplies and Lean checks: its decisions (which aliens to identify, which variable to eliminate, which answer and witness cover a leaf) and each <span class="rn">Solve</span>'s data (compatible pairs, $P$, $\mathcal B$). <span class="mech">Dimmed</span>: what follows mechanically from those (states, new equations, coefficients, the choices $\pi$ and their $\theta_\pi$), shown for reading; Lean recomputes it.</p>
+<pre class="deriv"><code>    problem R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)}
+    answers
+      0: R := {f({a})}, S := {f({a})} ∪ {f(U1)}, T := ∅, W := ∅, X := ∅, Y := U1
+      …   (111 more)
+    derivation
+J1    <span class="mech">⊢ - | R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
+      identify <span class="sup">f(Y) ~ f({a} ∪ W)</span>
+        equal:
+J2        <span class="mech">⊢ - | f(Y) = f({a} ∪ W); R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
+          decomp f(Y) = f({a} ∪ W)  <span class="mech">⟹  Y = {a} ∪ W</span>
+J3        <span class="mech">⊢ - | Y = {a} ∪ W; R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
+          elim <span class="sup">Y := {a} ∪ W</span>
+J4        <span class="mech">⊢ Y := {a} ∪ W | R ∪ {f({a} ∪ X)} ∪ {f({a} ∪ W)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
+          solve R ∪ {f({a} ∪ X)} ∪ {f({a} ∪ W)} = S ∪ T ∪ {f({a} ∪ W)}
+            <span class="mech">vars R S T | aliens f({a} ∪ X) f({a} ∪ W) | L (1,0,0) R (0,1,1) La (1,1) Ra (0,1)</span>
+            <span class="sup">compatible 0~1</span> | <span class="sup">P [(0,1,0) (0,0,1)] [(0,0,0)]</span> | <span class="sup">B [(1,1,0) (1,0,1)]</span>
+            <span class="mech">branch [(0,1,0) (0,0,0)]: R := Z1 ∪ Z2, S := Z1 ∪ {f({a} ∪ X)}, T := Z2</span>
+J5            <span class="mech">⊢ R := Z1 ∪ Z2, S := Z1 ∪ {f({a} ∪ X)}, T := Z2, Y := {a} ∪ W | - | -</span>
+              cover <span class="sup">answer 79 with U1 := X, U2 := Z2, U3 := W, U4 := Z1</span>
+            <span class="mech">branch [(0,0,1) (0,0,0)]: R := Z1 ∪ Z2, S := Z1, T := Z2 ∪ {f({a} ∪ X)}</span>
+J6            <span class="mech">⊢ R := Z1 ∪ Z2, S := Z1, T := Z2 ∪ {f({a} ∪ X)}, Y := {a} ∪ W | - | -</span>
+              cover <span class="sup">answer 95 with U1 := X, U2 := Z1, U3 := W, U4 := Z2</span>
+        distinct:
+J7        <span class="mech">⊢ - | R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W)</span>
+          identify <span class="sup">f({a} ∪ X) ~ f({a} ∪ W)</span>
+            equal:
+J8            <span class="mech">⊢ - | f({a} ∪ X) = f({a} ∪ W); R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W)</span>
+              decomp f({a} ∪ X) = f({a} ∪ W)  <span class="mech">⟹  {a} ∪ X = {a} ∪ W</span>
+J9            <span class="mech">⊢ - | {a} ∪ X = {a} ∪ W; R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W)</span>
+              solve {a} ∪ X = {a} ∪ W
+                <span class="mech">vars X W | aliens a | L (1,0) R (0,1) La (1) Ra (1)</span>
+                <span class="sup">compatible -</span> | <span class="sup">P [(0,0)]</span> | <span class="sup">B [(1,1)]</span>
+                <span class="mech">branch [(0,0)]: W := Z1, X := Z1</span>
+J10               <span class="mech">⊢ W := Z1, X := Z1 | R ∪ {f(Y)} ∪ {f({a} ∪ Z1)} = S ∪ T ∪ {f({a} ∪ Z1)} | f(Y) ≠ f({a} ∪ Z1)</span>
+                  solve R ∪ {f(Y)} ∪ {f({a} ∪ Z1)} = S ∪ T ∪ {f({a} ∪ Z1)}
+                    <span class="mech">vars R S T | aliens f(Y) f({a} ∪ Z1) | L (1,0,0) R (0,1,1) La (1,1) Ra (0,1)</span>
+                    <span class="sup">compatible -</span> | <span class="sup">P [(0,1,0) (0,0,1)] [(0,0,0)]</span> | <span class="sup">B [(1,1,0) (1,0,1)]</span>
+                    <span class="mech">branch [(0,1,0) (0,0,0)]: R := Z2 ∪ Z3, S := Z2 ∪ {f(Y)}, T := Z3</span>
+J11                   <span class="mech">⊢ R := Z2 ∪ Z3, S := Z2 ∪ {f(Y)}, T := Z3, W := Z1, X := Z1 | - | f(Y) ≠ f({a} ∪ Z1)</span>
+                      cover <span class="sup">answer 103 with U1 := Y, U2 := Z1, U3 := Z3, U4 := Z2</span>
+                    <span class="mech">branch [(0,0,1) (0,0,0)]: R := Z2 ∪ Z3, S := Z2, T := Z3 ∪ {f(Y)}</span>
+J12                   <span class="mech">⊢ R := Z2 ∪ Z3, S := Z2, T := Z3 ∪ {f(Y)}, W := Z1, X := Z1 | - | f(Y) ≠ f({a} ∪ Z1)</span>
+                      cover <span class="sup">answer 111 with U1 := Y, U2 := Z1, U3 := Z2, U4 := Z3</span>
+            distinct:
+J13           <span class="mech">⊢ - | R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
+              solve R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)}
+                <span class="mech">vars R S T | aliens f({a} ∪ X) f(Y) f({a} ∪ W) | L (1,0,0) R (0,1,1) La (1,1,0) Ra (0,0,1)</span>
+                <span class="sup">compatible 0~1</span> | <span class="sup">P [(0,1,0) (0,0,1)] [(0,1,0) (0,0,1)] [(1,0,0)]</span> | <span class="sup">B [(1,1,0) (1,0,1)]</span>
+                <span class="mech">branch [(0,1,0) (0,1,0) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)} ∪ {f({a} ∪ X)}, T := Z2</span>
+J14               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)} ∪ {f({a} ∪ X)}, T := Z2 | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
+                  cover <span class="sup">answer 15 with U1 := Y, U2 := X, U3 := Z2, U4 := W, U5 := Z1</span>
+                <span class="mech">branch [(0,1,0) (0,0,1) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f({a} ∪ X)}, T := Z2 ∪ {f(Y)}</span>
+J15               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f({a} ∪ X)}, T := Z2 ∪ {f(Y)} | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
+                  cover <span class="sup">answer 31 with U1 := Y, U2 := X, U3 := W, U4 := Z1, U5 := Z2</span>
+                <span class="mech">branch [(0,0,1) (0,1,0) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)}, T := Z2 ∪ {f({a} ∪ X)}</span>
+J16               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)}, T := Z2 ∪ {f({a} ∪ X)} | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
+                  cover <span class="sup">answer 47 with U1 := Y, U2 := X, U3 := W, U4 := Z1, U5 := Z2</span>
+                <span class="mech">branch [(0,0,1) (0,0,1) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1, T := Z2 ∪ {f(Y)} ∪ {f({a} ∪ X)}</span>
+J17               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1, T := Z2 ∪ {f(Y)} ∪ {f({a} ∪ X)} | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
+                  cover <span class="sup">answer 63 with U1 := Y, U2 := X, U3 := Z1, U4 := W, U5 := Z2</span></code></pre>
+</section>
+
 <section id="lean">
-<h2><span class="num">6</span>The same tree in Lean</h2>
+<h2><span class="num">7</span>The same tree in Lean</h2>
 <p>The certificate is checked in Lean as <code>producer/tests/pipeline/t7_example.lean</code>. Each node is one step of the proof script:</p>
 <div class="tablewrap"><table>
 <thead><tr><th>Nodes</th><th>Lean step</th></tr></thead>
