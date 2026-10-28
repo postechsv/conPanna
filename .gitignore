@@ -7,3 +7,6 @@ __pycache__/
 
 # Generated model dump (#dump_model) and other producer artifacts
 producer/.cache/
+
+# Generated test grid (producer/tools/grid.py)
+producer/tests/grid/

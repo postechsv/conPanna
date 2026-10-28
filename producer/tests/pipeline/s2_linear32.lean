@@ -176,7 +176,7 @@ theorem complete : Unification.complete problem answers := by
       { P := ![], B := ![![1, 0, 0, 1, 0], ![0, 1, 0, 1, 0], ![0, 0, 1, 1, 0], ![1, 0, 0, 0, 1], ![0, 1, 0, 0, 1], ![0, 0, 1, 0, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [] (by decide) (by acu_cliques), by acu_basis⟩
-      (fun (X1?, X2?, X3?, Y1?, Y2?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+      (fun (X1?, X2?, X3?, Y1?, Y2?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
       (fun (X1?, X2?, X3?, Y1?, Y2?) h hD => by acu_distinct) ?_
   acu_branches
   -- branch 

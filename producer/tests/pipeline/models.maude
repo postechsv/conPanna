@@ -47,6 +47,7 @@ fmod NESTED is
   op nil : -> Boxes [ctor] .
   op _|_ : Boxes Boxes -> Boxes [ctor assoc comm id: nil] .
   op tup : Bag Bag Boxes -> Tup [ctor] .
+  op tup : Bag Bag Bag Bag Boxes -> Tup [ctor] .
 endfm
 
 fmod LINEAR is

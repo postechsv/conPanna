@@ -768,3 +768,27 @@ an infeasible residual constraint denotes an empty successor.
   read off the operator table) with no fallback. ELIM keeps `acu_free` as fallback: after
   SOLVE its equation may contain `θ_π`, which must be evaluated and compared modulo AC.
   Heartbeats unchanged (−0.15% in total).
+- The worked example (`t7_example`, documentation/worked-example.html) exposed two gaps in
+  the step tactics, both fixed: vector entries at index 2 and above were not evaluated
+  (`Matrix.cons_val` simproc added), and `acu_distinct` did not compare a disequation with
+  its goal modulo AC.
+
+## Done: one normalizer for the step obligations, and a generated test grid
+
+- Every term-level obligation (DECOMP, ELIM, SOLVE's equation and distinctness, COVER,
+  CLASH) goes through one procedure: `acu_eval` (unfold the certificate's definitions,
+  evaluate SOLVE's answers completely), `acu_types` (unfold type abbreviations such as
+  `Bag := ACU Elem`, which the AC tactics would treat as a different operation), `acu_ac`
+  (AC normalization in two passes, inside out: one pass orders a bag of boxes before the
+  bags inside the boxes are normalized), and `acu_from` (relate goal and hypothesis, or a
+  conjunct, modulo AC in either orientation). Each tactic keeps a cheap first step.
+  German heartbeats: −13.5% in total, every certificate cheaper.
+- `producer/tools/grid.py` certifies a seeded grid of small flat and nested problems end
+  to end (files in `producer/tests/grid/`, untracked). Gaps it found and fixed: single
+  variable answers, argument parenthesization (`box {a} + {b}`), a `try` that hid failures,
+  ground bag equations without a type, singleton injectivity, `Fin` literals from
+  `fin_cases`, S2/S3 looping in `simp_all`, a trivially true count equation, an earlier
+  SOLVE's fresh variables counted as new.
+- Open: three nested problems of the 160 drawn (seed 1: n00, n19; seed 2: n18) exceed the
+  default heartbeat budget (they check without a limit in 23–41 s); the cost is in
+  `acu_distinct`'s `simp_all` fallbacks.

@@ -61,7 +61,7 @@ theorem complete : Unification.complete problem answers := by
     -- ⊢ - | Box.box X? = Box.box {Elem.b}; {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | -
     checkpoint
     -- decomp Box.box X? = Box.box {Elem.b}
-    refine decomp [fun (X?, _, _) => X? = {Elem.b}]
+    refine decomp [fun (X?, _, _) => X? = ({Elem.b} : ACU (type_of% Elem.b))]
         (fun (X?, Y?, R?) h => by acu_decomp [problem, Box.box.injEq]) ?_
     -- ⊢ - | X? = {Elem.b}; {Box.box X?} + R? = {Box.box ({Elem.a} + Y?)} + {Box.box {Elem.b}} | -
     checkpoint
@@ -79,7 +79,7 @@ theorem complete : Unification.complete problem answers := by
         { P := ![[![0]], [![1]]], B := ![] }
         ⟨by decide, by decide, by decide,
           S2_of_list _ _ _ _ _ _ [[0], [1], [0, 1]] (by decide) (by acu_cliques), by acu_basis⟩
-        (fun (Y?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+        (fun (Y?, R?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
         (fun (Y?, R?) h hD => by acu_distinct) ?_
     acu_branches
     -- branch (0) (1)
@@ -117,7 +117,7 @@ theorem complete : Unification.complete problem answers := by
           { P := ![[![0]], [![1]]], B := ![] }
           ⟨by decide, by decide, by decide,
             S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
-          (fun (Y?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+          (fun (Y?, R?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
           (fun (Y?, R?) h hD => by acu_distinct) ?_
       acu_branches
       -- branch (0) (1)
@@ -140,7 +140,7 @@ theorem complete : Unification.complete problem answers := by
           { P := ![[], [![1]], [![1]]], B := ![] }
           ⟨by decide, by decide, by decide,
             S2_of_list _ _ _ _ _ _ [[0], [1], [2], [1, 2]] (by decide) (by acu_cliques), by acu_basis⟩
-          (fun (X?, Y?, R?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+          (fun (X?, Y?, R?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
           (fun (X?, Y?, R?) h hD => by acu_distinct) ?_
       acu_branches
 

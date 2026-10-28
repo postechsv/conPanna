@@ -346,6 +346,17 @@ class Compiler:
     def eq(self, e):
         return f"{self.lean(e[0])} = {self.lean(e[1])}"
 
+    def typed_eq(self, e):
+        """`eq`, elaborated on its own: a bag side with no variable (`{a} + {b}`) does not
+        determine its type, so it gets one from an element (`ACU (type_of% a)`)."""
+        def side(t):
+            s = self.lean(t)
+            if isinstance(t, Sum) and t.parts and not free_vars(t):
+                elem = next(p for p in t.parts if isinstance(p, Elem))
+                return f"({s} : ACU (type_of% {paren(self.lean(elem.term))}))"
+            return s
+        return f"{side(e[0])} = {side(e[1])}"
+
     def conj(self, eqs):
         return " ∧ ".join(self.eq(e) for e in eqs) if eqs else "True"
 
@@ -403,7 +414,7 @@ class Compiler:
         """DECOMP the first equation `eq` (None: the claim's tuple equation) into `new`."""
         lemmas = self.unfold + (self.inj(eq) if lemmas is None else lemmas)
         self.emit(ind, f"-- decomp {self.eq(eq) if eq else 'the tuple equation of the claim'}")
-        self.emit(ind, f"refine decomp [{', '.join(self.lam(ctx, self.eq(e)) for e in new)}]")
+        self.emit(ind, f"refine decomp [{', '.join(self.lam(ctx, self.typed_eq(e)) for e in new)}]")
         self.emit(ind + 2, f"(fun {self.pat(ctx)} h => by acu_decomp [{', '.join(lemmas)}]) ?_")
 
     def solve(self, n, ctx, ind, at_start):
@@ -422,7 +433,8 @@ class Compiler:
         compat = set(d["compatible"]) | {(j, i) for i, j in d["compatible"]}
         cliques = [list(g) for r in range(1, m + 1) for g in combinations(range(m), r)
                    if all((i, j) in compat for i, j in combinations(g, 2))]
-        unfold = "try simp only [" + ", ".join(["unifiedBy"] + self.unfold) + "] at h; "
+        # parenthesized: `try` takes the rest of the sequence, and would hide a failure
+        unfold = "(try simp only [" + ", ".join(["unifiedBy"] + self.unfold) + "] at h); "
         glue = self.shaped(ctx, [f"V {bag.index(x)}" if x in bag else x for x in ctx])
         self.emit(ind, f"-- solve {self.eq(solved)}")
         self.emit(ind, "refine solve")
@@ -439,8 +451,10 @@ class Compiler:
         branches = d["branches"]
         self.emit(ind, "acu_branches")
         k = len(d["B"])
+        # fresh: the Z variables of the answers that are not already in the context
+        # (an earlier SOLVE's fresh variables can occur in this one's answers)
         fresh = sorted({int(x[1:]) for _, th, _ in branches for t in th.values()
-                        for x in free_vars(t) if re.fullmatch(r"Z\d+", x)})
+                        for x in free_vars(t) if re.fullmatch(r"Z\d+", x) and x not in ctx})
         if branches and len(fresh) != k:
             raise SystemExit(f"compile.py: expected {k} fresh variables, found {fresh}")
         names = [f"Z{j}" for j in fresh]
@@ -484,7 +498,9 @@ class Compiler:
                         key=lambda x: int(x[1:-1]))
             self.binders.append(bs)
             binder = "()" if not bs else bs[0] if len(bs) == 1 else "(" + ", ".join(bs) + ")"
-            body = f".bind fun {binder} => ⟨" + ", ".join(self.lean(a[v]) for v in order) + "⟩"
+            images = [self.lean(a[v]) for v in order]
+            # one original variable: the image itself, not a tuple
+            body = f".bind fun {binder} => " + (images[0] if len(images) == 1 else "⟨" + ", ".join(images) + "⟩")
             self.out.append(f"def answer{i} : Unifier ({ctx_type}) :=\n  {body}")
             names.append(f"answer{i}")
         self.out.append(f"def answers : UnifierSet ({ctx_type}) :=\n  [{', '.join(names)}]")
@@ -504,7 +520,21 @@ def leaves(shape):
 
 
 def paren(s):
-    return s if re.fullmatch(r"[A-Za-z0-9_.?!']+|\(.*\)|\{.*\}", s) else f"({s})"
+    """`s` as an argument: parenthesized unless it is a name or one bracketed group."""
+    return s if re.fullmatch(r"[A-Za-z0-9_.?!']+", s) or one_group(s) else f"({s})"
+
+
+def one_group(s):
+    """`s` is a single `(...)` or `{...}` group: its first bracket closes at its end."""
+    if not s or s[0] not in "({" or s[-1] != {"(": ")", "{": "}"}[s[0]]:
+        return False
+    depth = 0
+    for i, c in enumerate(s):
+        depth += c in "({"
+        depth -= c in ")}"
+        if depth == 0:
+            return i == len(s) - 1
+    return False
 
 
 def main():

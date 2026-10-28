@@ -75,7 +75,7 @@ theorem complete : Unification.complete problem answers := by
         { P := ![[![0, 0]]], B := ![![1, 1]] }
         ⟨by decide, by decide, by decide,
           S2_of_list _ _ _ _ _ _ [[0]] (by decide) (by acu_cliques), by acu_basis⟩
-        (fun (X?, Y?, N?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+        (fun (X?, Y?, N?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
         (fun (X?, Y?, N?) h hD => by acu_distinct) ?_
     acu_branches
     -- branch (0,0)
@@ -102,7 +102,7 @@ theorem complete : Unification.complete problem answers := by
         { P := ![[![0, 1]], [![1, 0]]], B := ![![1, 1]] }
         ⟨by decide, by decide, by decide,
           S2_of_list _ _ _ _ _ _ [[0], [1]] (by decide) (by acu_cliques), by acu_basis⟩
-        (fun (X?, Y?, N?, M?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+        (fun (X?, Y?, N?, M?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
         (fun (X?, Y?, N?, M?) h hD => by acu_distinct) ?_
     acu_branches
     -- branch (0,1) (1,0)

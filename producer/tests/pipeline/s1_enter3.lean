@@ -103,7 +103,7 @@ theorem complete : Unification.complete problem answers := by
       { P := ![[![0, 0]], [![1, 0]], [![1, 0]], [![1, 0]], [![1, 0]]], B := ![![1, 1]] }
       ⟨by decide, by decide, by decide,
         S2_of_list _ _ _ _ _ _ [[0], [1], [2], [3], [4], [0, 2], [0, 3], [0, 4], [2, 3], [2, 4], [3, 4], [0, 2, 3], [0, 2, 4], [0, 3, 4], [2, 3, 4], [0, 2, 3, 4]] (by decide) (by acu_cliques), by acu_basis⟩
-      (fun (K?, P?, M1?, M2?, M3?, Q?) h => by try simp only [unifiedBy, problem] at h; acu_side h)
+      (fun (K?, P?, M1?, M2?, M3?, Q?) h => by (try simp only [unifiedBy, problem] at h); acu_side h)
       (fun (K?, P?, M1?, M2?, M3?, Q?) h hD => by acu_distinct) ?_
   acu_branches
   -- branch (0,0) (1,0) (1,0) (1,0) (1,0)

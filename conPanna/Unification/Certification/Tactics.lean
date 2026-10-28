@@ -10,17 +10,106 @@ and these tactics only check equalities and closed Presburger formulas.
 
 namespace Unification.Certification
 
-/-- CLASH (and OCCURS, DISTINCT), and ELIM after SOLVE: split the pending equations,
-evaluate SOLVE's answers, substitute solved variables, and close by constructor
-injectivity and disjointness, modulo AC. Extra lemmas unfold the problem. -/
+/-! ## Normalization
+
+Every term-level obligation of a certificate is an equation or disequation between
+terms built from the problem, SOLVE's answers `θ_π` and the free constructors, compared
+modulo ACU. `acu_eval` unfolds the certificate's definitions and evaluates `θ_π`
+completely (sums, copies, vector entries at any index); `acu_norm` then normalizes
+modulo AC. The step tactics below try a cheap closing step first and fall back to
+`acu_norm`. -/
+
+/-- Unfold the certificate's definitions and evaluate SOLVE's answers. Extra lemmas
+unfold the problem or name a constructor's injectivity. -/
+syntax "acu_eval" (" [" Lean.Parser.Tactic.simpLemma,* "]")? (Lean.Parser.Tactic.location)? :
+  tactic
+macro_rules
+  | `(tactic| acu_eval $[$loc:location]?) => `(tactic| acu_eval [] $[$loc:location]?)
+  | `(tactic| acu_eval [$xs,*] $[$loc:location]?) => `(tactic|
+      simp only [Eqs, State.start, unifiedBy, BagEq.Holds, side, theta, sum, copies,
+        Function.comp_apply, List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil,
+        Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.cons_val,
+        Matrix.head_cons, Fin.succ_zero_eq_one, Fin.isValue, Fin.reduceFinMk, Fin.zero_eta, Fin.mk_one,
+        copies_zero, copies_one,
+        ACU.plus_unit, ACU.unit_plus, $xs,*] $[$loc:location]?)
+
+open Lean Meta Elab Tactic in
+/-- Unfold type abbreviations such as `abbrev Bag := ACU Elem`, down to `ACU`, in the goal
+and the hypotheses. The AC tactics compare operations syntactically: `+` at type `Bag` and
+`+` at type `ACU Elem` (the type of SOLVE's answers) would count as two operations. -/
+elab "acu_types" : tactic => withMainContext do
+  let env ← getEnv
+  let abbrevType (n : Name) : Bool := n != ``ACU &&
+    getReducibilityStatusCore env n == .reducible &&
+    match env.find? n with
+    | some (.defnInfo d) => d.type.getForallBody.isSort
+    | _ => false
+  let unfold (e : Expr) : MetaM Expr := do deltaExpand (← instantiateMVars e) abbrevType
+  let mut goal ← getMainGoal
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do
+      let ty ← unfold d.type
+      if ty != d.type then goal ← goal.replaceLocalDeclDefEq d.fvarId ty
+  goal ← goal.replaceTargetDefEq (← unfold (← goal.getType))
+  replaceMainGoal [goal]
+
+/-- Normalize modulo AC, inside out: one `ac_nf` pass orders a bag of boxes before the bags
+inside the boxes are normalized (`box({b} + {a})` and `box({a} + {b})` count as different
+elements), so a second pass orders it again. -/
+syntax "acu_ac" (Lean.Parser.Tactic.location)? : tactic
+macro_rules
+  | `(tactic| acu_ac $[$loc:location]?) => `(tactic| (
+      try ac_nf $[$loc:location]?
+      all_goals try ac_nf $[$loc:location]?))
+
+/-- `acu_eval`, then normalize modulo AC. -/
+syntax "acu_norm" (" [" Lean.Parser.Tactic.simpLemma,* "]")? (Lean.Parser.Tactic.location)? :
+  tactic
+macro_rules
+  | `(tactic| acu_norm $[$loc:location]?) => `(tactic| acu_norm [] $[$loc:location]?)
+  | `(tactic| acu_norm [$xs,*] $[$loc:location]?) => `(tactic| (
+      try acu_eval [$xs,*] $[$loc:location]?
+      all_goals (acu_types; acu_ac $[$loc:location]?)))
+
+/-- Close the goal from `h` when both are the same equation (or disequation) modulo AC,
+in either orientation. Each side is related to its counterpart by `ac_rfl`, which orders
+the two terms together; normalizing goal and hypothesis separately (`ac_nf`) can order
+the elements of a nested bag differently. -/
+macro "acu_bridge " h:term : tactic => `(tactic| first
+  | exact $h
+  | exact Eq.trans (by ac_rfl) (Eq.trans $h (by ac_rfl))
+  | exact Eq.trans (by ac_rfl) (Eq.trans (Eq.symm $h) (by ac_rfl))
+  | exact fun he => $h (Eq.trans (by ac_rfl) (Eq.trans he (by ac_rfl)))
+  | exact fun he => $h (Eq.trans (by ac_rfl) (Eq.trans (Eq.symm he) (by ac_rfl))))
+
+/-- Close the goal, or each conjunct of it, from `h` or one of its conjuncts, modulo AC
+(`acu_bridge`). -/
+syntax "acu_from " term : tactic
+macro_rules
+  | `(tactic| acu_from $h) => `(tactic| first
+      | acu_bridge $h
+      | (refine And.intro ?_ ?_ <;> acu_from $h)
+      -- recurse only into a conjunction: check `h` is one first, or a failing case recurses
+      | (have _ := And.left $h; acu_from (And.left $h))
+      | (have _ := And.right $h; acu_from (And.right $h)))
+
+/-! ## Step obligations -/
+
+/-- An equation of tuples of terms, compared component-wise modulo ACU once SOLVE's
+answers are evaluated. -/
+macro "acu_eq" : tactic => `(tactic| (
+  try acu_eval [Prod.mk.injEq]
+  try constructorm* _ ∧ _
+  all_goals (acu_types; first | ac_rfl | (acu_ac; done))))
+
+/-- CLASH (and OCCURS, DISTINCT): the pending constraints are contradictory. Split them,
+substitute solved variables, and close by constructor injectivity and disjointness,
+modulo AC. Extra lemmas unfold the problem. Also the last resort of ELIM. -/
 syntax "acu_free" (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
 macro_rules
   | `(tactic| acu_free) => `(tactic| acu_free [])
   | `(tactic| acu_free [$xs,*]) => `(tactic| (
-      try simp only [Eqs, State.start, unifiedBy, theta, sum, copies, Function.comp_apply,
-        List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero,
-        Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one,
-        copies_zero, copies_one, ACU.plus_unit, ACU.unit_plus, $xs,*] at *
+      try acu_eval [$xs,*] at *
       -- cheap first: after substitution the goal is often a hypothesis or reflexive
       try (casesm* _ ∧ _; try subst_vars; first | rfl | assumption |
         (constructor <;> first | rfl | assumption); done)
@@ -28,29 +117,32 @@ macro_rules
         try casesm* _ ∧ _
         try subst_vars
         try simp_all)
-      try ac_nf at *
+      try acu_types
+      try acu_ac at *
       try assumption
       try simp_all))
 
 set_option hygiene false in
-/-- DECOMP `f(s₁,…,sₙ) = f(t₁,…,tₙ)`, from the first equation `h`: by the constructor's injectivity
-lemma `f.injEq`, given with the lemmas that unfold the problem (successor `n + 1` is
-built in). Arguments that are bags are compared modulo AC. -/
+/-- DECOMP `f(s₁,…,sₙ) = f(t₁,…,tₙ)`, from the first equation `h`: by the constructor's
+injectivity lemma `f.injEq`, given with the lemmas that unfold the problem (successor
+`n + 1` and singleton bags `{s} = {t}` are built in). Arguments are compared modulo ACU. -/
 syntax "acu_decomp" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 set_option hygiene false in
 macro_rules
   | `(tactic| acu_decomp [$xs,*]) => `(tactic| (
       simp only [Eqs, List.foldr_cons, List.foldr_nil, and_true, unifiedBy, Nat.add_right_cancel_iff,
-        $xs,*] at h ⊢
+        ACU.elem_inj, $xs,*] at h ⊢
       first
         | exact h
-        | (ac_nf at h ⊢ <;> exact h)))
+        | (try acu_eval [ACU.elem_inj, $xs,*] at h ⊢
+           all_goals (acu_types; acu_ac at h ⊢)
+           all_goals acu_from h)))
 
 set_option hygiene false in
 /-- ELIM `V = t`, from the first equation `h`: substitute it, then the valuation is
 the image of the smaller one. The lemmas unfold the problem, for an ELIM on it. After
-SOLVE, `h` may contain SOLVE's answer `θ_π`: then it is evaluated and compared modulo AC
-(`acu_free`). -/
+SOLVE, `h` may contain SOLVE's answer `θ_π`: it is evaluated first, and the images are
+compared modulo ACU. -/
 syntax "acu_elim" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 set_option hygiene false in
 macro_rules
@@ -58,37 +150,32 @@ macro_rules
       first
         | (subst h; rfl)
         | (simp only [unifiedBy, $xs,*] at h; subst h; rfl)
+        | (acu_norm [$xs,*] at h; subst h; acu_eq)
         | acu_free [$xs,*]))
 
 /-- The bag equation of SOLVE, read off a proof `h` of it: unfold the coefficient
 form `side`, normalize modulo ACU, compare. -/
 macro "acu_side " h:term : tactic => `(tactic| (
   have hb := $h
-  simp only [BagEq.Holds, theta, Function.comp_apply, side, sum, copies, List.ofFn_succ, List.ofFn_zero, List.foldr_cons, List.foldr_nil,
-    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons,
-    Fin.succ_zero_eq_one, ACU.plus_unit, ACU.unit_plus] at hb ⊢
-  try ac_nf at hb ⊢
-  try exact hb))
+  try acu_eval at hb ⊢
+  all_goals (acu_types; acu_ac at hb ⊢)
+  all_goals acu_from hb))
 
 set_option hygiene false in
-/-- Distinctness of incompatible alien classes: by constructor disjointness,
-recorded disequations, or arithmetic. Cheap cases first; the pending equations `h` are
-rarely needed for distinctness, and simplifying them can be very costly, so they are
-dropped before `simp_all` (the full context is the last resort). -/
+/-- Distinctness of incompatible aliens: by constructor disjointness, or by a recorded
+disequation (`hD`) in either orientation, modulo ACU; arithmetic as the last resort.
+The pending equations `h` are rarely needed for distinctness, and simplifying them can be
+very costly, so they are dropped first. -/
 macro "acu_distinct" : tactic => `(tactic| (
   intro c c' hcc hcp
   fin_cases c <;> fin_cases c' <;>
     first
       | exact absurd rfl hcc
       | (simp [BagEq.cp] at hcp; done)
-      | (simp [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
-      | (clear h; simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
-      -- the disequation recorded the other way round (`fin_cases` gives both orders):
-      -- flip the goal rather than rewrite with `eq_comm`, which is costly
-      | (clear h; refine Ne.symm ?_; simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus];
-         done)
-      | (clear h; simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
-      | (simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; done)
+      -- different constructors, possibly under singleton bags (`{a} = {c} ↔ a = c`)
+      | (simp [Eqs, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, ACU.elem_inj]; done)
+      | (clear h; (try acu_eval at hD ⊢); all_goals (acu_types; acu_ac at hD ⊢)
+         all_goals acu_from hD)
       | (simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus, eq_comm]; done)
       | (simp_all [Eqs, BagEq.cp, theta, sum, copies, ACU.plus_unit, ACU.unit_plus]; omega)))
 
@@ -99,36 +186,31 @@ macro "acu_branches" : tactic => `(tactic| (
   all_goals try casesm* _ ∨ _
   all_goals subst_vars))
 
-/-- S2 over the listed cliques: one closed Presburger formula per clique. -/
+/-- S2 over the listed cliques: one closed Presburger formula per clique. The count
+equation is simplified in place, not used to rewrite the goal (`simp_all` can loop on an
+equation such as `v₀ + v₁ = 2 * v₀ + v₁`). -/
 macro "acu_cliques" : tactic => `(tactic| (
   simp only [List.forall_mem_cons, List.forall_mem_nil, and_true, List.not_mem_nil, false_imp_iff,
     forall_const, implies_true]
   repeat' constructor
   all_goals (
-    intro v hv
-    simp_all [dot, Below, prodL, vsum, List.ofFn_succ, Fin.forall_fin_succ, Fin.exists_fin_succ]
-    try omega)))
+    -- a trivially true count equation is already gone from the goal
+    intro v; try intro hv
+    try simp [dot, Below, prodL, vsum, List.ofFn_succ, Fin.forall_fin_succ, Fin.exists_fin_succ]
+      at *
+    all_goals omega)))
 
-/-- S3: every nonzero homogeneous solution lies above a basis vector. -/
+/-- S3: every nonzero homogeneous solution lies above a basis vector. Simplified in place,
+as in `acu_cliques`. -/
 macro "acu_basis" : tactic => `(tactic| (
-  intro v hv hne
-  simp_all [dot, Below, List.ofFn_succ, Fin.forall_fin_succ, Fin.exists_fin_succ]
-  try omega))
+  intro v; try intro hv; try intro hne
+  try simp [dot, Below, List.ofFn_succ, Fin.forall_fin_succ, Fin.exists_fin_succ] at *
+  all_goals omega))
 
 /-- The equality checked by COVER, once fresh variables are named. -/
 macro "acu_cover" : tactic => `(tactic| (
   show _ = _
-  first
-    -- cheap first: evaluate the answer, then compare modulo AC
-    | (simp only [State.start, theta, sum, copies, Function.comp_apply, List.ofFn_succ,
-        List.ofFn_zero, List.foldr_cons, List.foldr_nil, Matrix.cons_val_zero,
-        Matrix.cons_val_one, Matrix.cons_val_succ, Matrix.head_cons, Fin.succ_zero_eq_one,
-        copies_zero, copies_one, Prod.mk.injEq, ACU.plus_unit, ACU.unit_plus]
-       try constructorm* _ ∧ _
-       all_goals ac_rfl)
-    | (simp [State.start, theta, sum, copies, List.ofFn_succ, ACU.plus_unit, ACU.unit_plus]
-       try constructorm* _ ∧ _
-       all_goals ac_rfl)))
+  acu_eq))
 
 open Lean Meta Elab Tactic in
 /-- Restate a goal `s ⊩ U` with the state in direct form. Each step's state is the previous
