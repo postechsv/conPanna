@@ -116,7 +116,19 @@ structure SolveData.Valid {n m k : ℕ} (q : BagEq n m) (d : SolveData n m k) : 
 
 /-- SOLVE the bag equation `e`, with aliens `a` (which depend only on the rest of the
 context). One premise per choice `π`: the bag variables become `θ_π`, over the rest
-plus fresh bags `Z : Fin k → ACU El`. -/
+plus fresh bags `Z : Fin k → ACU El`.
+
+Given by the certificate (computed outside Lean, by the producer):
+* `sp`: which variables are the bags `X⃗` of `e`;
+* `a`: the aliens, the non-variable elements `{a}` of `e`;
+* `q`: `e` in coefficient form, and which aliens are compatible;
+* `d`: the data, particular solutions `P` per alien and the basis `B`.
+
+Checked in Lean:
+* `valid`: (S0)–(S3), closed arithmetic facts about `q` and `d`;
+* `heq`: `e` is the equation `q` describes, modulo AC;
+* `hdistinct`: incompatible aliens are different;
+* `next`: one premise per choice `π`, the remaining equations under `θ_π`. -/
 theorem solve {El : Type y} {Γr : Type w'} {n m k : ℕ} (sp : Split El Γ Γr n)
     (a : Γr → Fin m → El) (q : BagEq n m) (d : SolveData n m k) (valid : d.Valid q)
     (heq : ∀ ρ, e ρ → q.Holds (sp.V ρ) (a (sp.rest ρ)))
