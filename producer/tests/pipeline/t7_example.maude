@@ -1,5 +1,5 @@
 ***( The worked example of documentation/worked-example.html:
-     {box({a} + X?)} + R? =? {box(Y? + W?)} + {box(Z?)}. )
+     {f({a} + X?)} + R? =? {f(Y? + W?)} + {f(Z?)}, with fruits a, b and baskets f(-). )
 load models.maude
 select SHOW .
 red certify('NESTED, bag('Bag, '__, 'none.Bag) &b bag('Boxes, '_|_, 'nil.Boxes), 'tup,

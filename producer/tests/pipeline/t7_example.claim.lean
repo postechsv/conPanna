@@ -1,12 +1,12 @@
 import conPanna.Unification.Certification.Tactics
 
 /-! The worked example of documentation/worked-example.html:
-{box ({a} + X?)} + R? =? {box (Y? + W?)} + {box Z?}. -/
+{f ({a} + X?)} + R? =? {f (Y? + W?)} + {f Z?}. -/
 
 /- certify
 {
   "namespace": "Pipeline.T7",
-  "context": "Bag × Bag × Bag × Bag × Boxes",
+  "context": "Fruits × Fruits × Fruits × Fruits × Baskets",
   "vars": [
     "X?",
     "Y?",
@@ -15,9 +15,9 @@ import conPanna.Unification.Certification.Tactics
     "R?"
   ],
   "ops": {
-    "a": "Elem.a",
-    "b": "Elem.b",
-    "{_}": "Box.box"
+    "a": "Fruit.a",
+    "b": "Fruit.b",
+    "{_}": "Basket.f"
   }
 }
 -/
@@ -26,17 +26,17 @@ open Unification Certification
 
 namespace Pipeline.T7
 
-inductive Elem where
+inductive Fruit where
   | a
   | b
 
-abbrev Bag := ACU Elem
+abbrev Fruits := ACU Fruit
 
-inductive Box where
-  | box (b : Bag)
+inductive Basket where
+  | f (x : Fruits)
 
-abbrev Boxes := ACU Box
+abbrev Baskets := ACU Basket
 
-def problem : Problem Boxes (Bag × Bag × Bag × Bag × Boxes) :=
+def problem : Problem Baskets (Fruits × Fruits × Fruits × Fruits × Baskets) :=
   .bind fun (X?, Y?, W?, Z?, R?) =>
-    ({Box.box ({Elem.a} + X?)} + R?, {Box.box (Y? + W?)} + {Box.box Z?})
+    ({Basket.f ({Fruit.a} + X?)} + R?, {Basket.f (Y? + W?)} + {Basket.f Z?})

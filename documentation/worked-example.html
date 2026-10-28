@@ -45,7 +45,7 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 2.5rem 5rem;
 }
-main { max-width: 42rem; margin-inline: auto; }
+main { max-width: 46rem; margin-inline: auto; }
 header.front { display: grid; gap: .6rem; padding-bottom: 1.6rem; border-bottom: 1px solid var(--rule); }
 .kicker { font-family: var(--sans); font-size: .74rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 h1 { font-size: clamp(1.7rem, 4.4vw, 2.35rem); line-height: 1.18; margin: 0; font-weight: 700; text-wrap: balance; }
@@ -63,7 +63,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .note { margin: 1.2rem 0; padding: .8rem 1rem; background: var(--tint); border-radius: 4px; font-size: .97rem; }
 .note b { font-family: var(--sans); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
 .display { overflow-x: auto; }
+.where { margin: -.3rem 0 .9rem; font-size: .93rem; color: var(--muted); }
 code { font-family: var(--mono); font-size: .88em; }
+pre { font-family: var(--mono); font-size: .86rem; line-height: 1.55; background: var(--tint); padding: .9rem 1rem; border-radius: 4px; overflow-x: auto; margin: 1rem 0; }
+pre code { font-size: inherit; }
 .tablewrap { overflow-x: auto; margin: 1rem 0; }
 table { border-collapse: collapse; width: 100%; font-size: .93rem; }
 th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
@@ -89,28 +92,29 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 <main>
 <header class="front">
   <span class="kicker">Companion to the paper draft · Worked example</span>
-  <h1>Nested Boxes: One Certificate from Root to Leaves</h1>
+  <h1>Fruits in Baskets: One Certificate from Root to Leaves</h1>
   <p class="lede">The paper presents the calculus one rule at a time. This page follows a single complete certificate, so you can see how the rules work together: which rule fires where, what each state looks like, and why the finished tree proves that the answer set is complete.</p>
 </header>
 
 <section id="problem">
 <h2><span class="num">1</span>The problem</h2>
-<p>There are two kinds of bags here, one inside the other. Elements $a, b, \dots$ form bags of sort <i>Bag</i>. A free constructor $\mathsf{box}$ turns a bag into a box, and boxes form bags of sort <i>Boxes</i>. Both bag sorts are ACU: union $\cup$ is associative and commutative, with unit $\varnothing$. The variables are $X, Y, W, Z$ of sort <i>Bag</i> and $R$ of sort <i>Boxes</i>.</p>
-<p>The problem has three boxes, which we name once and use throughout:</p>
-<div class="display">$$A = \mathsf{box}(\{a\}\cup X),\qquad B = \mathsf{box}(Y\cup W),\qquad C = \mathsf{box}(Z),$$
-$$\{A\}\cup R \;\stackrel{?}{=}\; \{B\}\cup\{C\}.$$</div>
-<p>A solution is a value for every variable that makes the two sides equal bags of boxes. One example:</p>
-<div class="display">$$\gamma:\quad X=\varnothing,\ \ Y=\{a\},\ \ W=\varnothing,\ \ Z=\{b\},\ \ R=\{\mathsf{box}(\{b\})\}.$$</div>
-<p>Both sides become $\{\mathsf{box}(\{a\}),\ \mathsf{box}(\{b\})\}$. We follow this $\gamma$ through the whole tree in §5.</p>
-<p>Maude returns 16 unifiers $\sigma_0,\dots,\sigma_{15}$. The certificate uses only three of them; every other one is an instance of these (for example $\sigma_8$ is $\sigma_{11}$ with $U_2 = U_3 = \varnothing$), so it is never needed.</p>
+<pre><code>inductive Fruit  | a | b | c
+abbrev    Fruits  := ACU Fruit       -- finite multisets of Fruit
+inductive Basket | f (x : Fruits)    -- f: a free constructor
+abbrev    Baskets := ACU Basket      -- finite multisets of Basket</code></pre>
+<p>$\mathsf{ACU}\ S$ has $\varnothing$, singletons $\{s\}$ and union $\cup$ (associative, commutative, unit $\varnothing$). Variables: $X, Y, W, Z : \mathsf{Fruits}$ and $R : \mathsf{Baskets}$.</p>
+<div class="display">$$\{\underbrace{f(\{a\}\cup X)}_{A}\}\cup R \;\stackrel{?}{=}\; \{\underbrace{f(Y\cup W)}_{B}\}\cup\{\underbrace{f(Z)}_{C}\}$$</div>
+<p>A solution, used again in §5:</p>
+<div class="display">$$\gamma = [X{\mapsto}\varnothing,\ Y{\mapsto}\{a\},\ W{\mapsto}\varnothing,\ Z{\mapsto}\{b\},\ R{\mapsto}\{f(\{b\})\}],\qquad \text{both sides } = \{f(\{a\}),\ f(\{b\})\}.$$</div>
+<p>Maude returns 16 answers $\sigma_0,\dots,\sigma_{15}$. The certificate uses three; the other 13 are instances of these (e.g. $\sigma_8 = \sigma_{11}[U_2, U_3 \mapsto \varnothing]$).</p>
 <div class="tablewrap"><table>
 <thead><tr><th>Answer</th><th>$X$</th><th>$Y$</th><th>$W$</th><th>$Z$</th><th>$R$</th></tr></thead>
 <tbody>
-<tr><td>$\sigma_7$</td><td>$U_1$</td><td>$U_2$</td><td>$U_3$</td><td>$\{a\}\cup U_1$</td><td>$\{\mathsf{box}(U_2\cup U_3)\}$</td></tr>
-<tr><td>$\sigma_{11}$</td><td>$U_2\cup U_3$</td><td>$\{a\}\cup U_3$</td><td>$U_2$</td><td>$U_1$</td><td>$\{\mathsf{box}(U_1)\}$</td></tr>
-<tr><td>$\sigma_{15}$</td><td>$U_2\cup U_3$</td><td>$U_2$</td><td>$\{a\}\cup U_3$</td><td>$U_1$</td><td>$\{\mathsf{box}(U_1)\}$</td></tr>
+<tr><td>$\sigma_7$</td><td>$U_1$</td><td>$U_2$</td><td>$U_3$</td><td>$\{a\}\cup U_1$</td><td>$\{f(U_2\cup U_3)\}$</td></tr>
+<tr><td>$\sigma_{11}$</td><td>$U_2\cup U_3$</td><td>$\{a\}\cup U_3$</td><td>$U_2$</td><td>$U_1$</td><td>$\{f(U_1)\}$</td></tr>
+<tr><td>$\sigma_{15}$</td><td>$U_2\cup U_3$</td><td>$U_2$</td><td>$\{a\}\cup U_3$</td><td>$U_1$</td><td>$\{f(U_1)\}$</td></tr>
 </tbody></table></div>
-<p>The claim to prove is the judgment at the root: $\langle \mathrm{id};\ \{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\};\ \varnothing\rangle \Vdash \Sigma$, where $\Sigma$ is Maude's answer set. It says that every solution is an instance of some answer.</p>
+<p>Claim (the root): $\langle \mathrm{id};\ \{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\};\ \varnothing\rangle \Vdash \Sigma$, i.e. every solution is an instance of some answer in $\Sigma$.</p>
 </section>
 
 <section id="tree">
@@ -132,14 +136,14 @@ $$\{A\}\cup R \;\stackrel{?}{=}\; \{B\}\cup\{C\}.$$</div>
 <tr><td class="j">J5</td><td>$A = C$</td><td>none</td><td><span class="rn">Cover</span> by $\sigma_7$</td></tr>
 <tr><td class="j">J6</td><td>$A \ne C$</td><td>$\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}$</td><td><span class="rn">Identify</span> $A \sim B$</td></tr>
 <tr><td class="j">J7</td><td>$A \ne C$, $A = B$</td><td>$A \stackrel{?}{=} B$</td><td><span class="rn">Decomp</span></td></tr>
-<tr><td class="j">J8</td><td>$A \ne C$, $A = B$</td><td>$\{a\}\cup X \stackrel{?}{=} Y\cup W$</td><td><span class="rn">Solve</span> inside the boxes, 2 choices</td></tr>
+<tr><td class="j">J8</td><td>$A \ne C$, $A = B$</td><td>$\{a\}\cup X \stackrel{?}{=} Y\cup W$</td><td><span class="rn">Solve</span> inside $f$, 2 choices</td></tr>
 <tr><td class="j">J9</td><td>… choice $\pi_1$</td><td>$\{A'\}\cup R \stackrel{?}{=} \{A'\}\cup\{C\}$</td><td><span class="rn">Solve</span></td></tr>
 <tr><td class="j">J10</td><td>… choice $\pi_1$</td><td>none</td><td><span class="rn">Cover</span> by $\sigma_{11}$</td></tr>
 <tr><td class="j">J11</td><td>… choice $\pi_2$</td><td>$\{A'\}\cup R \stackrel{?}{=} \{A'\}\cup\{C\}$</td><td><span class="rn">Solve</span></td></tr>
 <tr><td class="j">J12</td><td>… choice $\pi_2$</td><td>none</td><td><span class="rn">Cover</span> by $\sigma_{15}$</td></tr>
 <tr><td class="j">J13</td><td>$A \ne C$, $A \ne B$</td><td>$\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}$</td><td><span class="rn">Solve</span>, no choice</td></tr>
 </tbody></table></div>
-<p><span class="rn">Solve</span> appears five times at three depths, and on both kinds of bag: on the bag of boxes ($J_4$, $J_9$, $J_{11}$, $J_{13}$) and on a bag of elements inside a box ($J_8$). The inner <span class="rn">Solve</span> at $J_8$ creates the states $J_9$ and $J_{11}$ on which the outer <span class="rn">Solve</span> runs again.</p>
+<p><span class="rn">Solve</span> appears five times at three depths, and on both kinds of multiset: on the baskets ($J_4$, $J_9$, $J_{11}$, $J_{13}$) and on the fruits inside a basket ($J_8$). The inner <span class="rn">Solve</span> at $J_8$ creates the states $J_9$ and $J_{11}$ on which the outer <span class="rn">Solve</span> runs again.</p>
 </section>
 
 <section id="concepts">
@@ -147,9 +151,9 @@ $$\{A\}\cup R \;\stackrel{?}{=}\; \{B\}\cup\{C\}.$$</div>
 <dl class="gloss">
   <dt>State</dt><dd>$\langle\alpha;E;D\rangle$: $\alpha$ maps the original variables to terms over the current variables, $E$ lists the pending equations and $D$ the recorded disequations. Its solutions are the values of the current variables that satisfy $E$ and $D$; each one gives the solution $\alpha$ of the original problem.</dd>
   <dt>Judgment</dt><dd>$\langle\alpha;E;D\rangle\Vdash\Sigma$: every solution of the state is covered by some answer in $\Sigma$.</dd>
-  <dt>Alien</dt><dd>An element of a bag that is not a variable: $a$ inside a box, or a whole box such as $A$ in a bag of boxes. <span class="rn">Solve</span> treats aliens as opaque elements and counts their copies.</dd>
+  <dt>Alien</dt><dd>An element of a multiset that is not a variable: the fruit $a$ inside a basket, or a whole basket such as $A$ among the baskets. <span class="rn">Solve</span> treats aliens as opaque elements and counts their copies.</dd>
   <dt>Count equation</dt><dd>For a bag equation and one element $e$, the number of copies of $e$ on each side must agree. Writing $r$ for the copies of $e$ in $R$, the root equation gives $r + [e{=}A] = [e{=}B] + [e{=}C]$, where $[e{=}A]$ is $1$ if $e$ is $A$ and $0$ otherwise.</dd>
-  <dt>Data $P$, $B$</dt><dd>For each alien $c$, the least solutions $P_c$ of its count equation; and the basis $B$, the least nonzero solutions where no alien occurs. Every solution is one particular solution plus a sum of basis vectors.</dd>
+  <dt>Data $P$, $\mathcal B$</dt><dd>For each alien $c$, the least solutions $P_c$ of its count equation; and the basis $\mathcal B$, the least nonzero solutions where no alien occurs. Every solution is one particular solution plus a sum of basis vectors.</dd>
   <dt>Choice, $\theta_\pi$</dt><dd>A choice $\pi$ picks one particular solution per alien. It determines the substitution $\theta_\pi$: each bag variable gets $\pi$'s copies of the aliens plus one fresh variable $Z_j$ per basis vector. <span class="rn">Solve</span> has one premise per choice.</dd>
   <dt>Compatible, clique</dt><dd>Two aliens on the same side are compatible when nothing rules out that they are equal. A clique is a set of pairwise compatible aliens; they may all denote one element, so their count equations are added together, and side condition (S2) is checked for that sum.</dd>
   <dt>(S1)–(S3)</dt><dd>(S1) the data really solve the count equations; (S2) every solution, for every clique, lies above some sum of picks; (S3) every nonzero solution without aliens lies above some basis vector. Together they say no solution is lost.</dd>
@@ -160,68 +164,95 @@ $$\{A\}\cup R \;\stackrel{?}{=}\; \{B\}\cup\{C\}.$$</div>
 
 <section id="nodes">
 <h2><span class="num">4</span>Node by node</h2>
+<p>Each node is shown as its rule instance: premises above the line, the node's state below. Labels used throughout:</p>
+<div class="display">$$A = f(\{a\}\cup X),\quad B = f(Y\cup W),\quad C = f(Z),\quad A' = f(\{a\}\cup Z_1\cup Z_2),\quad E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr).$$</div>
+<p>For a bag equation, $r$ is the number of copies of an element $e$ in $R$ (or $x, y, w$ in $X, Y, W$), and $[e{=}A]$ is $1$ if $e = A$, else $0$.</p>
 
-<h3><span class="num">4.1</span>$J_1$: the first split</h3>
-<p>At the root, the boxes $A$, $B$, $C$ are aliens of the outer bag. Whether $A$ equals $C$ depends on the values of $X$ and $Z$, and <span class="rn">Solve</span> needs to know this: if $A = C$, the copy of $A$ on the left cancels against $C$ on the right, which changes the count. Aliens on opposite sides that may coincide are therefore split first.</p>
-<div class="env"><span class="label">Identify $A\sim C$.</span> Every solution has either $A = C$ or $A \ne C$. The first premise $J_2$ adds the equation $A \stackrel{?}{=} C$ to $E$; the second premise $J_6$ records $A \ne C$ in $D$.</div>
-<p>$B$ and $C$ are on the same side. They also may coincide, but they need no split: <span class="rn">Solve</span> handles them as a clique (see $J_{13}$).</p>
+<h3><span class="num">4.1</span>$J_1$: split on $A \sim C$</h3>
+<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ A\stackrel{?}{=}C,\ E_0;\ \varnothing\rangle}^{J_2}\qquad\overbrace{\langle\mathrm{id};\ E_0;\ A\ne C\rangle}^{J_6}}{\underbrace{\langle\mathrm{id};\ E_0;\ \varnothing\rangle}_{J_1}}\ \textsf{Identify}$$</div>
+<p class="where">where $E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr)$, $\ A = f(\{a\}\cup X)$, $\ B = f(Y\cup W)$, $\ C = f(Z)$.</p>
+<p>$A$ (left) and $C$ (right) may be equal. If they are, they cancel in $E_0$; if not, they do not. The count depends on which, so split first. ($B, C$ are on the same side: no split needed, see $J_{13}$.)</p>
 
 <h3><span class="num">4.2</span>Branch $A = C$: $J_2$ to $J_5$</h3>
-<div class="env"><span class="label">$J_2$ Decomp.</span> $\mathsf{box}$ is a free constructor, so $\mathsf{box}(\{a\}\cup X) = \mathsf{box}(Z)$ holds exactly when $\{a\}\cup X = Z$. The first equation is replaced by that one.</div>
-<div class="env"><span class="label">$J_3$ Elim $Z := \{a\}\cup X$.</span> $Z$ does not occur in $\{a\}\cup X$, so the equation fixes $Z$. $Z$ leaves the state, and every later occurrence becomes $\{a\}\cup X$. In particular $C$ becomes $A$, so the remaining equation is $\{A\}\cup R \stackrel{?}{=} \{A\}\cup\{B\}$, and $\alpha$ now records $Z \mapsto \{a\}\cup X$.</div>
-<div class="env"><span class="label">$J_4$ Solve.</span> The bag variable is $R$; the aliens are $A$ (once on each side) and $B$ (right). For an element $e$ with $r$ copies in $R$:
-$$r + [e{=}A] \;=\; [e{=}A] + [e{=}B].$$
-<ul>
-<li>$e$ is $A$ only: $r + 1 = 1$, so $r = 0$. $P_A = \{(0)\}$.</li>
-<li>$e$ is $B$ only: $r = 1$. $P_B = \{(1)\}$.</li>
-<li>$e$ is neither: $r = 0$. The only solution is zero, so the basis is empty and no fresh variable is created.</li>
-</ul>
-$A$ and $B$ are compatible: nothing in $D$ says $A \ne B$. So $\{A, B\}$ is a clique, and (S2) checks the case $e = A = B$: there $r + 1 = 2$, so $r = 1$, which lies above $p_A + p_B = (0) + (1) = (1)$. There is one choice, $\pi = (p_A, p_B)$, and
-$$\theta_\pi:\quad R := 0\cdot\{A\}\cup 1\cdot\{B\} = \{B\} = \{\mathsf{box}(Y\cup W)\}.$$</div>
-<div class="env"><span class="label">$J_5$ Cover by $\sigma_7$.</span> Nothing is pending, and $\alpha$ maps $Z \mapsto \{a\}\cup X$, $R\mapsto\{\mathsf{box}(Y\cup W)\}$, and $X, Y, W$ to themselves. The witness $\beta = [U_1 := X,\ U_2 := Y,\ U_3 := W]$ turns $\sigma_7$ into exactly this $\alpha$.</div>
+<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ \{a\}\cup X\stackrel{?}{=}Z,\ E_0;\ \varnothing\rangle}^{J_3}}{\underbrace{\langle\mathrm{id};\ f(\{a\}\cup X)\stackrel{?}{=}f(Z),\ E_0;\ \varnothing\rangle}_{J_2}}\ \textsf{Decomp}\qquad f\text{ is injective.}$$</div>
+<p class="where">where $E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr)$ is carried along unchanged.</p>
+<div class="display">$$\frac{\overbrace{\langle[Z{\mapsto}\{a\}\cup X];\ \{A\}\cup R\stackrel{?}{=}\{A\}\cup\{B\};\ \varnothing\rangle}^{J_4}}{\underbrace{\langle\mathrm{id};\ \{a\}\cup X\stackrel{?}{=}Z,\ E_0;\ \varnothing\rangle}_{J_3}}\ \textsf{Elim}\qquad C[Z{:=}\{a\}\cup X] = A.$$</div>
+<p class="where">where $E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr)$ with $C = f(Z)$; $Z := \{a\}\cup X$ turns $C$ into $A = f(\{a\}\cup X)$.</p>
+<div class="display">$$\frac{\overbrace{\langle[Z{\mapsto}\{a\}\cup X,\ R{\mapsto}\{B\}];\ \varnothing;\ \varnothing\rangle}^{J_5}}{\underbrace{\langle[Z{\mapsto}\{a\}\cup X];\ \{A\}\cup R\stackrel{?}{=}\{A\}\cup\{B\};\ \varnothing\rangle}_{J_4}}\ \textsf{Solve}$$</div>
+<p class="where">where $A = f(\{a\}\cup X)$, $\ B = f(Y\cup W)$; the bag variable is $R$.</p>
+<div class="env"><span class="label">Data at $J_4$.</span>
+$$r + [e{=}A] = [e{=}A] + [e{=}B]$$
+<div class="tablewrap"><table>
+<thead><tr><th>$e$</th><th>count equation</th><th>solutions</th></tr></thead>
+<tbody>
+<tr><td>$A$ only</td><td>$r+1 = 1$</td><td>$r=0$: $\ P_A = \{(0)\}$</td></tr>
+<tr><td>$B$ only</td><td>$r = 1$</td><td>$r=1$: $\ P_B = \{(1)\}$</td></tr>
+<tr><td>other</td><td>$r = 0$</td><td>only $0$: $\ \mathcal B = \varnothing$, no fresh variable</td></tr>
+<tr><td>$A = B$ (clique $\{A,B\}$)</td><td>$r+1 = 2$</td><td>$r = 1 \ge p_A + p_B = (1)$ ✓ (S2)</td></tr>
+</tbody></table></div>
+One choice $\pi = (p_A, p_B)$: $\ \theta_\pi = [R \mapsto 0{\cdot}\{A\}\cup 1{\cdot}\{B\}] = [R\mapsto\{B\}]$.</div>
+<div class="display">$$\frac{}{\underbrace{\langle[Z{\mapsto}\{a\}\cup X,\ R{\mapsto}\{B\}];\ \varnothing;\ \varnothing\rangle}_{J_5}}\ \textsf{Cover}\ \sigma_7,\quad \beta = [U_1{\mapsto}X,\ U_2{\mapsto}Y,\ U_3{\mapsto}W]$$</div>
+<p class="where">where $B = f(Y\cup W)$; $\ \sigma_7 = [X{\mapsto}U_1,\ Y{\mapsto}U_2,\ W{\mapsto}U_3,\ Z{\mapsto}\{a\}\cup U_1,\ R{\mapsto}\{f(U_2\cup U_3)\}]$.</p>
+<p>$\beta\circ\sigma_7 = [X{\mapsto}X,\ Y{\mapsto}Y,\ W{\mapsto}W,\ Z{\mapsto}\{a\}\cup X,\ R{\mapsto}\{f(Y\cup W)\}] = \alpha$ ✓</p>
 
 <h3><span class="num">4.3</span>Branch $A \ne C$, $A = B$: $J_6$ to $J_{12}$</h3>
-<div class="env"><span class="label">$J_6$ Identify $A\sim B$.</span> $A$ (left) and $B$ (right) may also coincide, so they are split the same way: $J_7$ assumes $A = B$, and $J_{13}$ records $A \ne B$ as well.</div>
-<div class="env"><span class="label">$J_7$ Decomp.</span> $\mathsf{box}(\{a\}\cup X) = \mathsf{box}(Y\cup W)$ becomes $\{a\}\cup X \stackrel{?}{=} Y\cup W$, an equation between bags of elements, one level down.</div>
-<div class="env"><span class="label">$J_8$ Solve, inside the boxes.</span> The bag variables are $X, Y, W$; the only alien is the element $a$. With $(x, y, w)$ the copies of $e$ in $(X, Y, W)$:
-$$x + [e{=}a] \;=\; y + w.$$
-<ul>
-<li>$e = a$: $x + 1 = y + w$. Its least solutions are $(0,1,0)$ and $(0,0,1)$: the extra $a$ sits in $Y$ or in $W$. So $P_a = \{(0,1,0),\ (0,0,1)\}$, and there are two choices.</li>
-<li>$e \ne a$: $x = y + w$. Its least nonzero solutions are $b_1 = (1,1,0)$ and $b_2 = (1,0,1)$. Each gets a fresh bag: $Z_1$ for elements shared by $X$ and $Y$, $Z_2$ for elements shared by $X$ and $W$.</li>
-</ul>
-(S3) holds because any nonzero $(x, y, w)$ with $x = y + w$ has $y \ge 1$ or $w \ge 1$, and so lies above $b_1$ or $b_2$. With a single alien, every clique is a singleton. Reading each vector as copies in $(X, Y, W)$ gives the two substitutions:
+<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ A\stackrel{?}{=}B,\ E_0;\ A\ne C\rangle}^{J_7}\qquad\overbrace{\langle\mathrm{id};\ E_0;\ A\ne C,\ A\ne B\rangle}^{J_{13}}}{\underbrace{\langle\mathrm{id};\ E_0;\ A\ne C\rangle}_{J_6}}\ \textsf{Identify}$$</div>
+<p class="where">where $E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr)$, $\ A = f(\{a\}\cup X)$, $\ B = f(Y\cup W)$, $\ C = f(Z)$.</p>
+<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ \{a\}\cup X\stackrel{?}{=}Y\cup W,\ E_0;\ A\ne C\rangle}^{J_8}}{\underbrace{\langle\mathrm{id};\ f(\{a\}\cup X)\stackrel{?}{=}f(Y\cup W),\ E_0;\ A\ne C\rangle}_{J_7}}\ \textsf{Decomp}$$</div>
+<p class="where">where $E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr)$ is carried along unchanged.</p>
+<div class="display">$$\frac{\overbrace{\langle\theta_1;\ \{A'\}\cup R\stackrel{?}{=}\{A'\}\cup\{C\};\ A'\ne C\rangle}^{J_9}\qquad\overbrace{\langle\theta_2;\ \{A'\}\cup R\stackrel{?}{=}\{A'\}\cup\{C\};\ A'\ne C\rangle}^{J_{11}}}{\underbrace{\langle\mathrm{id};\ \{a\}\cup X\stackrel{?}{=}Y\cup W,\ E_0;\ A\ne C\rangle}_{J_8}}\ \textsf{Solve}$$</div>
+<p class="where">where $E_0 = \bigl(\{A\}\cup R \stackrel{?}{=} \{B\}\cup\{C\}\bigr)$ under $\theta_i$: both $A$ and $B$ become $A' = f(\{a\}\cup Z_1\cup Z_2)$, so it reads $\{A'\}\cup R \stackrel{?}{=} \{A'\}\cup\{C\}$, with $C = f(Z)$; $\theta_1, \theta_2$ are in the table below.</p>
+<div class="env"><span class="label">Data at $J_8$</span> (inside $f$; $(x, y, w)$ = copies of $e$ in $(X, Y, W)$).
+$$x + [e{=}a] = y + w$$
 <div class="tablewrap"><table>
-<thead><tr><th></th><th>$X$</th><th>$Y$</th><th>$W$</th></tr></thead>
+<thead><tr><th>$e$</th><th>count equation</th><th>least solutions</th></tr></thead>
 <tbody>
-<tr><td>$\pi_1 = (0,1,0)$</td><td>$Z_1\cup Z_2$</td><td>$\{a\}\cup Z_1$</td><td>$Z_2$</td></tr>
-<tr><td>$\pi_2 = (0,0,1)$</td><td>$Z_1\cup Z_2$</td><td>$Z_1$</td><td>$\{a\}\cup Z_2$</td></tr>
+<tr><td>$a$</td><td>$x + 1 = y + w$</td><td>$P_a = \{\pi_1 = (0,1,0),\ \pi_2 = (0,0,1)\}$</td></tr>
+<tr><td>other</td><td>$x = y + w$</td><td>$\mathcal B = \{b_1 = (1,1,0),\ b_2 = (1,0,1)\}$ $\to$ fresh $Z_1, Z_2$</td></tr>
 </tbody></table></div>
-Under either substitution, $A$ and $B$ both become $A' = \mathsf{box}(\{a\}\cup Z_1\cup Z_2)$. The solved equation is removed; the outer equation remains, with the substitution applied.</div>
-<div class="env"><span class="label">$J_9$ and $J_{11}$ Solve.</span> In both premises the outer equation is now $\{A'\}\cup R \stackrel{?}{=} \{A'\}\cup\{C\}$, and $D$ contains $A' \ne C$: the disequation from $J_1$, with the substitution applied. The count equation is $r + [e{=}A'] = [e{=}A'] + [e{=}C]$, with $P_{A'} = \{(0)\}$, $P_C = \{(1)\}$ and an empty basis, exactly as at $J_4$. This time $A'$ and $C$ are not compatible, because $D$ says they differ, so no clique has two members and (S2) is checked alien by alien. One choice: $R := \{C\} = \{\mathsf{box}(Z)\}$.</div>
-<div class="env"><span class="label">$J_{10}$ Cover by $\sigma_{11}$, $J_{12}$ Cover by $\sigma_{15}$.</span> At $J_{10}$, $\alpha$ maps $X\mapsto Z_1\cup Z_2$, $Y\mapsto\{a\}\cup Z_1$, $W\mapsto Z_2$, $R\mapsto\{\mathsf{box}(Z)\}$. The witness $\beta = [U_1 := Z,\ U_2 := Z_2,\ U_3 := Z_1]$ turns $\sigma_{11}$ into it; $X$ agrees only up to the order of $Z_1 \cup Z_2$, which is why <span class="rn">Cover</span> compares modulo ACU. $J_{12}$ is the same with $\pi_2$ and $\sigma_{15}$, witness $[U_1 := Z,\ U_2 := Z_1,\ U_3 := Z_2]$.</div>
+(S3): $x = y + w,\ (x,y,w)\ne 0 \ \Rightarrow\ y\ge 1 \lor w \ge 1 \ \Rightarrow\ \ge b_1 \lor \ge b_2$ ✓. Read each column as copies in $(X, Y, W)$:
+<div class="tablewrap"><table>
+<thead><tr><th></th><th>$X$</th><th>$Y$</th><th>$W$</th><th>$A,\ B$ become</th></tr></thead>
+<tbody>
+<tr><td>$\theta_1$ ($\pi_1$)</td><td>$Z_1\cup Z_2$</td><td>$\{a\}\cup Z_1$</td><td>$Z_2$</td><td>$A' ,\ A'$</td></tr>
+<tr><td>$\theta_2$ ($\pi_2$)</td><td>$Z_1\cup Z_2$</td><td>$Z_1$</td><td>$\{a\}\cup Z_2$</td><td>$A' ,\ A'$</td></tr>
+</tbody></table></div></div>
+<div class="display">$$\frac{\overbrace{\langle\theta_i[R{\mapsto}\{C\}];\ \varnothing;\ A'\ne C\rangle}^{J_{10},\ J_{12}}}{\underbrace{\langle\theta_i;\ \{A'\}\cup R\stackrel{?}{=}\{A'\}\cup\{C\};\ A'\ne C\rangle}_{J_9,\ J_{11}}}\ \textsf{Solve}\qquad (i = 1, 2)$$</div>
+<p class="where">where $\theta_1 = [X{\mapsto}Z_1\cup Z_2,\ Y{\mapsto}\{a\}\cup Z_1,\ W{\mapsto}Z_2]$, $\ \theta_2 = [X{\mapsto}Z_1\cup Z_2,\ Y{\mapsto}Z_1,\ W{\mapsto}\{a\}\cup Z_2]$, $\ A' = f(\{a\}\cup Z_1\cup Z_2)$, $\ C = f(Z)$.</p>
+<div class="env"><span class="label">Data at $J_9$, $J_{11}$.</span>
+$$r + [e{=}A'] = [e{=}A'] + [e{=}C]:\qquad P_{A'} = \{(0)\},\quad P_C = \{(1)\},\quad \mathcal B = \varnothing.$$
+$A' \ne C \in D$, so $A'$ and $C$ are not compatible: cliques $\{A'\}, \{C\}$ only. One choice: $R \mapsto \{C\} = \{f(Z)\}$.</div>
+<div class="display">$$\frac{}{J_{10}}\ \textsf{Cover}\ \sigma_{11},\ \beta = [U_1{\mapsto}Z,\ U_2{\mapsto}Z_2,\ U_3{\mapsto}Z_1]\qquad\qquad \frac{}{J_{12}}\ \textsf{Cover}\ \sigma_{15},\ \beta = [U_1{\mapsto}Z,\ U_2{\mapsto}Z_1,\ U_3{\mapsto}Z_2]$$</div>
+<p class="where">where $J_{10} = \langle\theta_1[R{\mapsto}\{C\}];\ \varnothing;\ A'\ne C\rangle$, $\ J_{12} = \langle\theta_2[R{\mapsto}\{C\}];\ \varnothing;\ A'\ne C\rangle$, $\ C = f(Z)$.</p>
+<p>E.g. at $J_{10}$: $\beta\circ\sigma_{11}$ gives $X\mapsto Z_2\cup Z_1 =_{AC} Z_1\cup Z_2$, $Y\mapsto\{a\}\cup Z_1$, $W\mapsto Z_2$, $Z\mapsto Z$, $R\mapsto\{f(Z)\}$ ✓ (equal modulo ACU).</p>
 
 <h3><span class="num">4.4</span>Branch $A \ne C$, $A \ne B$: $J_{13}$</h3>
-<div class="env"><span class="label">$J_{13}$ Solve with no choice.</span> The equation is the original one, now with $D = \{A \ne C,\ A\ne B\}$. The aliens are $A$ (left) and $B$, $C$ (right):
-$$r + [e{=}A] \;=\; [e{=}B] + [e{=}C].$$
-<ul>
-<li>$e$ is $A$ only: $r + 1 = 0$ has no solution in $\mathbb N$, so $P_A = \varnothing$.</li>
-<li>$e$ is $B$ only, or $C$ only: $r = 1$, so $P_B = P_C = \{(1)\}$.</li>
-</ul>
-$D$ makes $A$ incompatible with both $B$ and $C$. $B$ and $C$ remain compatible, so $\{B, C\}$ is a clique: (S2) checks $e = B = C$, where $r = 2$ lies above $p_B + p_C = (2)$. Because $P_A$ is empty there is no choice at all, so <span class="rn">Solve</span> has no premises and the branch is closed. In words: the copy of $A$ on the left must match some box on the right, and $D$ rules out both.</div>
+<div class="display">$$\frac{}{\underbrace{\langle\mathrm{id};\ \{A\}\cup R\stackrel{?}{=}\{B\}\cup\{C\};\ A\ne C,\ A\ne B\rangle}_{J_{13}}}\ \textsf{Solve}\ \ (\text{no choice})$$</div>
+<p class="where">where $A = f(\{a\}\cup X)$, $\ B = f(Y\cup W)$, $\ C = f(Z)$.</p>
+<div class="env"><span class="label">Data at $J_{13}$.</span>
+$$r + [e{=}A] = [e{=}B] + [e{=}C]$$
+<div class="tablewrap"><table>
+<thead><tr><th>$e$</th><th>count equation</th><th>solutions</th></tr></thead>
+<tbody>
+<tr><td>$A$ only</td><td>$r + 1 = 0$</td><td>none: $\ P_A = \varnothing$</td></tr>
+<tr><td>$B$ only, $C$ only</td><td>$r = 1$</td><td>$P_B = P_C = \{(1)\}$</td></tr>
+<tr><td>$B = C$ (clique $\{B,C\}$)</td><td>$r = 2$</td><td>$\ge p_B + p_C = (2)$ ✓ (S2)</td></tr>
+</tbody></table></div>
+$D$ makes $A$ incompatible with $B$ and $C$. $P_A = \varnothing$ $\Rightarrow$ no choice $\pi$ $\Rightarrow$ no premise: the branch is closed. (The copy of $A$ on the left has nothing on the right to match.)</div>
 </section>
 
 <section id="global">
 <h2><span class="num">5</span>Why the whole tree proves completeness</h2>
 <p>Every rule has the same shape of argument. Each solution of the conclusion is a solution of some premise, and it gives the same solution of the original problem. So a solution of the root travels upward through the tree, one rule at a time, until it reaches a leaf. Every leaf either is covered by an answer (<span class="rn">Cover</span>) or has no solutions (<span class="rn">Solve</span> with no choice). Hence every solution of the root is covered.</p>
-<p>Here is the path of $\gamma$ from §1 ($X=\varnothing$, $Y=\{a\}$, $W=\varnothing$, $Z=\{b\}$, $R=\{\mathsf{box}(\{b\})\}$):</p>
+<p>Here is the path of $\gamma$ from §1 ($X=\varnothing$, $Y=\{a\}$, $W=\varnothing$, $Z=\{b\}$, $R=\{f(\{b\})\}$):</p>
 <div class="tablewrap"><table>
 <thead><tr><th>At</th><th>What $\gamma$ does</th></tr></thead>
 <tbody>
-<tr><td class="j">J1</td><td>$A = \mathsf{box}(\{a\})$ and $C = \mathsf{box}(\{b\})$ differ, so $\gamma$ goes to $J_6$.</td></tr>
-<tr><td class="j">J6</td><td>$B = \mathsf{box}(\{a\}) = A$, so $\gamma$ goes to $J_7$.</td></tr>
+<tr><td class="j">J1</td><td>$A = f(\{a\})$ and $C = f(\{b\})$ differ, so $\gamma$ goes to $J_6$.</td></tr>
+<tr><td class="j">J6</td><td>$B = f(\{a\}) = A$, so $\gamma$ goes to $J_7$.</td></tr>
 <tr><td class="j">J7</td><td>$\{a\}\cup\varnothing = \{a\}\cup\varnothing$ holds, so $\gamma$ stays a solution.</td></tr>
 <tr><td class="j">J8</td><td>At $e = a$ the counts are $(x,y,w) = (0,1,0)$, which is $p = \pi_1$ with nothing left over, so $\gamma$ takes choice $\pi_1$ with $Z_1 = Z_2 = \varnothing$.</td></tr>
-<tr><td class="j">J9</td><td>$R$ holds one copy of $C = \mathsf{box}(\{b\})$, which is $p_C$, so $R = \{C\}$.</td></tr>
+<tr><td class="j">J9</td><td>$R$ holds one copy of $C = f(\{b\})$, which is $p_C$, so $R = \{C\}$.</td></tr>
 <tr><td class="j">J10</td><td>Covered by $\sigma_{11}$ with $U_1 = \{b\}$, $U_2 = U_3 = \varnothing$.</td></tr>
 </tbody></table></div>
 <p>The tree does not need to say in advance which path a solution takes. Each rule only guarantees that some premise receives it, and the leaves account for all premises.</p>
@@ -236,7 +267,7 @@ $D$ makes $A$ incompatible with both $B$ and $C$. $B$ and $C$ remain compatible,
 <tr><td class="j">J1, J6</td><td><code>refine identify a b ?_ ?_</code></td></tr>
 <tr><td class="j">J2, J7</td><td><code>refine decomp [new equations] (by acu_decomp …)</code>, proved by the constructor's injectivity</td></tr>
 <tr><td class="j">J3</td><td><code>refine elim f (by acu_elim …)</code></td></tr>
-<tr><td class="j">J4, J8, J9, J11, J13</td><td><code>refine solve</code> with the bag variables, the aliens, the coefficients and compatible pairs, the data $P$ and $B$, and (S0)–(S3); then <code>acu_branches</code> opens one goal per choice</td></tr>
+<tr><td class="j">J4, J8, J9, J11, J13</td><td><code>refine solve</code> with the bag variables, the aliens, the coefficients and compatible pairs, the data $P$ and $\mathcal B$, and (S0)–(S3); then <code>acu_branches</code> opens one goal per choice</td></tr>
 <tr><td class="j">J5, J10, J12</td><td><code>cover</code> with the answer and the witness</td></tr>
 </tbody></table></div>
 <p>Two kinds of bookkeeping step have no node in the tree: <code>checkpoint</code>, which restates each state in direct form, and <code>rename</code>, which names <span class="rn">Solve</span>'s fresh bags $Z_1, Z_2$.</p>
