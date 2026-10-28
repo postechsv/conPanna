@@ -6,15 +6,15 @@ The surface rules of the certification calculus, one theorem per rule of the
 paper draft. Each rule acts on the first pending equation `e` of a state
 `⟨α ; e :: E ; D⟩`, like the paper's rules on `{s = t} ∪ E`:
 
-| paper            | Lean                 | first equation `e`, and what replaces it        |
-|------------------|----------------------|-------------------------------------------------|
-| DELETE           | `delete`             | `t = t`; dropped                                |
-| DECOMP           | `decomp`             | `f(s⃗) = f(t⃗)`; replaced by `s⃗ = t⃗`             |
-| ELIM             | `elim`               | `V = t`; dropped, `V := t` substituted          |
-| SOLVE            | `solve`              | a bag equation; dropped, `θ_π` substituted      |
-| IDENTIFY         | `identify`           | (none) adds `a = b`, or `a ≠ b` to `D`          |
-| CLASH, OCCURS, DISTINCT | `clash`       | (none) the constraints are contradictory        |
-| COVER            | `cover` (Judgment.lean) | (none) one unifier covers every solution     |
+| paper                   | Lean                    | first equation `e`, and what replaces it         |
+|-------------------------|-------------------------|--------------------------------------------------|
+| DELETE                  | `delete`                | `t = t`; dropped                                 |
+| DECOMP                  | `decomp`                | `f(s₁,…,sₙ) = f(t₁,…,tₙ)`; replaced by `sᵢ = tᵢ` |
+| ELIM                    | `elim`                  | `V = t`; dropped, `V := t` substituted           |
+| SOLVE                   | `solve`                 | a bag equation; dropped, `θ_π` substituted       |
+| IDENTIFY                | `identify`              | (none) adds `a = b`, or `a ≠ b` to `D`           |
+| CLASH, OCCURS, DISTINCT | `clash`                 | (none) the constraints are contradictory         |
+| COVER                   | `cover` (Judgment.lean) | (none) one unifier covers every solution         |
 
 Not rules of the paper: `rename` (present a state over another context) and the
 generic `transfer` and `close` (Judgment.lean) that every rule instantiates.
@@ -38,7 +38,7 @@ no proof that `e` is trivial. -/
 theorem delete (next : ⟨α, E, D⟩ ⊩ unifiers) : ⟨α, e :: E, D⟩ ⊩ unifiers :=
   fun ρ hE hD => next ρ hE.2 hD
 
-/-- DECOMP `f(s⃗) = f(t⃗)` into `s⃗ = t⃗`, the equations `es`. -/
+/-- DECOMP `f(s₁,…,sₙ) = f(t₁,…,tₙ)` into `s₁ = t₁, …, sₙ = tₙ`, the equations `es`. -/
 theorem decomp (es : List (Γ → Prop)) (h : ∀ ρ, e ρ → Eqs es ρ)
     (next : ⟨α, es ++ E, D⟩ ⊩ unifiers) : ⟨α, e :: E, D⟩ ⊩ unifiers :=
   fun ρ hE hD => next ρ ((eqs_append es E ρ).2 ⟨h ρ hE.1, hE.2⟩) hD
@@ -119,7 +119,7 @@ context). One premise per choice `π`: the bag variables become `θ_π`, over th
 plus fresh bags `Z : Fin k → ACU El`.
 
 Given by the certificate (computed outside Lean, by the producer):
-* `sp`: which variables are the bags `X⃗` of `e`;
+* `sp`: which variables are the bag variables `X` of `e`;
 * `a`: the aliens, the non-variable elements `{a}` of `e`;
 * `q`: `e` in coefficient form, and which aliens are compatible;
 * `d`: the data, particular solutions `P` per alien and the basis `B`.

@@ -33,7 +33,7 @@ macro_rules
       try simp_all))
 
 set_option hygiene false in
-/-- DECOMP `f(s⃗) = f(t⃗)`, from the first equation `h`: by the constructor's injectivity
+/-- DECOMP `f(s₁,…,sₙ) = f(t₁,…,tₙ)`, from the first equation `h`: by the constructor's injectivity
 lemma `f.injEq`, given with the lemmas that unfold the problem (successor `n + 1` is
 built in). Arguments that are bags are compared modulo AC. -/
 syntax "acu_decomp" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
