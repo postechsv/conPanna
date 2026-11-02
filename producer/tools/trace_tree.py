@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Rebuild Maude's unification search tree from its unification trace.
 
-  python3 producer/tools/trace_tree.py model.maude Module 'lhs-meta' 'rhs-meta'
-      # runs the instrumented Maude (maude/build.sh) on  lhs =? rhs  and prints the tree
+  python3 producer/tools/trace_tree.py model.maude Module 'lhs-meta' 'rhs-meta' ...
+      # runs the instrumented Maude (maude/build.sh) on  lhs =? rhs /\ ...  and prints the tree
 
 The instrumented Maude prints one event per inference step when MAUDE_UNIFICATION_TRACE
 is set (maude/src/Core/unificationTrace.hh). Unification is a depth-first backtracking
@@ -58,19 +58,30 @@ class Frame:
         return sum(b.nr_leaves() for b in self.branches)
 
 
-def run(model, module, lhs, rhs):
-    """Unify with the instrumented Maude: (trace text, number of unifiers)."""
-    script = (f"load {pathlib.Path(model).resolve()}\n{ALL_UNIFIERS}\n"
-              f"red all(upModule('{module}, false), {lhs} =? {rhs}, 0) .\nquit\n")
-    env = dict(os.environ, MAUDE_UNIFICATION_TRACE="1", MAUDE_LIB=str(MAUDE_LIB))
-    r = subprocess.run([str(MAUDE), "-no-banner", "-no-wrap", "-no-advise"], input=script,
+def maude(script, trace=False):
+    """Run the instrumented Maude on a script: (stdout, stderr). Terms print in prefix form."""
+    env = dict(os.environ, MAUDE_LIB=str(MAUDE_LIB))
+    if trace:
+        env["MAUDE_UNIFICATION_TRACE"] = "1"
+    r = subprocess.run([str(MAUDE), "-no-banner", "-no-wrap", "-no-advise"],
+                       input="set print mixfix off .\n" + script + "\nquit\n",
                        capture_output=True, text=True, env=env, check=True)
     if "Warning" in r.stdout:
         raise SystemExit("trace_tree.py: Maude warnings:\n" + r.stdout)
-    m = re.search(r"result (UList|UnificationPair): (.*?)(?:\n={5,}|\nBye|\Z)", r.stdout, re.S)
-    # each unifier is a pair  {substitution, n} : count the pairs' closing  , n}
-    nr = 0 if not m else len(re.findall(r",\s*\d+\s*\}", m.group(2)))
-    return r.stderr, nr
+    return r.stdout, r.stderr
+
+
+def problem(eqs):
+    """Meta-level equations [(lhs, rhs), ...] as a unification problem."""
+    return " /\\ ".join(f"{l} =? {r}" for l, r in eqs)
+
+
+def run(model, module, eqs):
+    """Unify  eqs  with the instrumented Maude: (trace text, number of unifiers)."""
+    out, err = maude(f"load {pathlib.Path(model).resolve()}\n{ALL_UNIFIERS}\n"
+                     f"red all(upModule('{module}, false), {problem(eqs)}, 0) .", trace=True)
+    # each unifier is a pair  {_,_}(substitution, n)
+    return err, out.count("`{_`,_`}(")
 
 
 def events(trace):
@@ -150,8 +161,8 @@ def check(trace, nr_unifiers):
 
 
 def main():
-    model, module, lhs, rhs = sys.argv[1:5]
-    trace, nr = run(model, module, lhs, rhs)
+    model, module, *sides = sys.argv[1:]
+    trace, nr = run(model, module, list(zip(sides[::2], sides[1::2])))
     root, ok, sels, assigned = check(trace, nr)
     print("\n".join(show(root)))
     print(f"\nunifiers: Maude {nr}, tree leaves {root.nr_leaves()} -> {'ok' if ok else 'MISMATCH'}; "
