@@ -464,21 +464,21 @@ where
     emit (ind + 2) s!"\{ rows := [{", ".intercalate rowsL}], clash := [{", ".intercalate clash}] }"
     emit (ind + 2) s!"\{ free := {vec (freeVs.map (vecN basis[·]!))}, alien := {vec (alienVs.map (vecN basis[·]!))},"
     emit (ind + 3) s!"rep := {vec (alienVs.map (toString ∘ rep))} }"
-    emit (ind + 2) s!"⟨by decide, by decide, by decide, by decide, by decide, by"
+    emit (ind + 2) s!"(Basis.valid_of_finite (by decide) (by"
     emit (ind + 3) s!"intro v hv hne"
     emit (ind + 3) s!"obtain ⟨{", ".intercalate vnames}, rfl⟩ : ∃ {" ".intercalate vnames}, v = {vec vnames} :="
     emit (ind + 4) s!"⟨{", ".intercalate ((List.range ncols).map (s!"v {·}"))}, funext fun i => by fin_cases i <;> rfl⟩"
     -- S3′ split by alien patterns: each alien column is 0 or 1
-    if m == 0 then emit (ind + 3) "udf_arith⟩"
+    if m == 0 then emit (ind + 3) "udf_arith))"
     else
       emit (ind + 3) "udf_s3_unfold"
       let splits := (List.range m).map fun c =>
         s!"(rcases (show v{n + c} = 0 ∨ v{n + c} = 1 by omega) with rfl | rfl)"
       emit (ind + 3) (" <;>\n      ".intercalate splits)
-      emit (ind + 3) "all_goals udf_s3_case⟩"
+      emit (ind + 3) "all_goals udf_s3_case))"
     emit (ind + 2) s!"(fun {pat g ctx} h => by udf_from h)"
     emit (ind + 2) "(fun _ => by udf_clash)"
-    emit (ind + 2) s!"[{", ".intercalate selsL}] (by decide) ?_"
+    emit (ind + 2) s!"[{", ".intercalate selsL}] (Basis.hsels_of_covers (by decide)) ?_"
     -- one premise per selection (none: the system has no solution, the branch closes)
     if sels.isEmpty then emit ind "exact List.forall_mem_nil _"
     for i in [0:sels.size] do

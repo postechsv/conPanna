@@ -110,7 +110,9 @@ vector is evaluated. -/
 macro "udf_clash" : tactic => `(tactic| (
   simp only [List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true, and_true]
   try constructorm* _ ∧ _
-  all_goals simp))
+  all_goals simp only [Matrix.cons_val, Matrix.cons_val_zero, Matrix.cons_val_one,
+    Matrix.cons_val_succ, Fin.isValue, Fin.succ_zero_eq_one, ne_eq, reduceCtorEq,
+    not_false_eq_true]))
 
 /-- COVER after ACU-SOLVE: the equality of tuples, with `θ_S` evaluated. -/
 macro "udf_cover" : tactic => `(tactic| (

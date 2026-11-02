@@ -240,6 +240,43 @@ theorem acu_decomp (q : System n m) (B : Basis n m k₀ k₁) (valid : B.Valid q
     rw [hsel t ht] at h1
     exact (Multiset.singleton_inj.mp h1).symm
 
+/-! ## Finite checks as Boolean functions
+
+The finite side conditions of `acu_solve`, each a Boolean function proved correct once: an
+obligation evaluates one closed Boolean (`decide` on `… = true`), with no `Decidable`
+instance to synthesize for a quantified statement over `Fin`. -/
+
+/-- The finite conditions of `Basis.Valid`: nonzero alien-free vectors, every vector solves
+the rows, alien-free vectors have no alien, representatives are aliens of their vector. -/
+def Basis.finite (q : System n m) (B : Basis n m k₀ k₁) : Bool :=
+  (List.finRange k₀).all (fun t => (List.finRange (n + m)).any fun j => B.free t j != 0) &&
+  (List.finRange k₀).all (fun t => q.rows.all fun r => dot r.1 (B.free t) == dot r.2 (B.free t)) &&
+  (List.finRange k₁).all (fun t => q.rows.all fun r => dot r.1 (B.alien t) == dot r.2 (B.alien t)) &&
+  (List.finRange k₀).all (fun t => (List.finRange m).all fun c => B.free t (Fin.natAdd n c) == 0) &&
+  (List.finRange k₁).all (fun t => B.alien t (Fin.natAdd n (B.rep t)) != 0)
+
+theorem Basis.valid_of_finite {q : System n m} {B : Basis n m k₀ k₁} (h : B.finite q = true)
+    (complete : ∀ v, q.Admissible v → (∃ j, v j ≠ 0) →
+      (∃ t, Below (B.free t) v) ∨ ∃ t, Below (B.alien t) v) : B.Valid q := by
+  simp only [Basis.finite, Bool.and_eq_true, List.all_eq_true, List.any_eq_true,
+    List.mem_finRange, true_and, forall_const, bne_iff_ne, ne_eq, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := h
+  exact ⟨h1, fun t r hr => h2 t r hr, fun t r hr => h3 t r hr, h4, h5, complete⟩
+
+/-- The listed selections include every legal one. -/
+def Basis.covers (B : Basis n m k₀ k₁) (sels : List (Fin k₁ → Bool)) : Bool :=
+  (selections k₁).all fun S =>
+    !B.Legal S || sels.any fun S' => (List.finRange k₁).all fun t => S t == S' t
+
+theorem Basis.hsels_of_covers {B : Basis n m k₀ k₁} {sels : List (Fin k₁ → Bool)}
+    (h : B.covers sels = true) : ∀ S, B.Legal S = true → S ∈ sels := by
+  intro S hS
+  simp only [Basis.covers, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true',
+    List.any_eq_true, List.mem_finRange, true_and, beq_iff_eq] at h
+  rcases h S (mem_selections S) with h | ⟨S', hS', he⟩
+  · simp [hS] at h
+  · exact (funext fun t => he t trivial : S = S') ▸ hS'
+
 /-! ## The rule -/
 
 variable {Γ₀ : Type v} {Γ : Type w} {unifiers : UnifierSet.{v, x} Γ₀}
