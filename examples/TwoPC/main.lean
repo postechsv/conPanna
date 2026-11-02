@@ -1,9 +1,9 @@
-import examples.TwoPC.draft.obligation
+import examples.TwoPC.cert
 
 /-!
 # Two-phase commit: atomic-commit agreement
 
-`twoPC_inv` with its obligations linked in: `inv` is inductive. Initial states lie in it
+`twoPC_inv` (`proof.lean`) with its certification obligations (`cert.lean`) linked in: `inv` is inductive. Initial states lie in it
 (`init_inv`) and it lies in the agreement pattern (`inv_safe`), so every reachable state is
 in agreement (`twoPC_agreement`, by `invariant_safe`).
 -/
@@ -89,5 +89,7 @@ theorem twoPC_agreement {x y : Conf} (hx : Pattern.holds [initP] x) (hxy : twoPC
   invariant_safe init_inv twoPC_inv.linked inv_safe hx hxy
 
 #print axioms twoPC_agreement
+
+#claims twoPC_inv.linked
 
 end TwoPC

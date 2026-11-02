@@ -1,108 +1,23 @@
+import examples.TwoPC.rule
 import conPanna.conPanna
 import conPanna.Unification.Certification.Multiset
 
 /-!
-# Two-phase commit: a feasibility draft
+# Two-phase commit: the invariant and its top-level proof
 
 An object-oriented model (objects and messages in one ACU configuration; identifier
 sets as a second ACU sort) and an invariant with one patch per coordinator phase, aimed
 at atomic-commit agreement: no participant commits while another aborts.
 
-`twoPC_inv`: narrowing the whole system against the three patches gives 82 cases;
-simplification drops 50 (a second coordinator, a phase mismatch, impossible messages);
-each of the 32 left lands in its phase's patch by `maude_match`, and its condition
-follows by simplification, except the two `recvYes` patches (a short explicit proof).
-Obligations: `obligation.lean`; agreement end to end: `agreement.lean`.
+`twoPC_inv`: narrowing the whole system against the three patches, with Maude's filtered
+unifiers, gives 13 post patches after simplification; each lands in its phase's patch by
+`maude_match`, and its condition follows by simplification, except one `recvYes` patch (a
+short explicit proof). Certification claims: `cert.lean`; agreement end to end: `main.lean`.
 -/
 
 namespace TwoPC
 
 open Expresso Unification Narrowing Subsumption
-
-/-! ## Model -/
-
-abbrev Oid := Nat
-abbrev Oids := ACU Oid
-
-inductive PState where
-  | working | prepared | committed | aborted
-  deriving DecidableEq
-
-inductive CState where
-  | collecting | committing | aborting
-  deriving DecidableEq
-
-/-- `< P : Participant | state : S >` -/
-structure Participant where
-  id : Oid
-  state : PState
-
-/-- `< C : Coordinator | phase : PH, parts : PS, wait : W >` -/
-structure Coordinator where
-  id : Oid
-  phase : CState
-  parts : Oids
-  wait : Oids
-
-inductive Msg where
-  | vote (yes : Bool) (src dst : Oid)
-  | decision (commit : Bool) (src : Oid) (rcv : Oids)
-
-inductive Item where
-  | part (o : Participant)
-  | coord (o : Coordinator)
-  | msg (m : Msg)
-
-abbrev Items := ACU Item
-
-structure Conf where
-  cf : Items
-
-#dump_model Conf
-
-/-! ## Rules -/
-
-def voteYes : Rule Conf := .bind fun ((P, C, CF) : Oid × Oid × Items) =>
-  { lhs := ⟨{Item.part ⟨P, .working⟩} + CF⟩
-    rhs := ⟨{Item.part ⟨P, .prepared⟩} + ({Item.msg (.vote true P C)} + CF)⟩ }
-
-def voteNo : Rule Conf := .bind fun ((P, C, CF) : Oid × Oid × Items) =>
-  { lhs := ⟨{Item.part ⟨P, .working⟩} + CF⟩
-    rhs := ⟨{Item.part ⟨P, .aborted⟩} + ({Item.msg (.vote false P C)} + CF)⟩ }
-
-def recvYes : Rule Conf := .bind fun ((C, PS, P, W, CF) : Oid × Oids × Oid × Oids × Items) =>
-  { lhs := ⟨{Item.coord ⟨C, .collecting, PS, {P} + W⟩} + ({Item.msg (.vote true P C)} + CF)⟩
-    rhs := ⟨{Item.coord ⟨C, .collecting, PS, W⟩} + CF⟩ }
-
-def decideCommit : Rule Conf := .bind fun ((C, PS, CF) : Oid × Oids × Items) =>
-  { lhs := ⟨{Item.coord ⟨C, .collecting, PS, ∅⟩} + CF⟩
-    rhs := ⟨{Item.coord ⟨C, .committing, PS, ∅⟩} + ({Item.msg (.decision true C PS)} + CF)⟩ }
-
-def recvNo : Rule Conf := .bind fun ((C, PS, W, P, CF) : Oid × Oids × Oids × Oid × Items) =>
-  { lhs := ⟨{Item.coord ⟨C, .collecting, PS, W⟩} + ({Item.msg (.vote false P C)} + CF)⟩
-    rhs := ⟨{Item.coord ⟨C, .aborting, PS, W⟩} + ({Item.msg (.decision false C PS)} + CF)⟩ }
-
-def timeout : Rule Conf := .bind fun ((C, PS, W, CF) : Oid × Oids × Oids × Items) =>
-  { lhs := ⟨{Item.coord ⟨C, .collecting, PS, W⟩} + CF⟩
-    rhs := ⟨{Item.coord ⟨C, .aborting, PS, W⟩} + ({Item.msg (.decision false C PS)} + CF)⟩ }
-
-def deliverCommit : Rule Conf := .bind fun ((C, P, R, S, CF) :
-    Oid × Oid × Oids × PState × Items) =>
-  { lhs := ⟨{Item.msg (.decision true C ({P} + R))} + ({Item.part ⟨P, S⟩} + CF)⟩
-    rhs := ⟨{Item.msg (.decision true C R)} + ({Item.part ⟨P, .committed⟩} + CF)⟩ }
-
-def deliverAbort : Rule Conf := .bind fun ((C, P, R, S, CF) :
-    Oid × Oid × Oids × PState × Items) =>
-  { lhs := ⟨{Item.msg (.decision false C ({P} + R))} + ({Item.part ⟨P, S⟩} + CF)⟩
-    rhs := ⟨{Item.msg (.decision false C R)} + ({Item.part ⟨P, .aborted⟩} + CF)⟩ }
-
-def lossVote : Rule Conf := .bind fun ((V, P, C, CF) : Bool × Oid × Oid × Items) =>
-  { lhs := ⟨{Item.msg (.vote V P C)} + CF⟩
-    rhs := ⟨CF⟩ }
-
-def twoPC : System Conf :=
-  [voteYes, voteNo, recvYes, decideCommit, recvNo, timeout, deliverCommit, deliverAbort,
-   lossVote]
 
 /-! ## Summaries of a configuration (higher-order, additive over `+`) -/
 
@@ -179,7 +94,7 @@ theorem agree_abrt {CF : Items} (h : abrt CF) :
 
 /-! ## Narrowing -/
 
--- narrowing simplifies 82 cases in one declaration
+-- narrowing simplifies all cases in one declaration
 set_option maxHeartbeats 4000000 in
 theorem twoPC_inv : isOverPost twoPC inv inv := by
   narrow twoPC from inv
@@ -198,7 +113,7 @@ theorem twoPC_inv : isOverPost twoPC inv inv := by
     | maude_match collP
     | maude_match commP
     | maude_match abrtP
-  -- the conditions: 15 of 26 close by simplification alone
+  -- the conditions: all but one close by simplification alone
   all_goals
     try simp only [coll, comm, abrt, common, parts_plus, parts_one, parts_unit, coords_plus,
       coords_one, coords_unit, votes_plus, votes_one, votes_unit, decs_plus, decs_one,
@@ -208,19 +123,17 @@ theorem twoPC_inv : isOverPost twoPC inv inv := by
       Multiset.mem_map, or_imp, forall_and, forall_eq, Prod.mk.injEq,
       Prod.exists, Bool.exists_bool, Bool.forall_bool] at hc ⊢
     try (simp_all; done)
-  -- 11 left, the protocol's relational facts (`aesop`, `grind` fail): a new vote's sender
-  -- had none in transit (`vote`, coll/abrt), the counted voter is the prepared one
-  -- (`recvYes`), no no-vote at commit (`decideCommit`), and a vote's witness carries over
-  -- to the delivered participant (`deliver*`)
-  -- the two `recvYes` patches: the voter `P` (`x.2.1`) leaves the waiting set; it is
-  -- prepared, and no other yes from it is in transit
+  -- one left, a protocol fact (`aesop`, `grind` fail): `recvYes`, the voter `P` (`x.2.1`)
+  -- leaves the waiting set; it is prepared, and no yes from it is in transit
   all_goals
-    refine ⟨⟨hc.1.1, hc.1.2.1, hc.1.2.2.1.1, hc.1.2.2.2.1⟩, hc.2.1,
-      ⟨hc.2.2.1.1, fun o ho => ?_, hc.2.2.1.2.2.1⟩, fun p hp => ?_⟩
-    · by_cases hP : o.id = x.2.1
-      · exact .inl (hc.2.2.1.2.2.2 o ho hP)
-      · simpa [hP] using hc.2.2.1.2.1 o ho
-    · have hne : p ≠ x.2.1 := fun e => hc.1.2.2.1.2.2 (.inr ⟨p, hp, e⟩)
-      simpa [hne] using hc.2.2.2 p hp
+    refine ⟨⟨hc.1.1, hc.1.2.1, hc.1.2.2.1.2, hc.1.2.2.2.2.1, hc.1.2.2.2.2.2⟩, hc.2.1,
+      ⟨hc.2.2.1.1, fun o ho => ?_, hc.2.2.1.2.2.2⟩, fun p hp => ?_⟩
+    · rcases hc.2.2.1.2.1 o ho with h | h | h
+      · exact .inl h
+      · exact .inl (hc.2.2.1.2.2.1 o ho h)
+      · exact .inr h
+    · rcases hc.2.2.2 p hp with h | h
+      · exact absurd (h ▸ hp) hc.1.2.2.1.1.2
+      · exact h
 
 end TwoPC
