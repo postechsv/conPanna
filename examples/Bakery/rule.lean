@@ -1,5 +1,6 @@
-import examples.Bakery.model.bakery_ctor
+import examples.Bakery.ctor
 import Expresso.core
+import conPanna.Unification.Certification.Multiset
 
 /-!
 Bakery, N processes: the rules, one package of type `System`. Each rule acts on one
@@ -24,5 +25,28 @@ def exitR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
 
 /-- One step of any process: a choice, not a sequence. -/
 def bakery : System Conf := [wakeR, enterR, exitR]
+
+/-! ## Abortable: a waiting process gives up its ticket, and serving skips tickets nobody
+holds. -/
+
+def Mode.ticket? : Mode → Option Nat
+  | .idle => none
+  | .wait t => some t
+  | .crit t => some t
+
+/-- Tickets of the waiting and critical processes. -/
+def tickets (PS : ProcSet) : Multiset Nat := PS.toMultiset.filterMap Mode.ticket?
+
+/-- A waiting process gives up its ticket. -/
+def abortR : Rule Conf := .bind fun ((N, M, T, R) : Nat × Nat × Nat × ProcSet) =>
+  { lhs := ⟨N, M, {Mode.wait T} + R⟩, rhs := ⟨N, M, {Mode.idle} + R⟩ }
+
+/-- Serving skips a ticket nobody holds (without the condition, it could skip past a
+waiting process, or start serving a ticket while another process is critical). -/
+def skipR : Rule Conf := .bind fun ((N, M, R) : Nat × Nat × ProcSet) =>
+  { lhs := ⟨N, M, R⟩, rhs := ⟨N, M + 1, R⟩
+    cond := M < N ∧ M ∉ tickets R }
+
+def abortable : System Conf := [abortR, skipR]
 
 end Bakery

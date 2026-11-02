@@ -1,19 +1,21 @@
-import examples.Bakery.bakery_obligation
+import examples.Bakery.cert
 
 /-!
-Bakery: the proof of `bakery_preserves_inv` (the whole system) with its obligations linked in.
+Bakery: the finished theorems. Each top-level proof of `proof.lean` is linked with its
+certification obligations (`cert.lean`): `#link` replaces every deferred claim by the theorem
+proving it, and the kernel re-checks the result. Mutual exclusion follows from the invariant,
+for the protocol and for its abortable extension.
 -/
 
 namespace Bakery
 
--- link the certifications
+open Expresso
+
 #link bakery_preserves_inv
+#link abortable_preserves_inv
 
--- no sorry
-#print axioms bakery_preserves_inv.linked
-
--- full proof term
-#print bakery_preserves_inv.linked
+theorem bakery_abort_preserves_inv : isOverPost (bakery ++ abortable) invP invP :=
+  isOverPost_choice bakery_preserves_inv.linked abortable_preserves_inv.linked
 
 /-! ## Mutual exclusion
 `invP` contains the initial states and lies in `mutexP`; so does every reachable state. -/
@@ -60,6 +62,14 @@ theorem bakery_mutex {x y : Conf} (hx : Pattern.holds [initialP] x) (hxy : baker
     mutexP.holds y :=
   invariant_safe init_inv bakery_preserves_inv.linked inv_mutex hx hxy
 
+/-- Mutual exclusion still holds with `abort` and `skip`. -/
+theorem bakery_abort_mutex {x y : Conf} (hx : Pattern.holds [initialP] x)
+    (hxy : (bakery ++ abortable).steps x y) : mutexP.holds y :=
+  invariant_safe init_inv bakery_abort_preserves_inv inv_mutex hx hxy
+
+#claims bakery_preserves_inv.linked
+#claims abortable_preserves_inv.linked
 #print axioms bakery_mutex
+#print axioms bakery_abort_mutex
 
 end Bakery
