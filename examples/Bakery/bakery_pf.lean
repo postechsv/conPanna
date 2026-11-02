@@ -6,10 +6,13 @@ Bakery: the proof of `bakery_preserves_inv` (the whole system) with its obligati
 
 namespace Bakery
 
+-- link the certifications
 #link bakery_preserves_inv
 
+-- no sorry
 #print axioms bakery_preserves_inv.linked
 
+-- full proof term
 #print bakery_preserves_inv.linked
 
 /-! ## Mutual exclusion

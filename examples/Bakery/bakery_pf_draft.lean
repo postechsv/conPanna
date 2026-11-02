@@ -108,11 +108,11 @@ theorem bakery_preserves_inv : isOverPost bakery invP invP := by
       simp only [noCrit_plus, noCrit_idle, tickets_plus, tickets_idle, Multiset.zero_add, true_and]
       refine ⟨by omega, hnc, fun t ht => ⟨by have := hgt t ht; omega, hlt t ht⟩, hnd⟩
 
+#print axioms bakery_preserves_inv
 
-
-#print bakery
-#print invP
-#print isOverPost
-#check bakery_preserves_inv
+-- #print bakery
+-- #print invP
+-- #print isOverPost
+-- #check bakery_preserves_inv
 --#print bakery_preserves_inv
 end Bakery
