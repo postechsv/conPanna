@@ -907,6 +907,7 @@ ACU_UnificationSubproblem2::buildSolution(UnificationContext& solution,
 #else
       freshVariables[i] = solution.makeFreshVariable(component);
 #endif
+      UTRACE("acu-fresh " << (void*) this << " #" << selection[i]->index << " := " << freshVariables[i]);
     }
   //
   //	Now for each abstracted subterm we compute a solution in
@@ -963,6 +964,7 @@ ACU_UnificationSubproblem2::buildSolution(UnificationContext& solution,
 	  d = a;
 	}
 
+      UTRACE("acu-assign " << (void*) this << " " << subterms[i] << " := " << d);
       DagNode* subterm = subterms[i];
       if (VariableDagNode* varSubterm = dynamic_cast<VariableDagNode*>(subterm))
 	{
