@@ -36,10 +36,12 @@ structure System (n m : ℕ) where
 def columns (X : Fin n → ACU El) (a : Fin m → El) : Fin (n + m) → ACU El :=
   Fin.append X fun c => {a c}
 
-/-- The system holds for the bags `X` and aliens `a`. -/
+/-- The system holds for the bags `X` and aliens `a`: each row in SOLVE's `side` form,
+bags then aliens (`Fin.castAdd`, `Fin.natAdd` evaluate at numerals). -/
 def System.Holds (q : System n m) (X : Fin n → ACU El) (a : Fin m → El) : Prop :=
-  ∀ r ∈ q.rows, sum (fun j => copies (r.1 j) (columns X a j)) =
-    sum (fun j => copies (r.2 j) (columns X a j))
+  ∀ r ∈ q.rows,
+    side (fun i => r.1 (Fin.castAdd m i)) X (fun c => r.1 (Fin.natAdd n c)) a =
+      side (fun i => r.2 (Fin.castAdd m i)) X (fun c => r.2 (Fin.natAdd n c)) a
 
 /-- The count vectors the basis must cover: solutions of every row with at most one
 copy of each alien and no two clashing aliens. -/
@@ -58,13 +60,16 @@ structure Basis (n m k₀ k₁ : ℕ) where
 def Basis.all (B : Basis n m k₀ k₁) : Fin (k₀ + k₁) → Fin (n + m) → ℕ :=
   Fin.append B.free B.alien
 
-/-- The side conditions: closed arithmetic facts about the system and the basis. -/
+/-- The side conditions: closed arithmetic facts about the system and the basis, stated
+for the two kinds of vectors separately (no `Fin.append` to evaluate). -/
 structure Basis.Valid (q : System n m) (B : Basis n m k₀ k₁) : Prop where
-  nonzero : ∀ t, ∃ j, B.all t j ≠ 0
-  solves : ∀ t, ∀ r ∈ q.rows, dot r.1 (B.all t) = dot r.2 (B.all t)
+  nonzero : ∀ t, ∃ j, B.free t j ≠ 0
+  solvesFree : ∀ t, ∀ r ∈ q.rows, dot r.1 (B.free t) = dot r.2 (B.free t)
+  solvesAlien : ∀ t, ∀ r ∈ q.rows, dot r.1 (B.alien t) = dot r.2 (B.alien t)
   free : ∀ t c, B.free t (Fin.natAdd n c) = 0
   rep : ∀ t, B.alien t (Fin.natAdd n (B.rep t)) ≠ 0
-  complete : ∀ v, q.Admissible v → (∃ j, v j ≠ 0) → ∃ t, Below (B.all t) v
+  complete : ∀ v, q.Admissible v → (∃ j, v j ≠ 0) →
+    (∃ t, Below (B.free t) v) ∨ ∃ t, Below (B.alien t) v
 
 /-- Every subset of `Fin k`, as a Boolean function. -/
 def selections : (k : ℕ) → List (Fin k → Bool)
@@ -90,11 +95,9 @@ def Basis.theta (B : Basis n m k₀ k₁) (a : Fin m → El) (S : Fin k₁ → B
 representative. -/
 def Basis.pending {Γr : Type w'} (B : Basis n m k₀ k₁) (a : Γr → Fin m → El)
     (S : Fin k₁ → Bool) : List (Γr × (Fin k₀ → ACU El) → Prop) :=
-  (List.finRange k₁).flatMap fun t =>
-    if S t then
-      ((List.finRange m).filter fun c => B.alien t (Fin.natAdd n c) != 0 && c != B.rep t).map
-        fun c p => a p.1 c = a p.1 (B.rep t)
-    else []
+  (List.ofFn fun t => (List.ofFn fun c =>
+    if S t ∧ B.alien t (Fin.natAdd n c) ≠ 0 ∧ c ≠ B.rep t then
+      [fun p : Γr × (Fin k₀ → ACU El) => a p.1 c = a p.1 (B.rep t)] else []).flatten).flatten
 
 /-! ## Facts -/
 
@@ -157,23 +160,38 @@ theorem acu_decomp (q : System n m) (B : Basis n m k₀ k₁) (valid : B.Valid q
     intro e
     refine ⟨fun r hr => ?_, fun c => ?_, fun p hp => ?_⟩
     · have hm := congrArg (fun X => Multiset.count e (toMultiset X)) (heq r hr)
-      simp only [toMultiset_sum, toMultiset_copies, Multiset.count_sum',
-        Multiset.count_nsmul] at hm
-      rw [dot_eq, dot_eq]
-      exact hm
+      simp only [side, toMultiset_plus, toMultiset_sum, toMultiset_copies, toMultiset_elem,
+        Multiset.count_add, Multiset.count_sum', Multiset.count_nsmul] at hm
+      rw [dot_eq, dot_eq, Fin.sum_univ_add, Fin.sum_univ_add]
+      simpa [counts, hxb, hxa] using hm
     · simp only [counts, hxa, Multiset.count_singleton]; split <;> omega
     · have hne := hclash p hp
       simp only [counts, hxa, Multiset.count_singleton]
       split <;> split <;> first | omega | (exfalso; apply hne; simp_all)
   -- Peel basis vectors.
+  have hnz : ∀ t, ∃ j, B.all t j ≠ 0 := by
+    intro t
+    refine Fin.addCases (fun t => ?_) (fun t => ?_) t
+    · simpa [Basis.all] using valid.nonzero t
+    · exact ⟨_, by simpa [Basis.all] using valid.rep t⟩
+  have hsol : ∀ t, ∀ r ∈ q.rows, dot r.1 (B.all t) = dot r.2 (B.all t) := by
+    intro t
+    refine Fin.addCases (fun t => ?_) (fun t => ?_) t
+    · simpa [Basis.all] using valid.solvesFree t
+    · simpa [Basis.all] using valid.solvesAlien t
+  have hcomp : ∀ v, q.Admissible v → (∃ j, v j ≠ 0) → ∃ t, Below (B.all t) v := by
+    intro v hv hne
+    rcases valid.complete v hv hne with ⟨t, ht⟩ | ⟨t, ht⟩
+    · exact ⟨Fin.castAdd k₁ t, by simpa [Basis.all] using ht⟩
+    · exact ⟨Fin.natAdd k₀ t, by simpa [Basis.all] using ht⟩
   obtain ⟨U, hU⟩ := decompose q.Admissible B.all
-    (fun t h => by obtain ⟨j, hj⟩ := valid.nonzero t; exact hj (congrFun h j))
+    (fun t h => by obtain ⟨j, hj⟩ := hnz t; exact hj (congrFun h j))
     (fun v hv hne => by
       have hne' : ∃ j, v j ≠ 0 := by
         by_contra hc; push_neg at hc; exact hne (funext hc)
-      obtain ⟨t, ht⟩ := valid.complete v hv hne'
+      obtain ⟨t, ht⟩ := hcomp v hv hne'
       refine ⟨t, fun j => ht j, fun r hr => ?_, fun c => ?_, fun p hp => ?_⟩
-      · rw [dot_sub _ ht, dot_sub _ ht, hv.1 r hr, valid.solves t r hr]
+      · rw [dot_sub _ ht, dot_sub _ ht, hv.1 r hr, hsol t r hr]
       · have := hv.2.1 c; simp only [Pi.sub_apply]; omega
       · have := hv.2.2 p hp; simp only [Pi.sub_apply]; omega)
     x hx
@@ -235,12 +253,15 @@ vector become equal to its representative.
 Given by the certificate: `sp` (the bag variables), `a` (the aliens, which depend only on
 the rest of the context), `q` (the rows and the clashing pairs) and `B` (the basis).
 Checked in Lean: `valid` (closed arithmetic), `heq` (the equations are the rows, modulo
-AC), `hclash` (clashing aliens differ, by their top symbols) and `next`. -/
+AC), `hclash` (clashing aliens differ, by their top symbols), `hsels` (the listed
+selections `sels` include every legal one, by evaluation) and `next`, one premise per
+listed selection. -/
 theorem acu_solve {Γr : Type w'} (sp : Split El Γ Γr n) (a : Γr → Fin m → El)
     (q : System n m) (B : Basis n m k₀ k₁) (valid : B.Valid q) {es : List (Γ → Prop)}
     (heq : ∀ ρ, Eqs es ρ → q.Holds (sp.V ρ) (a (sp.rest ρ)))
     (hclash : ∀ r, ∀ p ∈ q.clash, a r p.1 ≠ a r p.2)
-    (next : ∀ S ∈ B.legal,
+    (sels : List (Fin k₁ → Bool)) (hsels : ∀ S, B.Legal S = true → S ∈ sels)
+    (next : ∀ S ∈ sels,
       (⟨α ∘ fun p => sp.glue p.1 (B.theta (a p.1) S p.2),
         B.pending a S ++ E.map (· ∘ fun p => sp.glue p.1 (B.theta (a p.1) S p.2)),
         D ∘ fun p => sp.glue p.1 (B.theta (a p.1) S p.2)⟩ : State Γ₀ _) ⊩ unifiers) :
@@ -251,20 +272,29 @@ theorem acu_solve {Γr : Type w'} (sp : Split El Γ Γr n) (a : Γr → Fin m �
     acu_decomp q B valid (sp.V ρ) (a (sp.rest ρ)) (heq ρ hE.1) (hclash (sp.rest ρ))
   have hρ : ρ = sp.glue (sp.rest ρ) (B.theta (a (sp.rest ρ)) S Z) := by
     rw [← hX, sp.hglue]
-  have h := next S hS (sp.rest ρ, Z)
+  have h := next S (hsels S (List.mem_filter.1 hS).2) (sp.rest ρ, Z)
     (by
       rw [eqs_append, eqs_map]
       refine ⟨(eqs_iff _ _).2 fun e he => ?_, by show Eqs E (sp.glue _ _); rw [← hρ]; exact hE.2⟩
-      simp only [Basis.pending, List.mem_flatMap, List.mem_finRange, true_and] at he
-      obtain ⟨t, ht⟩ := he
-      cases hSt : S t <;> simp only [hSt, if_true, Bool.false_eq_true, if_false,
-        List.not_mem_nil, List.mem_map, List.mem_filter, List.mem_finRange, true_and,
-        Bool.and_eq_true, bne_iff_ne, ne_eq] at ht
-      obtain ⟨c, ⟨hc, _⟩, rfl⟩ := ht
-      exact hpend t hSt c hc)
+      simp only [Basis.pending, List.mem_flatten, List.mem_ofFn] at he
+      obtain ⟨_, ⟨t, rfl⟩, he⟩ := he
+      simp only [List.mem_flatten, List.mem_ofFn] at he
+      obtain ⟨_, ⟨c, rfl⟩, he⟩ := he
+      split at he
+      · next hc =>
+        simp only [List.mem_singleton] at he
+        subst he
+        exact hpend t hc.1 c hc.2.1
+      · simp at he)
     (by change D (sp.glue _ _); rw [← hρ]; exact hD)
   change ∃ σ ∈ unifiers, covers σ (α ρ)
   rw [hρ]
   exact h
+
+/-- Not a rule of the paper: restate the pending equations as `E'`, implied by them. Used
+to bring the equations a step works on to the front, and to evaluate `Basis.pending`. -/
+theorem restate {s : State Γ₀ Γ} (E' : List (Γ → Prop)) (h : ∀ ρ, Eqs s.E ρ → Eqs E' ρ)
+    (next : (⟨s.α, E', s.D⟩ : State Γ₀ Γ) ⊩ unifiers) : s ⊩ unifiers :=
+  fun ρ hE hD => next ρ (h ρ hE) hD
 
 end Unification.Certification

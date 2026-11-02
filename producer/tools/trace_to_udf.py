@@ -506,21 +506,26 @@ def results(out, sort):
     return [A(r) if r.startswith("(") else parse_prefix(r)[0] for r in re.findall(rf"result {sort}: (.*)", out)]
 
 
-def extract(model, module, eqs):
-    """The UDF text and statistics: leaves, leaves that are unifiers, answers (Maude's
-    filtered unifiers), leaves covered by an answer, and Maude's unfiltered count."""
+def extract(model, module, eqs, answers=None, context=()):
+    """The UDF text and statistics: leaves, leaves that are unifiers, answers, leaves
+    covered by an answer, and Maude's unfiltered count. The answers are the given ones
+    (substitutions, dicts from variables to terms) or else Maude's filtered unifiers.
+    `context` adds variables that occur in no equation (a leaf keeps them as they are)."""
     sig = Sig(model, module)
     problem = [(sig.norm(parse_meta(l)), sig.norm(parse_meta(r))) for l, r in eqs]
-    variables = sorted({x for e in problem for t in e for x in walk(t) if isinstance(x, V)}, key=repr)
+    variables = sorted({x for e in problem for t in e for x in walk(t) if isinstance(x, V)}
+                       | set(context), key=repr)
     trace, nr = trace_tree.run(model, module, eqs)
     d = Deriv(sig, variables)
     d.derive(problem, {v: v for v in variables}, trace_tree.build(trace), 0, {})
     sound = sum(all(sig.norm(subst(l, a)) == sig.norm(subst(r, a)) for l, r in problem) for a, _ in d.leaves)
     # the answers: Maude's filtered unifiers; each leaf is closed by an instance of one
-    out, _ = trace_tree.maude(f"load {model}\n{FILTERED}\nred all(upModule('{module}, false), {trace_tree.problem(eqs)}, 0) .")
-    res = results(out, r"(?:UList|UnificationPair)")[0]
-    pairs = [] if res.op != "_;;_" and res.op != "{_,_}" else res.args if res.op == "_;;_" else (res,)
-    answers = [{x: sig.norm(t) for x, t in substitution(p.args[0]).items()} for p in pairs]
+    if answers is None:
+        out, _ = trace_tree.maude(f"load {model}\n{FILTERED}\nred all(upModule('{module}, false), {trace_tree.problem(eqs)}, 0) .")
+        res = results(out, r"(?:UList|UnificationPair)")[0]
+        pairs = [] if res.op != "_;;_" and res.op != "{_,_}" else res.args if res.op == "_;;_" else (res,)
+        answers = [substitution(p.args[0]) for p in pairs]
+    answers = [{x: sig.norm(t) for x, t in a.items()} for a in answers]
     consts = {n: c for n, dm, c in sig.ops if not dm} | {i: s for s, i in sig.acu.values()}
     esc = lambda n: re.sub(r"([{}\[\](), ])", r"`\1", n)
 
