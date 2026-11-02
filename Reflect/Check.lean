@@ -181,7 +181,7 @@ def unknownsOk : Bool :=
 def rowOk (l r : Term) : Bool :=
   let L := summands f l
   let R := summands f r
-  ((List.range unk.length).all fun j => nthD row j 0 == 0 || memT (nthD unk j (var 0)) (L ++ R)) &&
+  ((List.range unk.length).all fun j => memT (nthD unk j (var 0)) (L ++ R)) &&
   ((L ++ R).all fun t =>
     ((List.range unk.length).foldl
       (fun acc j => if beq (nthD unk j (var 0)) t then acc + nthD row j 0 else acc) 0)
@@ -265,7 +265,8 @@ def acuPremises (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat) (unk
     (sels : List (List Nat × List Nat)) : Option (List (List Term × List Eqn)) :=
   match nth E i, M.acu? f with
   | some (l, r), some A =>
-    if unknownsOk M vs f unk alien row && rowOk f unk row l r && basisOk unk alien row basis &&
+    if tsort M vs l == some A.bag && tsort M vs r == some A.bag &&
+        unknownsOk M vs f unk alien row && rowOk f unk row l r && basisOk unk alien row basis &&
         completeOk unk alien row basis && selsOk unk alien basis sels &&
         (sels.all fun (S, fresh) =>
           freshOk vs A.bag α E fresh &&
@@ -310,6 +311,7 @@ def run (c : Cert) : Nat → Nat → List Term → List Eqn → Bool
       | some A =>
         A.img.length == α.length && w.length == A.sh.size &&
         (A.img.all (varsBelow A.sh.size)) &&
+        ((List.range A.sh.size).all fun j => A.img.any (occursT j)) &&
         ((List.range w.length).all fun j => tsort M c.sorts (nthD w j (var 0)) == nth A.sh.sorts j) &&
         (α.zip A.img).all fun (t, u) => beq t (norm M c.sorts (subst (nth w) u))
       | none => false
