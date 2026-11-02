@@ -135,29 +135,35 @@ exactly the condition they satisfy. Today's S3 would fail on them: brute force o
 330 systems of the test set finds 100 minimal solutions missing from Maude's bases, all
 of them clashing.
 
-## 5. Lean shape (to implement)
+## 5. Lean version
 
-    structure System (n m : ℕ) where        -- columns: Fin n bags, Fin m aliens
-      rows  : List ((Fin n → ℕ) × (Fin m → ℕ) × (Fin n → ℕ) × (Fin m → ℕ))   -- L, La, R, Ra
-      clash : List (Fin m × Fin m)
+The rule is `acu_solve` in `conPanna/Unification/Certification/AcuSolve.lean`.
 
-    theorem acu_solve (sp : Split El Γ Γr n) (a : Γr → Fin m → El) (q : System n m)
-        (B : Fin k → (Fin n → ℕ) × (Fin m → ℕ))
-        (valid : q.Valid B)                                   -- (N), (S), (S3′)
-        (heq : ∀ ρ, Eqs es ρ → q.Holds (sp.V ρ) (a (sp.rest ρ)))
-        (hclash : ∀ r, ∀ (c, c') ∈ q.clash, a r c ≠ a r c')
-        (next : ∀ S ∈ legal B, (premise S) ⊩ unifiers) :
-        ⟨α, es ++ E, D⟩ ⊩ unifiers
+- **Columns** are `Fin (n + m)`, with the bags first. `columns X a` is the vector of
+  bags, with each alien as a singleton.
+- **`System n m`** holds the rows `(L, R)` and the clashing pairs.
+- **`Basis n m k₀ k₁`** holds the alien-free vectors `free`, the alien vectors `alien`, and
+  a representative `rep` for each alien vector. Every alien-free vector is always
+  selected, so a selection is `S : Fin k₁ → Bool` over the alien vectors only. The fresh
+  block `Z : Fin k₀ → ACU El` is therefore the same in every premise.
+- **`Basis.Valid`** holds the side conditions: (N), (S), "alien-free vectors have no
+  alien", "`rep` is an alien of its vector", and (S3′) as `complete`, over
+  `System.Admissible`.
+- **`Basis.legal`** filters the `2^k₁` selections by `Basis.Legal`: every alien exactly
+  once.
+- **`acu_decomp`** is §3. **`acu_solve`** consumes the first equations `es` of the state.
+  Its premise for `S` is the state under `θ_S`, with `Basis.pending` (the aliens of
+  each selected vector, equal to its representative) in front.
 
-The rule consumes the first equations `es` of the state. A permutation lemma brings the
-`:eqs` of the derivation to the front. The proof follows §3, with `decompose` as is.
-`premise S` adds the pending equations and the fresh block `Z : Fin (free S) → ACU El`;
-`rename` unpacks the block as today.
+Only the standard axioms are used (`propext`, `Classical.choice`, `Quot.sound`). On the
+example of §2, `Basis.Valid` closes with `decide` and, for (S3′), `simp` then `omega`.
+`Basis.legal` evaluates to the two selections given there.
 
 The free rules, `cover`, `transfer`, `close` and `rename` are unchanged. `identify`,
 `D`, `BagEq.compatible`, `cliques`, `choices` and S2 become unused once the producer is
 switched (Phase 6). `ground` is an instance of `clash`, since the two sides normalize
-differently.
+differently. A permutation lemma will bring the `:eqs` of a derivation step to the front
+(Phase 4).
 
 ## 6. Open points
 
