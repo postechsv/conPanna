@@ -44,6 +44,8 @@ end
 theorem beq_iff {a b : Term} : beq a b = true ↔ a = b :=
   ⟨beq_eq, fun h => h ▸ beq_refl a⟩
 
+instance : DecidableEq Term := fun a b => decidable_of_iff _ beq_iff
+
 namespace Model
 
 variable (M : Model)
