@@ -21,8 +21,11 @@ all undone here:
     label several unknowns (each with its share of the occurrences).
 Maude also leaves out basis vectors that merge aliens with different top symbols, and
 decides ground equations directly (rule `ground`). The leaves form a complete set of
-unifiers, possibly with instances of one another; each leaf is closed by `cover` with
-one of Maude's filtered unifiers (metaVariantUnify ... filter) as the answer.
+unifiers, possibly with instances of one another. Maude runs filtered unification
+(metaVariantUnify ... filter): its answers are the unifiers its filter keeps, and each leaf
+is closed by `cover` with the answer that kept it, the witness being the filter's matcher
+(composed along evictions; trace events vunifier, vmatch, vevicted, vsurvivor, vfree).
+Given answers instead (a user's unifier set) are matched against the leaves (metaMatch).
 Untrusted: the derivation is checked by Lean.
 """
 import re, sys
@@ -102,9 +105,11 @@ def parse_meta(text):
 class Sig:
     """The module's operators, from  upModule  (prefix form)."""
 
-    def __init__(self, model, module):
-        out, _ = trace_tree.maude(f"load {model}\nselect META-LEVEL .\nred upModule('{module}, true) .")
-        m, _ = parse_prefix(out.split("result FModule:", 1)[1].split("\nBye")[0])
+    def __init__(self, model, module, out=None):
+        """From Maude's output `out` holding  upModule('M, true) , or a run of its own."""
+        if out is None:
+            out, _ = trace_tree.maude(f"load {model}\n{Sig.command(module)}")
+        m, _ = parse_prefix(re.split(r"\n={5,}|\nBye", out.split("result FModule:", 1)[1])[0])
         self.acu, self.ops, self.subsorts = {}, [], []    # acu: op -> (sort, identity)
         q = lambda a: a.op.lstrip("'")
         seq = lambda a: [x for x in (a.args if a.op in ("__", "_;_") else (a,)) if a.op != "nil"]
@@ -121,6 +126,10 @@ class Sig:
                 self.subsorts.append(tuple(q(x) for x in node.args))
         self.sort_op = {s: op for op, (s, _) in self.acu.items()}
         self.ident = {i: op for op, (_, i) in self.acu.items()}
+
+    @staticmethod
+    def command(module):
+        return f"red in META-LEVEL : upModule('{module}, true) ."
 
     def var_op(self, v):
         return self.sort_op.get(v.sort.strip("[]"))
@@ -313,7 +322,7 @@ class Deriv:
         sig = self.sig
         if not E:
             st = self.step("leaf")
-            self.leaves.append((alpha, st))
+            self.leaves.append((alpha, st, self.leaf_id(branch, pos), ren))
             return st[0]
         kinds = [self.classify(l, r) for l, r in E]
         free = [i for i, (k, _) in enumerate(kinds) if k != "acu"]
@@ -357,6 +366,23 @@ class Deriv:
             raise ValueError("Maude has no subproblem for: " + "; ".join(f"{sexp(l)} = {sexp(r)}" for l, r in E))
         frame = branch.events[pos]
         return self.solve(frame, E, kinds, alpha, ren)
+
+    def leaf_id(self, branch, pos):
+        """The number of the unifier Maude finds at the end of this branch (filtered mode):
+        after the steps already followed, through its own subproblems' maximal selections."""
+        if branch is None:
+            return None
+        if branch.ids:
+            return branch.ids[0]
+        for f in branch.events[pos:]:
+            if isinstance(f, trace_tree.Frame):
+                sy = read_frame(f)
+                by_sel = {tuple(sorted(int(x[1:]) for x in b.selection)): b for b in f.branches}
+                for sel in sorted(legal([v for _, v in sy.basis], sy.bounds), key=len, reverse=True):
+                    b = by_sel.get(tuple(sorted(sy.basis[k][0] for k in sel)))
+                    if b is not None and (k := self.leaf_id(b, 0)) is not None:
+                        return k
+        return None
 
     def apply(self, th, E, alpha, ren):
         """The state and renaming after the substitution th."""
@@ -506,26 +532,101 @@ def results(out, sort):
     return [A(r) if r.startswith("(") else parse_prefix(r)[0] for r in re.findall(rf"result {sort}: (.*)", out)]
 
 
+def filter_events(trace):
+    """Maude's unifier filter (filtered mode): for each unifier it dropped, the unifier that
+    subsumed it and the matcher (its variable names to terms over the dropped one's), and the
+    survivors in answer order, and the answers: the survivors' bindings of the problem's
+    variables, in Maude's own names (its printed output renames them)."""
+    covers, survivors, matcher, answers, order, first = {}, [], {}, {}, [], None
+    free, freed = {}, {}       # per unifier: its variables' names in the search
+    for kind, rest in trace_tree.events(trace):
+        if kind == "vfree":
+            old, _, new = rest.split(" ", 2)
+            freed[new.rsplit(":", 1)[0]] = old.rsplit(":", 1)[0] if ":" in old else old
+        if kind == "vrename":
+            ptr, orig, _ = rest.split(" ", 2)
+            first = first or ptr
+            if ptr == first:
+                order.append(parse_prefix(orig)[0])
+        elif kind == "vanswerbind":
+            a, j, _, t = rest.split(" ", 3)
+            answers.setdefault(int(a), {})[order[int(j)]] = parse_prefix(t)[0]
+        if kind == "vmatch" and not rest.startswith("0x"):
+            x, t = rest.split(" := ", 1)
+            matcher[x.rsplit(":", 1)[0]] = parse_prefix(t)[0]
+        elif kind in ("vsubsumed", "vevicted"):
+            a, _, b = rest.split()
+            covers[int(a)] = (int(b), matcher)
+            matcher = {}
+        elif kind == "vsurvivor":
+            survivors.append(int(rest))
+        elif kind == "vunifier":
+            matcher = {}
+            free[int(rest)], freed = freed, {}
+    return covers, survivors, [answers[a] for a in sorted(answers)], free
+
+
+def chain(covers, k):
+    """The survivor covering unifier k, and the composed matcher from its variable names to
+    terms over k's variables (None: k survived)."""
+    beta = None
+    while k in covers:
+        k, mu = covers[k]
+        if beta is not None:
+            mu = {x: subst(t, {v: beta[v.name] for v in walk(t) if isinstance(v, V) and v.name in beta})
+                  for x, t in mu.items()}
+        beta = mu
+    return k, beta
+
+
 def extract(model, module, eqs, answers=None, context=()):
     """The UDF text and statistics: leaves, leaves that are unifiers, answers, leaves
     covered by an answer, and Maude's unfiltered count. The answers are the given ones
     (substitutions, dicts from variables to terms) or else Maude's filtered unifiers.
     `context` adds variables that occur in no equation (a leaf keeps them as they are)."""
-    sig = Sig(model, module)
+    # one Maude run: the module, and the filtered unification with its trace
+    trace, nr, out = trace_tree.run(model, module, eqs, filtered=True, before=Sig.command(module))
+    sig = Sig(model, module, out)
     problem = [(sig.norm(parse_meta(l)), sig.norm(parse_meta(r))) for l, r in eqs]
     variables = sorted({x for e in problem for t in e for x in walk(t) if isinstance(x, V)}
                        | set(context), key=repr)
-    trace, nr = trace_tree.run(model, module, eqs)
     d = Deriv(sig, variables)
     d.derive(problem, {v: v for v in variables}, trace_tree.build(trace), 0, {})
-    sound = sum(all(sig.norm(subst(l, a)) == sig.norm(subst(r, a)) for l, r in problem) for a, _ in d.leaves)
-    # the answers: Maude's filtered unifiers; each leaf is closed by an instance of one
-    if answers is None:
-        out, _ = trace_tree.maude(f"load {model}\n{FILTERED}\nred all(upModule('{module}, false), {trace_tree.problem(eqs)}, 0) .")
-        res = results(out, r"(?:UList|UnificationPair)")[0]
-        pairs = [] if res.op != "_;;_" and res.op != "{_,_}" else res.args if res.op == "_;;_" else (res,)
-        answers = [substitution(p.args[0]) for p in pairs]
+    sound = sum(all(sig.norm(subst(l, a)) == sig.norm(subst(r, a)) for l, r in problem)
+                for a, *_ in d.leaves)
+    # the answers: Maude's filtered unifiers (or the given ones); each leaf is closed by an
+    # instance of one
+    own = answers is None
+    covers, survivors, traced, free = filter_events(trace)
+    if own:
+        answers = traced
     answers = [{x: sig.norm(t) for x, t in a.items()} for a in answers]
+    # own answers: the witnesses are Maude's matchers, read off the filter's trace
+    covered = from_trace = 0
+    if own:
+        for alpha, st, k, ren in d.leaves:
+            if k is not None:
+                s_, beta = chain(covers, k)
+                if s_ not in survivors:
+                    continue
+                candidates = [(survivors.index(s_), beta)]
+            else:   # Maude answered without unifying (identical sides): each answer as is
+                candidates = [(j, None) for j in range(len(answers))]
+            for j, beta in candidates:
+                ys = {y for t in answers[j].values() for y in walk(t) if isinstance(y, V)}
+                # a term over unifier k's variables, in the derivation's names: through their
+                # names in the search (vfree), then the derivation's renaming
+                known = {v.name: v for v in list(ren) + list(alpha)}
+                back = lambda t: d.resolve(subst(t, {v: known.get(free.get(k, {}).get(v.name, v.name), v)
+                                                     for v in walk(t) if isinstance(v, V)}), alpha, ren)
+                w = {y.name: back(beta[y.name] if beta and y.name in beta else y) for y in ys}
+                inst = {y: w[y.name] for y in ys}
+                if all(sig.norm(alpha[x]) == sig.norm(subst(answers[j].get(x, x), inst)) for x in variables):
+                    ws = " ".join(f"({y} {sexp(t)})" for y, t in sorted(w.items()))
+                    st[1:3] = ["cover", f":answer a{j} :witness ({ws})"]
+                    covered += 1
+                    from_trace += 1
+                    break
     consts = {n: c for n, dm, c in sig.ops if not dm} | {i: s for s, i in sig.acu.values()}
     esc = lambda n: re.sub(r"([{}\[\](), ])", r"`\1", n)
 
@@ -539,15 +640,15 @@ def extract(model, module, eqs, answers=None, context=()):
     tup = (f"fmod UDF-MATCH is including {module} . sort UdfTup .\n"
            f"  op udfTup : {' '.join(x.sort for x in variables)} -> UdfTup .\nendfm\nselect META-LEVEL .\n")
     script = ""
-    for alpha, _ in d.leaves:
+    open_leaves = [(alpha, st) for alpha, st, *_ in d.leaves if st[1] == "leaf"]
+    for alpha, _ in open_leaves:
         for sigma in answers:
             pat = ", ".join(meta(sigma.get(x, x)) for x in variables)
             sub = ", ".join(meta(alpha[x]) for x in variables)
             script += f"red metaMatch(upModule('UDF-MATCH, false), 'udfTup[{pat}], 'udfTup[{sub}], nil, 0) .\n"
     out, _ = trace_tree.maude(f"load {model}\n{tup}{script}") if script else ("", "")
     matches = iter(results(out, r"(?:Substitution\??|Assignment)"))
-    covered = 0
-    for alpha, st in d.leaves:
+    for alpha, st in open_leaves:
         ms = [next(matches) for _ in answers]
         j = next((j for j, m in enumerate(ms) if "noMatch" not in m.op), None)
         if j is not None:
@@ -570,7 +671,7 @@ def extract(model, module, eqs, answers=None, context=()):
     for sid, rule, args, prem in d.steps:
         lines.append(f"(step {sid} {rule}{' ' + args if args else ''} :premises ({' '.join(prem)}))")
     return "\n".join(lines), dict(leaves=len(d.leaves), unifiers=sound, answers=len(answers),
-                                   covered=covered, maude=nr)
+                                   covered=covered, from_trace=from_trace, maude=nr)
 
 
 def main():

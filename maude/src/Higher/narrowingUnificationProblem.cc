@@ -55,6 +55,8 @@
 //	higher class definitions
 #include "narrowingVariableInfo.hh"
 #include "narrowingUnificationProblem.hh"
+#include "token.hh"
+#include "unificationTrace.hh"
 
 NarrowingUnificationProblem::NarrowingUnificationProblem(PreEquation* preEquation,
 							 DagNode* target,
@@ -298,6 +300,17 @@ NarrowingUnificationProblem::bindFreeVariables()
 	new VariableDagNode(freshVariableGenerator->getBaseVariableSymbol(newSort),
 			    freshVariableGenerator->getFreshVariableName(freshVariableCount, variableFamily),
 			    fv);
+      if (unificationTraceOn())
+	{
+	  //	the unifier's free variable: its name in the search, and its name here
+	  if (fv >= substitutionSize)
+	    UTRACE("vfree " << Token::name(freshVariableGenerator->getFreshVariableName(fv - substitutionSize,
+										     variableFamily))
+		   << " := " << newVariable);
+	  else if (fv >= firstTargetSlot)
+	    UTRACE("vfree " << static_cast<DagNode*>(variableInfo.index2Variable(fv - firstTargetSlot))
+		   << " := " << newVariable);
+	}
       //
       //	Bind slot to new variable.
       //

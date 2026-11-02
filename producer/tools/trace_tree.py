@@ -41,6 +41,7 @@ class Branch:
     selection: list                       # basis element indices, e.g. ["#7", "#6", "#2"]
     events: list = field(default_factory=list)   # (kind, text) and nested Frames, in order
     leaves: int = 0                       # unifiers found directly here
+    ids: list = field(default_factory=list)   # their numbers in the filter (filtered mode)
 
     def nr_leaves(self):
         return self.leaves + sum(x.nr_leaves() for x in self.events if isinstance(x, Frame))
@@ -76,12 +77,32 @@ def problem(eqs):
     return " /\\ ".join(f"{l} =? {r}" for l, r in eqs)
 
 
-def run(model, module, eqs):
-    """Unify  eqs  with the instrumented Maude: (trace text, number of unifiers)."""
-    out, err = maude(f"load {pathlib.Path(model).resolve()}\n{ALL_UNIFIERS}\n"
-                     f"red all(upModule('{module}, false), {problem(eqs)}, 0) .", trace=True)
+FILTERED = ALL_UNIFIERS.replace("metaUnify(M, P, 0, N)", "metaVariantUnify(M, P, empty, '#, filter, N)")
+
+
+def run(model, module, eqs, filtered=False, before=""):
+    """Unify  eqs  with the instrumented Maude: (trace text, number of unifiers, stdout).
+    Filtered: Maude's filtered unifiers, the trace renamed back to the problem's variables
+    (`rename_originals`). `before`: commands to run first, in the same Maude process."""
+    out, err = maude(f"load {pathlib.Path(model).resolve()}\n{FILTERED if filtered else ALL_UNIFIERS}\n"
+                     f"{before}\nred in TRACE-ALL-UNIFIERS : all(upModule('{module}, false), {problem(eqs)}, 0) .", trace=True)
     # each unifier is a pair  {_,_}(substitution, n)
-    return err, out.count("`{_`,_`}(")
+    return (rename_originals(err) if filtered else err), out.count("`{_`,_`}("), out
+
+
+def rename_originals(trace):
+    """Variant unification renames the problem's variables (`vrename` events of its first
+    search: `R:Boxes := %1:Boxes`); put the original names back."""
+    names, first = {}, None
+    for kind, rest in events(trace):
+        if kind == "vrename":
+            ptr, orig, _, new = rest.split(" ", 3)
+            first = first or ptr
+            if ptr == first:
+                names[new] = orig
+    if not names:
+        return trace
+    return re.sub(r"%\d+:[\w\[\]]+", lambda m: names.get(m.group(0), m.group(0)), trace)
 
 
 def events(trace):
@@ -121,6 +142,11 @@ def build(trace):
                 cursor = parent[id(f)]
         elif kind == "unifier":
             cursor.leaves += 1
+        elif kind == "vunifier":              # filtered mode: a unifier enters the filter
+            cursor.leaves += 1
+            cursor.ids.append(int(rest))
+        elif kind.startswith("v"):            # filter and renaming events: not steps
+            continue
         else:
             cursor.events.append((kind, rest))
     return root
@@ -162,7 +188,7 @@ def check(trace, nr_unifiers):
 
 def main():
     model, module, *sides = sys.argv[1:]
-    trace, nr = run(model, module, list(zip(sides[::2], sides[1::2])))
+    trace, nr, _ = run(model, module, list(zip(sides[::2], sides[1::2])))
     root, ok, sels, assigned = check(trace, nr)
     print("\n".join(show(root)))
     print(f"\nunifiers: Maude {nr}, tree leaves {root.nr_leaves()} -> {'ok' if ok else 'MISMATCH'}; "
