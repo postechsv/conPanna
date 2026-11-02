@@ -52,6 +52,7 @@
 
 //	higher class definitions
 #include "unificationProblem.hh"
+#include "unificationTrace.hh"
 
 UnificationProblem::UnificationProblem(Vector<Term*>& lhs,
 				       Vector<Term*>& rhs,
@@ -230,6 +231,7 @@ UnificationProblem::findNextUnifier()
   orderSortedUnifiers->nextAssignment();  // can't fail
  good:
   bindFreeVariables();
+  UTRACE("unifier");
   return true;
 }
 

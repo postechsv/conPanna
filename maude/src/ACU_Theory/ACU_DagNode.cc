@@ -51,6 +51,7 @@
 //      ACU theory class definitions
 #include "ACU_Symbol.hh"
 #include "ACU_DagNode.hh"
+#include "unificationTrace.hh"
 #include "ACU_DagArgumentIterator.hh"
 #include "ACU_ExtensionInfo.hh"
 #include "ACU_Subproblem.hh"
@@ -509,6 +510,7 @@ ACU_DagNode::computeSolvedForm2(DagNode* rhs,
       //	ACU unification problems with the same top symbol need to be collected and solved
       //	simultaneously for termination reasons.
       //
+      UTRACE("acu-eq " << this << " =? " << rhs);
       pending.push(symbol(), this, rhs);
       return true;
     }
@@ -523,6 +525,7 @@ ACU_DagNode::computeSolvedForm2(DagNode* rhs,
       //	theory no longer resolves such problems and we require
       //	purification.
       //
+      UTRACE("acu-eq " << this << " =? " << (DagNode*) r);
       pending.push(symbol(), this, rhs);
       return true;
     }

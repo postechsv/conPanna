@@ -46,6 +46,7 @@
 //	variable class definitions
 #include "variableSymbol.hh"
 #include "variableDagNode.hh"
+#include "unificationTrace.hh"
 
 RawDagArgumentIterator*
 VariableDagNode::arguments()
@@ -162,6 +163,7 @@ VariableDagNode::computeSolvedForm2(DagNode* rhs,
       //
       //	Might need to check we never map an original variable to a fresh variable.
       //
+      UTRACE("bind " << (DagNode*) lv << " := " << (DagNode*) rv);
       DagNode* lt = solution.value(lv->index);
       if (lt == 0)
 	return safeVirtualReplacement(lv, rv, solution, pending);

@@ -43,6 +43,7 @@
 #include "unificationSubproblemDisjunction.hh"
 #include "compoundCycleSubproblem.hh"
 #include "pendingUnificationStack.hh"
+#include "unificationTrace.hh"
 
 //	variable class definitions
 #include "variableDagNode.hh"
@@ -136,9 +137,13 @@ PendingUnificationStack::resolveTheoryClash(DagNode* lhs, DagNode* rhs)
     {
       controllingSymbol = rhs->symbol();
       if (!(controllingSymbol->canResolveTheoryClash()))
-	return false;  // unresolvable - fail
+	{
+	  UTRACE("clash " << lhs << " =? " << rhs);
+	  return false;  // unresolvable - fail
+	}
       swap(lhs, rhs);
     }
+  UTRACE("defer " << lhs << " =? " << rhs);
   DebugAdvisory("push to resolve theory clash");
   push(controllingSymbol, lhs, rhs, true);
   return true;

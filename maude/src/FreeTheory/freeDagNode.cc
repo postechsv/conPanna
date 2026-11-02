@@ -55,6 +55,7 @@
 //	free theory class definitions
 #include "freeSymbol.hh"
 #include "freeDagNode.hh"
+#include "unificationTrace.hh"
 #include "freeDagArgumentIterator.hh"
 
 FreeDagNode::~FreeDagNode()
@@ -311,6 +312,7 @@ FreeDagNode::computeSolvedForm2(DagNode* rhs,
   Symbol* s = symbol();
   if (s == rhs->symbol())
     {
+      UTRACE("decomp " << this << " =? " << rhs);
       int nrArgs = s->arity();
       Assert(nrArgs > 0, "we shouldn't be called on constants " << this);
       DagNode* const* args = argArray();
@@ -334,6 +336,7 @@ FreeDagNode::computeSolvedForm2(DagNode* rhs,
       switch (purifyAndOccurCheck(r, solution, pending, purified))
 	{
 	case OCCURS_CHECK_FAIL:
+	  UTRACE("occurs " << (DagNode*) r << " in " << this);
 	  return false;
 	case PURE_AS_IS:
 	  purified = this;
@@ -342,6 +345,7 @@ FreeDagNode::computeSolvedForm2(DagNode* rhs,
 	  break;
 	}
       solution.unificationBind(r, purified);
+      UTRACE("bind " << (DagNode*) r << " := " << purified);
       DebugInfo("bound " << (DagNode*) r << " to " << purified);
       return true;
     }

@@ -56,6 +56,7 @@
 #include "ACU_Symbol.hh"
 #include "ACU_DagNode.hh"
 #include "ACU_UnificationSubproblem2.hh"
+#include "unificationTrace.hh"
 
 ACU_UnificationSubproblem2::ACU_UnificationSubproblem2(ACU_Symbol* topSymbol)
   : topSymbol(topSymbol),
@@ -314,7 +315,10 @@ ACU_UnificationSubproblem2::solve(bool findFirst, UnificationContext& solution, 
   //	Check for degenerate case where all of the unification problems cancelled.
   //
   if (unifications.empty())
-    return findFirst;
+    {
+      UTRACE("acu-trivial " << (void*) this);
+      return findFirst;
+    }
 
   if (findFirst)
     {
@@ -337,7 +341,10 @@ ACU_UnificationSubproblem2::solve(bool findFirst, UnificationContext& solution, 
 	{
 	  DagNode* value = solution.value(i);
 	  if (value != 0 && value->symbol() == topSymbol)
-	    unsolve(i, solution);
+	    {
+	      UTRACE("acu-unsolve " << (void*) this << " " << value);
+	      unsolve(i, solution);
+	    }
 	}
 
       if (!buildAndSolveDiophantineSystem(solution))
@@ -423,9 +430,16 @@ ACU_UnificationSubproblem2::solve(bool findFirst, UnificationContext& solution, 
   while (topSymbol->hasIdentity() ? nextSelectionWithIdentity(findFirst) : nextSelection(findFirst))
     {
       findFirst = false;
-
+      if (unificationTraceOn())
+	{
+	  std::cerr << "@u acu-select " << (void*) this;
+	  for (const auto& e : selection)
+	    std::cerr << " #" << e->index;
+	  std::cerr << '\n';
+	}
       if (buildSolution(solution, pending))
 	return true;
+      UTRACE("acu-select-fail " << (void*) this);
       //
       //	Restore pending stack and current substitution, implicitly deallocating
       //	any fresh variables we introduced.
@@ -436,6 +450,7 @@ ACU_UnificationSubproblem2::solve(bool findFirst, UnificationContext& solution, 
   //
   //	No more solutions; restore any solved forms that we unsolved.
   //
+  UTRACE("acu-exhausted " << (void*) this);
   solution.restoreFromClone(preSolveSubstitution);
   return false;
 }
@@ -552,6 +567,22 @@ ACU_UnificationSubproblem2::buildAndSolveDiophantineSystem(UnificationContext& s
       upperBnds[i] = upperBound;
     }
   system.setUpperBounds(upperBnds);
+  if (unificationTraceOn())
+    {
+      std::cerr << "@u acu-system " << (void*) this << " " << topSymbol << " unknowns";
+      for (int i = 0; i < nrDioVars; ++i)
+	std::cerr << " [" << i << ": " << subterms[i] << " bound " << upperBounds[i]
+		  << (needToCover.contains(i) ? " cover" : "") << "]";
+      std::cerr << " equations";
+      for (const Vector<int>& u : unifications)
+	{
+	  std::cerr << " (";
+	  for (int i = 0; i < u.size(); ++i)
+	    std::cerr << (i ? "," : "") << u[i];
+	  std::cerr << ")";
+	}
+      std::cerr << '\n';
+    }
   //
   //	Extract the basis.
   //
@@ -609,11 +640,26 @@ ACU_UnificationSubproblem2::buildAndSolveDiophantineSystem(UnificationContext& s
     killElement:
       ;
     }
+  if (unificationTraceOn())
+    {
+      std::cerr << "@u acu-basis " << (void*) this;
+      for (const Entry& e : basis)
+	{
+	  std::cerr << " #" << e.index << "(";
+	  for (int i = 0; i < e.element.size(); ++i)
+	    std::cerr << (i ? "," : "") << e.element[i];
+	  std::cerr << ")";
+	}
+      std::cerr << '\n';
+    }
   //
   //	Check that each term that needs to be covered is covered by at least one basis element.
   //
   if (!accumulator.contains(needToCover))
-    return false;
+    {
+      UTRACE("acu-nocover " << (void*) this);
+      return false;
+    }
   //
   //	Initialize totals vector and uncovered set.
   //

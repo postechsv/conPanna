@@ -38,6 +38,7 @@
 #include "symbol.hh"
 #include "binarySymbol.hh"
 #include "dagNode.hh"
+#include "unificationTrace.hh"
 #include "subproblem.hh"
 #include "lhsAutomaton.hh"
 #include "extensionInfo.hh"
@@ -228,7 +229,9 @@ DagNode::computeSolvedForm(DagNode* rhs, UnificationContext& solution, PendingUn
   //	We have two ground terms so we can just compare them without the
   //	need for an unification algorithm.
   //
-  return equal(rhs);
+  bool same = equal(rhs);
+  UTRACE("ground " << this << (same ? " = " : " =/= ") << rhs);
+  return same;
 }
 
 bool
