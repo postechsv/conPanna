@@ -26,3 +26,4 @@ maude/install-sh
 maude/missing
 maude/ylwrap
 maude/**/Makefile.in
+.rbuild/

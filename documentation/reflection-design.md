@@ -1,0 +1,107 @@
+# Certification by reflection (design)
+
+Goal: close `complete P U` with one kernel evaluation of a Boolean checker on the UDF
+certificate, `check c = true`, plus a theorem proved once: `check c = true → complete P U`.
+The surface is unchanged: models, rules, obligations and `udf_certify` keep their form.
+Same rules as the calculus (documentation/derivation-format.md); only the way they are
+applied changes (a proved function instead of a tactic script).
+
+## 1. Data and values
+
+Terms are data: `var x | app f ts | acu f ts` (`x`, `f` numbers). A **model** gives
+
+| field | meaning |
+|---|---|
+| `T : ℕ → Type`, `dflt s : T s` | the Lean type of each sort |
+| `Val := Σ s, T s` | a value with its sort |
+| `app f : List Val → Option Val` | free constructor `f`, partial (wrong sorts: `none`) |
+| `res f` | the result sort of `f` |
+| `elemSort f`, `bagSort f`, `toBag`, `ofBag` | ACU operator `f`: `T (bagSort f) ≃ ACU (T (elemSort f))` |
+
+and laws, proved once per model: `app f xs = some v → v.1 = res f`; injectivity
+(`app f xs = app f ys = some v → xs = ys`); distinctness (`app f xs = app g ys = some v →
+f = g`); `toBag ∘ ofBag = id`, `ofBag ∘ toBag = id`.
+
+`eval ρ : Term → Option Val`, for a valuation `ρ : ℕ → Val`: a variable is `ρ x`; `app` as
+the model says; `acu f [t₁,…,tₖ]` is `c t₁ + (… + c tₖ)` (`∅` for `[]`, `c t` for `[t]`),
+where `c t` is `{e}` if `t` evaluates to an element `e` (sort `elemSort f`), the bag if it
+evaluates to a bag (sort `bagSort f`), and fails otherwise.
+
+Each term has a syntactic sort (`var x`: the variable's declared sort; `app f`: `res f`;
+`acu f`: `bagSort f`). **Typing:** if `ρ` respects the declared sorts (`WS ρ`) and `eval ρ
+t = some v`, then `v.1` is the syntactic sort of `t`. No well-typedness of `t` is needed.
+
+**Normal form** `norm`: flatten nested `acu f`, drop `∅`, sort the arguments, and replace
+`acu f [t]` by `t` only when `t` has the bag sort (a lone element stays `{t}`: in Lean
+`{x} ≠ x`). **Lemma:** `WS ρ → eval ρ (norm t) = eval ρ t` (flattening: `c` of a bag is the
+bag; sorting: `+` is commutative; `acu f [t] = t` for bags: `ofBag ∘ toBag = id`).
+
+**Substitution lemma:** `eval ρ t' = some v → eval ρ (t[x := t']) = eval ρ[x ↦ v] t`.
+**Locality:** `eval` depends only on the variables that occur.
+
+## 2. The judgment and the rules
+
+A state is `(α, E)`: `α` lists the original variables with terms, `E` the pending
+equations. It **holds** if for every `ρ` with `WS ρ` that solves every equation of `E`
+(both sides evaluate, to the same value) and evaluates every term of `α`, the values of `α`
+decode to a solution covered by some unifier. The checker computes the premise states
+itself; each rule is sound by the argument on the right.
+
+| rule | checked | sound because |
+|---|---|---|
+| `delete i` | sides equal | dropping an equation adds solutions |
+| `decomp i` | `app f ss = app f ts`, same length | injectivity: `eval ss = eval ts` |
+| `clash i` | `app f ≠ app g` | distinctness |
+| `ground i` | a position where constructors differ (recursively) | distinctness, injectivity |
+| `elim i x` | one side is `x`; `x` not in the other `t` | `ρ x = eval ρ t`, so `ρ[x ↦ eval t] = ρ`: the same `ρ` solves the premise, same image |
+| `cover a w` | `E = []`; `norm (α y) = norm (σₐ y)[w]` for every `y`; `w` respects sorts | the witness values `ν = eval ρ ∘ w` give `a := dec ν` |
+| `acu-solve` | §3 | §3 |
+
+Premise states are normalized (`norm` after each substitution), sound by the norm lemma.
+
+## 3. `acu-solve` on a single row
+
+The certificate gives unknowns `u₁…u_N` (bag variables of `bagSort f`, or aliens of
+`elemSort f`), one row `r` with coefficients in {−1, 0, 1}, a basis and the selections, with
+fresh variables. Checked:
+
+1. **Rows:** for every summand term `t` of the equation, `Σ_{j : uⱼ = t} rⱼ = count_L t −
+   count_R t`, and every `uⱼ` with `rⱼ ≠ 0` is a summand. Then for every element `e`, the
+   count vector `vⱼ = count_e(c uⱼ)` solves the row: `Σ rⱼ vⱼ = count_e(⟦L⟧) − count_e(⟦R⟧) = 0`.
+2. **Basis vectors** are nonzero, solve the row, alien entries ≤ 1.
+3. **Completeness (single row, exact):** every `eⱼ` with `rⱼ = 0`, and every `eᵢ + eⱼ` with
+   `rᵢ = 1`, `rⱼ = −1`, not two clashing aliens, is above a basis vector. **Why enough:**
+   an admissible `v ≠ 0` has some `vₖ ≥ 1`; if `rₖ = 0`, `v ≥ eₖ`; if `rₖ = 1` the row
+   forces some `vⱼ ≥ 1` with `rⱼ = −1`, so `v ≥ eₖ + eⱼ`, and these two are not clashing
+   aliens (admissible `v` holds at most one of a clashing pair); symmetric for `−1`.
+4. **Selections:** the listed ones include every legal one; fresh variables are distinct
+   and occur nowhere in the state.
+
+Soundness: as `acu_decomp` — the count vectors are admissible, `decompose` (Solve.lean)
+writes the columns as `Σ_t B_t · U_t`, the alien vectors used give a legal selection `S`;
+set `ρ' = ρ[Z_k ↦ U_k]` (fresh, so `ρ'` agrees with `ρ` on the state). Then `eval ρ' (θ_S uⱼ) =
+ρ uⱼ` for every bag variable, the aliens of each selected vector are equal, and `ρ'`
+solves the premise with the same image.
+
+Systems of other shapes (several rows, other coefficients) are not checked: `check` returns
+`false` and certification falls back to the replay.
+
+## 4. Bridge to the obligation
+
+The obligation is `complete (Problem.bind fun γ => (L γ, R γ)) [Unifier.bind body₁, …]` in
+the literal form `udf_certify` already prepares. With `Tup [s₁,…,sₙ] := T s₁ × … × T sₙ`
+(defeq to the user's context tuple), generic `enc : Tup ss → (ℕ → Val)` and `dec`:
+
+* the data terms `L̂`, `R̂`, `σ̂ᵢ` **mirror** the Lean terms node for node (`+`, `∅`, `{x}`,
+  constructors, variables), so `eval (enc γ) L̂ = some ⟨s, L γ⟩` holds by `rfl`;
+* `dec (enc γ) = γ` (generic), and `WS ν → enc (dec ν) = ν` on the variables (generic).
+
+**Theorem.** `check c = true` and the `rfl` facts give `complete P U`: a solution `γ` gives
+`ρ = enc γ` solving the initial state; the derivation reaches a `cover` with `ρ'` whose
+`α`-values are those of `γ`; the witness gives `a`, and `body a = γ` by `dec`.
+
+## 5. Risks
+
+* The `rfl` facts must stay cheap (mirroring makes them syntactic evaluation).
+* The checker evaluated by the kernel must stay fast (measured: ≈0.5 s per certificate).
+* Per-model laws are proved by case analysis, once per model.
