@@ -579,11 +579,14 @@ def chain(covers, k):
     return k, beta
 
 
-def extract(model, module, eqs, answers=None, context=()):
+def extract(model, module, eqs, answers=None, context=(), canonical=False):
     """The UDF text and statistics: leaves, leaves that are unifiers, answers, leaves
     covered by an answer, and Maude's unfiltered count. The answers are the given ones
     (substitutions, dicts from variables to terms) or else Maude's filtered unifiers.
-    `context` adds variables that occur in no equation (a leaf keeps them as they are)."""
+    `context` adds variables that occur in no equation (a leaf keeps them as they are).
+    `canonical`: each answer's variables are named #1, #2, ... in the order of their names,
+    as Lean's decoding of the answers binds them (maudeUnify.lean), so that the derivation
+    is stated in the obligation's own names (udfCertify.lean)."""
     # one Maude run: the module, and the filtered unification with its trace
     trace, nr, out = trace_tree.run(model, module, eqs, filtered=True, before=Sig.command(module))
     sig = Sig(model, module, out)
@@ -601,6 +604,9 @@ def extract(model, module, eqs, answers=None, context=()):
     if own:
         answers = traced
     answers = [{x: sig.norm(t) for x, t in a.items()} for a in answers]
+    names = [{y.name: (f"#{i + 1}" if canonical else y.name) for i, y in enumerate(sorted(
+        {y for t in a.values() for y in walk(t) if isinstance(y, V)}, key=lambda y: y.name))}
+        for a in answers]
     # own answers: the witnesses are Maude's matchers, read off the filter's trace
     covered = from_trace = 0
     if own:
@@ -622,7 +628,7 @@ def extract(model, module, eqs, answers=None, context=()):
                 w = {y.name: back(beta[y.name] if beta and y.name in beta else y) for y in ys}
                 inst = {y: w[y.name] for y in ys}
                 if all(sig.norm(alpha[x]) == sig.norm(subst(answers[j].get(x, x), inst)) for x in variables):
-                    ws = " ".join(f"({y} {sexp(t)})" for y, t in sorted(w.items()))
+                    ws = " ".join(f"({names[j][y]} {sexp(t)})" for y, t in sorted(w.items()))
                     st[1:3] = ["cover", f":answer a{j} :witness ({ws})"]
                     covered += 1
                     from_trace += 1
@@ -664,21 +670,24 @@ def extract(model, module, eqs, answers=None, context=()):
     lines += [f"  (var {v.name} {v.sort})" for v in variables] + ["  )"]
     lines += ["(problem " + " ".join(f"(= {sexp(l)} {sexp(r)})" for l, r in problem) + ")", "(answers"]
     for j, sigma in enumerate(answers):
-        binders = sorted({x for t in sigma.values() for x in walk(t) if isinstance(x, V)}, key=repr)
-        lines.append(f"  (unifier a{j} (binders {' '.join(f'({x.name} {x.sort})' for x in binders)})"
-                     + "".join(f" (bind {x.name} {sexp(t)})" for x, t in sigma.items()) + ")")
+        binders = sorted({x for t in sigma.values() for x in walk(t) if isinstance(x, V)},
+                         key=lambda x: x.name)
+        named = {x: V(names[j][x.name], x.sort) for x in binders}
+        lines.append(f"  (unifier a{j} (binders {' '.join(f'({named[x].name} {x.sort})' for x in binders)})"
+                     + "".join(f" (bind {x.name} {sexp(subst(t, named))})" for x, t in sigma.items()) + ")")
     lines.append("  )")
     for sid, rule, args, prem in d.steps:
         lines.append(f"(step {sid} {rule}{' ' + args if args else ''} :premises ({' '.join(prem)}))")
     return "\n".join(lines), dict(leaves=len(d.leaves), unifiers=sound, answers=len(answers),
-                                   covered=covered, from_trace=from_trace, maude=nr)
+                                   covered=covered, from_trace=from_trace, maude=nr,
+                                   answer_terms=answers)
 
 
 def main():
     model, module, *sides = sys.argv[1:]
     text, stats = extract(model, module, list(zip(sides[::2], sides[1::2])))
     print(text)
-    print("; " + ", ".join(f"{k} {v}" for k, v in stats.items()), file=sys.stderr)
+    print("; " + ", ".join(f"{k} {v}" for k, v in stats.items() if k != "answer_terms"), file=sys.stderr)
 
 
 if __name__ == "__main__":

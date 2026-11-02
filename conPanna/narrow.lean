@@ -47,7 +47,8 @@ One narrowing step as one tactic (illustrated step by step in the Bakery example
   `narrow R from S using [lemmas] as post hpost`
 
 1. `maude_unify`: the unifier table `Us` for every (rule, patch) cell;
-2. `certifyPost_R_P R S Us`, with every certificate deferred (`later`);
+2. `certifyPost_R_P R S Us`, with every certificate deferred: completeness as `laterAx`
+   (its certificate kept by `maude_unify`), soundness as `laterSoundAx` (`later_claim`);
 3. the post computed (the narrowing definitions and those of `R`, `S` and their
    elements unfolded) and simplified with `lemmas` plus a base set, on the post only;
 4. `drop_empty`;
@@ -92,7 +93,7 @@ open Lean Meta Elab Tactic Expresso Narrowing in
   evalTactic (← `(tactic| (
     simp only [certificates_R_P, certificates_r_P, certificates_r_p, $lists,*]
     repeat' (first | exact trivial | constructor)
-    all_goals later)))
+    all_goals later_claim)))
   setGoals [main]
   let h ← mkAppM ``certifyPost_R_P #[R, S, Us, ← instantiateMVars cert]
   let (_, main) ← (← main.assert hId.getId (← inferType h) h).intro1P

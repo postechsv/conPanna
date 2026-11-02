@@ -11,6 +11,10 @@ In replies, only variables and constants carry a sort (Maude's meta-level output
 does not annotate applications). Fresh variables are Maude's #1, #2, ...
 With the producer option filter_unifiers (tools/config.py), Maude's filtered variant
 unification drops unifiers that are instances of others; its fresh variables are @1, @2, ...
+
+Certify mode (`"certify": true`, each problem with its `"vars"`): one run of the instrumented
+Maude per problem gives its filtered unifiers and their completeness certificate, a UDF
+derivation (trace_to_udf.py); the reply adds `"udf": [text, ...]`.
 Untrusted: the unifiers are data; Lean certifies them separately.
 """
 import json, os, re, subprocess, sys
@@ -111,8 +115,32 @@ def parse(s):
     return subs
 
 
+def term_json(t):
+    """A term of trace_to_udf as a JSON term."""
+    import trace_to_udf as tu
+    if isinstance(t, tu.V):
+        return {"var": t.name, "sort": t.sort}
+    return {"op": t.op, "args": [term_json(a) for a in t.args]}
+
+
+def certify(req):
+    import trace_to_udf as tu
+    unifiers, udfs = [], []
+    for p in req["problems"]:
+        context = [tu.V(v["name"], v["sort"]) for v in p.get("vars", [])]
+        text, st = tu.extract(os.path.abspath(req["model"]), "CTOR", [(render(p["lhs"]), render(p["rhs"]))],
+                              context=context, canonical=True)
+        if st["covered"] < st["leaves"]:
+            raise SystemExit(f"unify.py: a leaf of the derivation is not covered\n\n{text}")
+        unifiers.append([{x.name: term_json(t) for x, t in a.items()} for a in st["answer_terms"]])
+        udfs.append(text)
+    json.dump({"unifiers": unifiers, "udf": udfs}, sys.stdout)
+
+
 def main():
     req = json.load(open(sys.argv[1]) if len(sys.argv) > 1 else sys.stdin)
+    if req.get("certify"):
+        return certify(req)
     script = f"load {os.path.abspath(req['model'])}\n{ALL_UNIFIERS}\n"
     op = "allf" if config.filter_unifiers() else "all"
     for p in req["problems"]:

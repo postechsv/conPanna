@@ -1,4 +1,4 @@
-import conPanna.Unification.Tactics.maudeCertifyComp
+import conPanna.Unification.Tactics.udfStore
 import conPanna.Unification.Certification.UdfTactics
 
 /-!
@@ -6,8 +6,9 @@ import conPanna.Unification.Certification.UdfTactics
 in the Unification Derivation Format (documentation/derivation-format.md).
 
 1. The goal is restated in literal form and encoded (`MaudeCertifyComp.prepare`).
-2. `producer/tools/udf.py` runs the instrumented Maude and extracts a UDF derivation
-   whose leaves are covered by the unifiers `U`.
+2. The derivation is the one narrowing stored for this claim (udfStore.lean), if any;
+   otherwise `producer/tools/udf.py` runs the instrumented Maude and extracts a UDF
+   derivation whose leaves are covered by the unifiers `U`.
 3. The derivation is parsed here, its states are recomputed, and each step becomes one
    rule of the calculus (Calculus.lean, AcuSolve.lean) with its obligations closed by
    the fixed tactics of Tactics.lean and UdfTactics.lean. The steps are elaborated
@@ -542,12 +543,16 @@ elab "udf_certify" : tactic => withMainContext do
     throwError "udf_certify: the goal is not `complete P U`"
   let st ← Dumper.model ty.getAppArgs[0]!
   Dumper.write st
-  let (target, request) ← MaudeCertifyComp.prepare st ty
+  let (target, request, key) ← UdfStore.claim st ty
   unless ← isDefEq ty target do
     throwError "udf_certify: could not restate the goal in literal form{indentExpr target}"
   let goal ← goal.replaceTargetDefEq target
-  let reply ← callTool tool request
-  let udfText ← IO.ofExcept (reply.getObjValAs? String "udf")
+  let udfText ← match ← UdfStore.load? key with
+    | some text => pure text
+    | none => do
+      logInfo m!"udf_certify: no stored certificate for this claim; running Maude"
+      let reply ← callTool tool request
+      IO.ofExcept (reply.getObjValAs? String "udf")
   let table ← IO.ofExcept (Json.parse (Dumper.table st))
   let mut bagType : Std.HashMap String String := {}
   for s in st.sorts do

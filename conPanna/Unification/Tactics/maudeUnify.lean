@@ -1,12 +1,15 @@
 import conPanna.Unification.Tactics.maudeAdapter
+import conPanna.Unification.Tactics.udfStore
 import conPanna.Narrowing.Narrowing
 
 /-!
 `maude_unify` closes a goal `unifiers_R_P R P` with the unifiers Maude computes.
 
 For every (rule, patch) cell of `R` and `P` it encodes the cell's problem
-`mayFire r p` (`maudeAdapter.lean`), asks `producer/tools/unify.py` for all
-unifiers, and decodes each into `Unifier.bind fun x => γ`. So the problem Maude
+`mayFire r p` (`maudeAdapter.lean`), asks `producer/tools/unify.py` for its unifiers,
+and decodes each into `Unifier.bind fun x => γ`. The instrumented Maude computes Maude's
+filtered unifiers and, in the same run, their completeness certificate, which is stored
+under the claim's key for certification (udfStore.lean). So the problem Maude
 solves is exactly the one later certified (`certificates_r_p`). Nothing here is
 trusted: the unifiers are data.
 -/
@@ -26,9 +29,11 @@ def unifiersOf (P : Expr) : MetaM Expr := do
   let v ← getDecLevel Γ
   let elemTy := mkApp (mkConst ``Unifier [v, v]) Γ
   encodeProblem st P fun shape xs names lhs rhs => do
+    let vars ← xs.mapIdxM fun i x => do
+      return Json.mkObj [("name", .str s!"X{i + 1}"), ("sort", .str (← sortOfType st (← inferType x)))]
     let reply ← callTool tool (Json.mkObj [
-      ("model", .str (← Dumper.modelPath st).toString),
-      ("problems", .arr #[Json.mkObj [("lhs", lhs), ("rhs", rhs)]])])
+      ("model", .str (← Dumper.modelPath st).toString), ("certify", true),
+      ("problems", .arr #[Json.mkObj [("lhs", lhs), ("rhs", rhs), ("vars", .arr vars)]])])
     let substs := (← IO.ofExcept (reply.getObjValAs? (Array (Array Json)) "unifiers"))[0]!
     let us ← substs.mapM fun sub => do
       -- the unifier's variables: Maude's fresh #n, and originals the substitution leaves free
@@ -53,7 +58,12 @@ def unifiersOf (P : Expr) : MetaM Expr := do
           let projs ← (List.range zs.size).mapM fun i => proj z i zs.size
           let body := body.replaceFVars zs projs.toArray
           mkAppOptM ``Unifier.bind #[Γ, Z, ← mkLambdaFVars #[z] body]
-    mkListLit elemTy us.toList
+    let U ← mkListLit elemTy us.toList
+    -- keep the certificate for the claim `complete P U`
+    if let .ok #[text] := reply.getObjValAs? (Array String) "udf" then
+      let (_, _, key) ← UdfStore.claim st (← mkAppM ``Unification.complete #[P, U])
+      UdfStore.store key text
+    return U
 
 /-- A value of `unifiers_R_P R P`: for each rule of `R` (a list), for each patch of
 `P` (a list), the unifiers of that cell; `unit` closes each list. -/
