@@ -249,7 +249,180 @@ theorem acu_sound (hM : M.Lawful) {vs : List Nat} {ρ : M.Valuation} {α : List 
   obtain ⟨⟨S', fresh⟩, hmem, heq⟩ := List.any_eq_true.1 hs
   have hperm : S'.Perm (free ++ T) :=
     (perm_sortN S').symm.trans ((natEqL_iff.1 heq) ▸ perm_sortN (free ++ T))
-  sorry
+  have hnodup : S'.Nodup := by
+    refine hperm.nodup_iff.2 (List.Nodup.append ((List.nodup_range).filter _) ?_ ?_)
+    · rw [hT]; exact (List.nodup_range).filter _
+    · intro a ha hb
+      simp only [free, hT, List.mem_filter, Bool.and_eq_true, Bool.not_eq_true'] at ha hb
+      rw [ha.2] at hb; exact absurd hb.2.1 (by simp)
+  have hmemS : ∀ k, k ∈ S' ↔ k < basis.length ∧
+      (alienFree unk alien basis k = true ∨ (alienFree unk alien basis k = false ∧ U' k ≠ 0)) := by
+    intro k
+    rw [hperm.mem_iff, List.mem_append, hT]
+    simp only [free, List.mem_filter, List.mem_range, Bool.and_eq_true, Bool.not_eq_true',
+      decide_eq_true_eq]
+    tauto
+  -- the premise
+  obtain ⟨jj, hjj, hget⟩ := List.getElem_of_mem hmem
+  obtain ⟨⟨hfresh, hflen⟩, -⟩ := hfr _ hmem
+  simp only [freshOk, List.all_eq_true, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
+    List.any_eq_false, Bool.or_eq_false_iff] at hfresh
+  have hfnodup : fresh.Nodup := List.nodup_iff_count_le_one.2 fun z => by
+    by_cases hz : z ∈ fresh
+    · exact (hfresh z hz).1.1.2.le
+    · rw [List.count_eq_zero_of_not_mem hz]; omega
+  let FS := S'.filter (alienFree unk alien basis)
+  let ρ' : M.Valuation := fun z => if z ∈ fresh then
+    some ⟨A.bag, A.ofBag (ACU.ofMultiset (U' (FS.getD (fresh.idxOf z) 0)))⟩ else ρ z
+  refine ⟨jj, by simpa using hjj, ρ', ?_⟩
+  have hfvs : ∀ z ∈ fresh, vs[z]? = some A.bag := fun z hz => (hfresh z hz).1.1.1
+  have hfα : ∀ z ∈ fresh, ∀ t ∈ α, occursT z t = false := fun z hz t ht => by
+    simpa using (hfresh z hz).1.2 t ht
+  have hfE : ∀ z ∈ fresh, ∀ e ∈ E, occursT z e.1 = false ∧ occursT z e.2 = false :=
+    fun z hz e he => by simpa [Bool.or_eq_true, not_or] using (hfresh z hz).2 e he
+  have hρ'out : ∀ z, z ∉ fresh → ρ' z = ρ z := fun z hz => by simp [ρ', hz]
+  have hWS' : M.WS vs ρ' := by
+    intro z w hz
+    by_cases hzf : z ∈ fresh
+    · simp only [ρ', hzf, ite_true, Option.some.injEq] at hz
+      subst hz; exact hfvs z hzf
+    · rw [hρ'out z hzf] at hz; exact hsol.1 z w hz
+  -- the unknowns hold no fresh variable
+  have hunk : ∀ j < unk.length, ∀ z ∈ fresh, occursT z (nthD unk j (var 0)) = false := by
+    intro j hj z hz
+    cases h : occursT z (nthD unk j (var 0))
+    · rfl
+    · exfalso
+      rcases List.mem_append.1 (hmemLR j hj) with hm | hm
+      · have := occurs_summand hm h; rw [(hfE z hz _ hlr).1] at this; exact absurd this (by simp)
+      · have := occurs_summand hm h; rw [(hfE z hz _ hlr).2] at this; exact absurd this (by simp)
+  have hunkEval : ∀ j < unk.length, M.eval ρ' (nthD unk j (var 0)) = M.eval ρ (nthD unk j (var 0)) :=
+    fun j hj => eval_congr _ fun z hz => hρ'out z fun hzf => by rw [hunk j hj z hzf] at hz; simp at hz
+  -- representatives: an alien vector's first alien
+  have hrepA : ∀ k ∈ S', alienFree unk alien basis k = false → ∃ a,
+      M.eval ρ' (rep unk alien basis S' fresh k) = some ⟨A.elem, a⟩ ∧ U' k = {a} ∧
+      ∀ j ∈ aliensOf unk alien basis k, M.eval ρ (nthD unk j (var 0)) = some ⟨A.elem, a⟩ := by
+    intro k hk hf
+    have hkK := ((hmemS k).1 hk).1
+    have hU0 : U' k ≠ 0 := by
+      rcases ((hmemS k).1 hk).2 with h | h
+      · rw [hf] at h; exact absurd h (by simp)
+      · exact h.2
+    -- every alien of `k` holds the element of `U' k`
+    have hall : ∀ j ∈ aliensOf unk alien basis k, ∃ a,
+        M.eval ρ (nthD unk j (var 0)) = some ⟨A.elem, a⟩ ∧ U' k = {a} := by
+      intro j hj
+      obtain ⟨hjN, hja, hjk⟩ := mem_aliensOf.1 hj
+      obtain ⟨a, he, -, hU1, -⟩ := hsing ⟨j, hjN⟩ hja
+      refine ⟨a, he, ?_⟩
+      have := hU1 ⟨k, hkK⟩ (by simpa [bf] using hjk)
+      rw [← hU' ⟨k, hkK⟩] at this
+      exact this.resolve_left hU0
+    have hne := aliensOf_ne_nil hf
+    obtain ⟨j0, rest, h0⟩ := List.exists_cons_of_ne_nil hne
+    obtain ⟨a, he, hUa⟩ := hall j0 (by rw [h0]; simp)
+    refine ⟨a, ?_, hUa, fun j hj => ?_⟩
+    · simp only [rep, hf, Bool.false_eq_true, ite_false, h0, List.headD_cons]
+      rw [hunkEval j0 (mem_aliensOf.1 (by rw [h0]; simp)).1, he]
+    · obtain ⟨b, hb, hUb⟩ := hall j hj
+      rw [hUa, Multiset.singleton_inj] at hUb
+      rw [hb, hUb]
+  have hrep : ∀ k ∈ S', cval A ρ' (rep unk alien basis S' fresh k) = some (U' k) := by
+    intro k hk
+    cases hf : alienFree unk alien basis k
+    · obtain ⟨a, he, hUa, -⟩ := hrepA k hk hf
+      simp [cval, he, contrib, hUa]
+    · have hkFS : k ∈ FS := List.mem_filter.2 ⟨hk, hf⟩
+      have hm := List.idxOf_lt_length_of_mem hkFS
+      have hmf : FS.idxOf k < fresh.length := by rw [hflen]; exact hm
+      have hz : nthD fresh (FS.idxOf k) 0 = fresh[FS.idxOf k] := nthD_of_lt _ hmf
+      have hzf : fresh[FS.idxOf k] ∈ fresh := List.getElem_mem hmf
+      have hidx : fresh.idxOf fresh[FS.idxOf k] = FS.idxOf k := List.idxOf_getElem hfnodup _ hmf
+      have hFS : FS.getD (FS.idxOf k) 0 = k := by
+        rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hm, Option.getD_some]
+        exact List.getElem_idxOf hm
+      simp only [rep, hf, ite_true]
+      rw [show S'.filter (alienFree unk alien basis) = FS from rfl, hz]
+      simp only [cval, eval, ρ', hzf, ite_true, hidx, hFS, Option.bind_some,
+        contrib_bag hM hA, Option.map_some, ACU.toMultiset_ofMultiset]
+  -- the bag variables: `θ x` evaluates to `x`'s value
+  obtain ⟨law1, law2, -⟩ := acu_law hM hA
+  have htheta : ∀ x t, theta f unk alien basis S' fresh x = some t → M.eval ρ' t = ρ x := by
+    intro x t ht
+    simp only [theta, Option.map_eq_some_iff] at ht
+    obtain ⟨j, hfind, rfl⟩ := ht
+    have hp := List.find?_some hfind
+    have hjN := List.mem_range.1 (List.mem_of_find?_eq_some hfind)
+    simp only [Bool.and_eq_true, Bool.not_eq_true', beq_iff] at hp
+    obtain ⟨hja, hjx⟩ := hp
+    -- the sum of the selected vectors' shares
+    have hsum : msum A ρ' (S'.flatMap fun k =>
+        List.replicate (entry basis k j) (rep unk alien basis S' fresh k)) = some (xv ⟨j, hjN⟩) := by
+      rw [msum_flatMap _ (fun k => entry basis k j • U' k) S'
+        (fun k hk => msum_replicate (hrep k hk) _), hU ⟨j, hjN⟩]
+      congr 1
+      rw [(hperm.map _).sum_eq, List.map_append, List.sum_append, hT, sum_filter_range,
+        sum_filter_range, ← Finset.sum_add_distrib,
+        ← Fin.sum_univ_eq_sum_range (fun k => (if alienFree unk alien basis k = true then
+          entry basis k j • U' k else 0) + (if (!alienFree unk alien basis k && decide (U' k ≠ 0)) = true
+          then entry basis k j • U' k else 0))]
+      refine Finset.sum_congr rfl fun k _ => ?_
+      rw [hU' k]
+      cases hf : alienFree unk alien basis k <;> by_cases hU0 : U k = 0 <;> simp [hf, hU0, bf]
+    have hux := hun j hjN
+    rw [if_neg (by simpa using hja), hjx] at hux
+    simp only [beq_iff_eq] at hux
+    have hcx := hxv ⟨j, hjN⟩
+    simp only [hjx, cval, eval] at hcx
+    cases hρx : ρ x with
+    | none => simp [hρx] at hcx
+    | some w =>
+      have hw := hsol.1 x w hρx
+      rw [hux, Option.some.injEq] at hw
+      obtain ⟨s2, yw⟩ := w
+      simp only at hw
+      subst hw
+      simp only [hρx, Option.bind_some, contrib, M.get?_ne (s := A.elem) (v := ⟨A.bag, yw⟩)
+        (Ne.symm (acu_law hM hA).2.2), get?_mk, Option.map_some, Option.some.injEq] at hcx
+      simp only [eval, hA]
+      rw [← sumL_msum] at hsum
+      cases hsL : M.sumL ρ' A (S'.flatMap fun k =>
+          List.replicate (entry basis k j) (rep unk alien basis S' fresh k)) with
+      | none => simp [hsL] at hsum
+      | some Y =>
+        simp only [hsL, Option.map_some, Option.some.injEq] at hsum
+        rw [← hcx] at hsum
+        rw [ACU.toMultiset_injective hsum]; simp [law2]
+  -- the state, read through `θ` and normalized, keeps its values
+  have hkeep : ∀ t, (∀ z ∈ fresh, occursT z t = false) →
+      M.eval ρ' (norm M vs (subst (theta f unk alien basis S' fresh) t)) = M.eval ρ t := by
+    intro t ht
+    rw [eval_norm hM hWS', eval_subst]
+    refine eval_congr t fun x hx => ?_
+    simp only [substV]
+    cases hθ : theta f unk alien basis S' fresh x with
+    | some u => exact htheta x u hθ
+    | none => exact hρ'out x fun hxf => by rw [ht x hxf] at hx; exact absurd hx (by simp)
+  simp only [List.getElem_map, hget]
+  refine ⟨⟨hWS', fun e he => ?_⟩, ?_⟩
+  · rcases List.mem_append.1 he with he | he
+    · simp only [pendingOf, List.mem_flatMap, List.mem_map] at he
+      obtain ⟨k, hk, j, hj, rfl⟩ := he
+      have hj' := List.mem_of_mem_drop hj
+      obtain ⟨hjN, hja, hjk⟩ := mem_aliensOf.1 hj'
+      have hf : alienFree unk alien basis k = false := by
+        cases h : alienFree unk alien basis k
+        · rfl
+        · exact absurd (alienFree_entry h hjN hja) hjk
+      obtain ⟨a, hea, -, hall⟩ := hrepA k hk hf
+      exact ⟨⟨A.elem, a⟩, by rw [hunkEval j hjN]; exact hall j hj', hea⟩
+    · obtain ⟨e0, he0, rfl⟩ := List.mem_map.1 he
+      have he0' := List.mem_of_mem_eraseIdx he0
+      obtain ⟨w, h1, h2⟩ := hsol.2 e0 he0'
+      exact ⟨w, by simp only [normEq]; rw [hkeep _ fun z hz => (hfE z hz e0 he0').1]; exact h1,
+        by simp only [normEq]; rw [hkeep _ fun z hz => (hfE z hz e0 he0').2]; exact h2⟩
+  · rw [List.map_map]
+    exact List.map_congr_left fun t ht => hkeep t fun z hz => hfα z hz t ht
 
 end Model
 
