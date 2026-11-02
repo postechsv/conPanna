@@ -13,7 +13,55 @@ Untrusted: Lean checks the instantiated state equation itself.
 import json, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from unify import render, subst_at, tokens  # noqa: E402
+from unify import render  # noqa: E402
+
+
+# Maude's meta-level output: tokens, terms and substitutions
+TOKEN = re.compile(r"\s*('[^\[\],;{}\s]+|\[|\]|,|;;|;|\{|\}|<-|\([a-zA-Z]+\)\.\w+|\(|\)|none|\d+)")
+
+
+def tokens(s):
+    pos, out = 0, []
+    while pos < len(s.rstrip()):
+        m = TOKEN.match(s, pos)
+        if not m:
+            raise SystemExit(f"cannot parse Maude output at: {s[pos:pos + 40]!r}")
+        out.append(m.group(1))
+        pos = m.end()
+    return out
+
+
+def term_at(ts, i):
+    """The meta-term starting at token i, and the index after it."""
+    q = ts[i][1:]; i += 1
+    if i < len(ts) and ts[i] == "[":
+        i += 1
+        args = []
+        while True:
+            t, i = term_at(ts, i)
+            args.append(t)
+            if ts[i] == ",":
+                i += 1
+                continue
+            return {"op": q, "args": args}, i + 1  # ]
+    if ":" in q:
+        name, sort = q.rsplit(":", 1)
+        return {"var": name, "sort": sort}, i
+    op, sort = q.rsplit(".", 1)
+    return {"op": op, "sort": sort, "args": []}, i
+
+
+def subst_at(ts, i, stop):
+    """The substitution `'X:S <- t ; ...` (or `none`) starting at token i, up to a token in `stop`."""
+    sub = {}
+    if ts[i] == "none":
+        return sub, i + 1
+    while i < len(ts) and ts[i] not in stop:
+        name = ts[i][1:].rsplit(":", 1)[0]; i += 2  # var <-
+        sub[name], i = term_at(ts, i)
+        if i < len(ts) and ts[i] == ";":
+            i += 1
+    return sub, i
 
 ALL_MATCHES = """
 fmod ALL-MATCHES is

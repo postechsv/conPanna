@@ -5,7 +5,7 @@ import conPanna.Unification.Certification.UdfTactics
 `udf_certify` proves a goal `complete P U`, like `maude_certify_comp`, from a derivation
 in the Unification Derivation Format (documentation/derivation-format.md).
 
-1. The goal is restated in literal form and encoded (`MaudeCertifyComp.prepare`).
+1. The goal is restated in literal form and encoded (`UdfStore.prepare`).
 2. The derivation is the one narrowing stored for this claim (udfStore.lean), if any;
    otherwise `producer/tools/udf.py` runs the instrumented Maude and extracts a UDF
    derivation whose leaves are covered by the unifiers `U`.
@@ -534,6 +534,7 @@ def tool : System.FilePath := "producer/tools/udf.py"
 register_option udf_certify.trace : Bool := {
   defValue := false
   descr := "udf_certify: log the generated proof script" }
+
 
 /-- Prove a goal `complete P U` from a UDF derivation produced by the instrumented Maude. -/
 elab "udf_certify" : tactic => withMainContext do

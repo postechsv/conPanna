@@ -1,0 +1,6 @@
+***( {Elem.a} + Z? =? Y? + X? + Y? )
+load models.maude
+select SHOW .
+red certify('GRID, bag('Bag, '__, 'none.Bag) &b bag('Boxes, '_|_, 'nil.Boxes), 'tup,
+  ('Z:Bag, 'Y:Bag, 'X:Bag),
+  '__['a.Elem, 'Z:Bag], '__['Y:Bag, 'X:Bag, 'Y:Bag]) .

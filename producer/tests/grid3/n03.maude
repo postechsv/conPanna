@@ -1,0 +1,6 @@
+***( {Box.box (Z?)} + {Box.box (Y?)} + R? =? {Box.box ({Elem.a} + {Elem.b})} )
+load models.maude
+select SHOW .
+red certify('GRID, bag('Bag, '__, 'none.Bag) &b bag('Boxes, '_|_, 'nil.Boxes), 'tup,
+  ('Z:Bag, 'Y:Bag, 'R:Boxes),
+  '_|_['`{_`}['Z:Bag], '`{_`}['Y:Bag], 'R:Boxes], '`{_`}['__['a.Elem, 'b.Elem]]) .

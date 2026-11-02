@@ -1,0 +1,5 @@
+***( The German cell: a dir and a cache against a dir and a cache. )
+load models.maude
+red certify('CTOR, noBag, 'tup, (),
+  'Conf['_+Items_['dir['Dir['X1:Cmd, 'X2:Nat, 'X3:Bool, '_+Oids_['X4:Nat, 'X5:Oids], 'X6:Oids]], 'cache['Cache['X4:Nat, 'X7:CacheState, 'X8:Req, 'X9:Gnt, 'invAck.Ack]], 'X10:Items]],
+  'Conf['_+Items_['dir['Dir['X11:Cmd, 'X12:Nat, 'true.Bool, 'X13:Nat, 'emptyOids.Oids]], 'cache['Cache['X13:Nat, 'invalid.CacheState, 'X14:Req, 'noGnt.Gnt, 'invAck.Ack]], 'X15:Items]]) .

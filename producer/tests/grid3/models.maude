@@ -1,0 +1,23 @@
+fmod GRID is
+  sorts Elem Bag Box Boxes Tup .
+  subsort Elem < Bag .
+  subsort Box < Boxes .
+  ops a b c : -> Elem [ctor] .
+  op none : -> Bag [ctor] .
+  op __ : Bag Bag -> Bag [ctor assoc comm id: none] .
+  op {_} : Bag -> Box [ctor] .
+  op nil : -> Boxes [ctor] .
+  op _|_ : Boxes Boxes -> Boxes [ctor assoc comm id: nil] .
+  op tup : Bag -> Tup [ctor] .
+  op tup : Bag Bag -> Tup [ctor] .
+  op tup : Bag Bag Bag -> Tup [ctor] .
+  op tup : Bag Bag Boxes -> Tup [ctor] .
+  op tup : Bag Bag Boxes Bag -> Tup [ctor] .
+  op tup : Bag Boxes -> Tup [ctor] .
+  op tup : Bag Boxes Bag -> Tup [ctor] .
+  op tup : Bag Boxes Boxes -> Tup [ctor] .
+  op tup : Boxes -> Tup [ctor] .
+  op tup : Boxes Bag -> Tup [ctor] .
+  op tup : Boxes Bag Bag -> Tup [ctor] .
+  op tup : Boxes Bag Boxes -> Tup [ctor] .
+endfm
