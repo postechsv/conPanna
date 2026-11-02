@@ -51,6 +51,7 @@
 
 //	higher class definitions
 #include "variantSearch.hh"
+#include "unificationTrace.hh"
 #include "variantNarrowingSearchState.hh"
 #include "variantMatchingProblem.hh"
 
@@ -221,6 +222,8 @@ VariantSearch::VariantSearch(RewritingContext* context,
 			    i);
       protectedVariant[i] = v;
       s.bind(i, v);
+      UTRACE("vrename " << static_cast<const void*>(this) << ' ' <<
+	     static_cast<DagNode*>(variableInfo.index2Variable(i)) << " := " << static_cast<DagNode*>(v));
     }
   //
   //	Make a copy of the initial dag with the variables replaced by fresh ones.
@@ -386,6 +389,15 @@ VariantSearch::isSubsumed(DagNode* target) const
       //	Check if subproblem is nonexistent or has a solution.
       //
       bool subsumed = subproblem == nullptr || subproblem->solve(true, *matcher);
+      if (subsumed)
+	{
+	  //	the matcher is the witness of the subsumption
+	  int nrVariables = variableInfo->getNrRealVariables();
+	  for (int j = 0; j < nrVariables; ++j)
+	    if (DagNode* d = matcher->value(j))
+	      UTRACE("vmatch " << static_cast<const void*>(this) << ' ' <<
+		     variableInfo->index2Variable(j) << " := " << d);
+	}
       delete matcher;  // new RewritingContext was made by findNextVariantThatMatches()
       delete subproblem;  // subproblem may have been made by findNextVariantThatMatches()
       if (subsumed)

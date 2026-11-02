@@ -57,6 +57,7 @@
 //	higher class definitions
 #include "variantSearch.hh"
 #include "variantUnifierFilter.hh"
+#include "unificationTrace.hh"
 
 VariantUnifierFilter::VariantUnifierFilter(RewritingContext* context,
 					   FreshVariableGenerator* freshVariableGenerator)
@@ -129,6 +130,10 @@ VariantUnifierFilter::insertUnifier(const Vector<DagNode*>& unifier,
   //	subsumption checks.
   //
   encodedUnifier.setNode(tupleSymbol->makeDagNode(unifier));
+  int traceId = nrInsertedUnifiers++;
+  UTRACE("vanswer " << traceId);
+  for (int j = 0; j < unifier.size(); ++j)
+    UTRACE("vanswerbind " << traceId << ' ' << j << " := " << unifier[j]);
   //DebugAlways("encoded unifier=" << encodedUnifier.getNode());
   for (RetainedUnifierList::iterator i = mostGeneralSoFar.begin(); i != mostGeneralSoFar.end(); ++i)
     {
@@ -137,6 +142,7 @@ VariantUnifierFilter::insertUnifier(const Vector<DagNode*>& unifier,
       //
       if (!(currentUnifierSubsumed && i == currentUnifier) && (*i)->subsumes(encodedUnifier.getNode()))
 	{
+	  UTRACE("vanswersubsumed " << traceId << " by " << (*i)->traceId);
 	  encodedUnifier.setNode(0);
 	  return;
 	}
@@ -162,6 +168,8 @@ VariantUnifierFilter::insertUnifier(const Vector<DagNode*>& unifier,
 						    variableFamily,
 						    encodedUnifier.getNode(),
 						    variants);
+  newUnifier->traceId = traceId;
+  UTRACE("vanswerretain " << traceId << ' ' << static_cast<const void*>(variants));
   encodedUnifier.setNode(0);  // now protected by its context
   //
   //	See if this variant unifier can evict an existing unifier.
@@ -176,6 +184,7 @@ VariantUnifierFilter::insertUnifier(const Vector<DagNode*>& unifier,
 	  RetainedUnifier* potentialVictim = *i;
 	  if (newUnifier->subsumes(potentialVictim->encodedUnifier))
 	    {
+	      UTRACE("vanswerevicted " << potentialVictim->traceId << " by " << traceId);
 	      DebugInfo("new variant unifier evicted an older variant unifier");
 	      if (i == currentUnifier)
 		{

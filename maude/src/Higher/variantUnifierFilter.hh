@@ -68,6 +68,7 @@ private:
     int variableFamily;
     DagNode* const encodedUnifier;
     VariantSearch* variants;
+    int traceId = 0;  // its number in the unification trace
   };
 
   typedef list<RetainedUnifier*> RetainedUnifierList;
@@ -83,6 +84,7 @@ private:
   
   bool startedExtractingUnifiers;
   bool currentUnifierSubsumed;
+  int nrInsertedUnifiers = 0;  // numbers the unifiers in the unification trace
   bool filteringIncompleteFlag;
   RetainedUnifierList::const_iterator currentUnifier;
 };

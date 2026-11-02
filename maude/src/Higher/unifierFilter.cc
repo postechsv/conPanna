@@ -47,6 +47,7 @@
 
 //	higher class definitions
 #include "unifierFilter.hh"
+#include "unificationTrace.hh"
 
 UnifierFilter::UnifierFilter(int firstInterestingVariable, int nrInterestingVariables)
   : firstInterestingVariable(firstInterestingVariable),
@@ -80,6 +81,8 @@ UnifierFilter::markReachableNodes()
 void
 UnifierFilter::insertUnifier(const Substitution& unifier, int positionIndex, int equationIndex)
 {
+  int traceId = nrInsertedUnifiers++;
+  UTRACE("vunifier " << traceId);
   //
   //	First we check if it is subsumed by one of the existing unifiers.
   //
@@ -88,6 +91,7 @@ UnifierFilter::insertUnifier(const Substitution& unifier, int positionIndex, int
       if (subsumes(r, unifier))
 	{
 	  DebugAdvisory("new unifier subsumed");
+	  UTRACE("vsubsumed " << traceId << " by " << r->traceId);
 	  return;
 	}
     }
@@ -96,6 +100,7 @@ UnifierFilter::insertUnifier(const Substitution& unifier, int positionIndex, int
   //	Compile a set of matching automata for this unifier.
   //
   RetainedUnifier* newUnifier = new RetainedUnifier(unifier, firstInterestingVariable, nrInterestingVariables);
+  newUnifier->traceId = traceId;
   //
   //	See if this unifier can evict an existing unifier.
   //
@@ -109,6 +114,7 @@ UnifierFilter::insertUnifier(const Substitution& unifier, int positionIndex, int
       if (subsumes(newUnifier, potentialVictim->unifier))
 	{
 	  DebugAdvisory("new unifier evicted an older unifier");
+	  UTRACE("vevicted " << potentialVictim->traceId << " by " << traceId);
 	  delete potentialVictim;
 	  mostGeneralSoFar.erase(i);
 	}
@@ -139,6 +145,7 @@ UnifierFilter::getNextSurvivingUnifier(Substitution*& unifier, int& positionInde
     return false;
 
   RetainedUnifier* r = *nextUnifier;
+  UTRACE("vsurvivor " << r->traceId);
   unifier = &(r->unifier);
   positionIndex = r->positionIndex;
   equationIndex = r->equationIndex;
@@ -180,14 +187,16 @@ UnifierFilter::subsumes(const RetainedUnifier* retainedUnifier, const Substituti
 	}
     }
   Subproblem* final = subproblems.extractSubproblem();
-  if (final == 0)
-    {
-      DebugAdvisory("no subproblem so declaring subsumption");
-      return true;
-    }
-  bool result = final->solve(true, matcher);
+  bool result = final == 0 || final->solve(true, matcher);
   DebugAdvisory("solve result = " << result);
   delete final;
+  if (result && unificationTraceOn())
+    {
+      //	the matcher is the witness of the subsumption
+      for (int j = 0; j < retainedUnifier->variableInfo.getNrRealVariables(); ++j)
+	if (DagNode* d = matcher.value(j))
+	  UTRACE("vmatch " << retainedUnifier->variableInfo.index2Variable(j) << " := " << d);
+    }
   return result;
 }
 
@@ -203,7 +212,6 @@ UnifierFilter::RetainedUnifier::RetainedUnifier(const Substitution& original,
   //	Convert bindings of interesting variables to terms, index their variables, fill in
   //	sort information and look for potential collapses.
   //
-  VariableInfo variableInfo;  // does this need to be retained?
   for (int i = 0; i < nrInterestingVariables; ++i)
     {
       DagNode* d = unifier.value(firstInterestingVariable + i);

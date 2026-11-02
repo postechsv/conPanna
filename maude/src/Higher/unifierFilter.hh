@@ -29,6 +29,7 @@
 #include <list>
 #include "simpleRootContainer.hh"
 #include "substitution.hh"
+#include "variableInfo.hh"
 
 class UnifierFilter : private SimpleRootContainer
 {
@@ -55,6 +56,8 @@ private:
     ~RetainedUnifier();
 
     Substitution unifier;
+    VariableInfo variableInfo;  // names the matcher's variables in the unification trace
+    int traceId = 0;            // its number in the unification trace
     Vector<Term*> interestingBindings;
     Vector<LhsAutomaton*> matchingAutomata;
     int nrVariablesInBindings;
@@ -73,6 +76,7 @@ private:
 
   bool startedExtractingUnifiers;
   RetainedUnifierList::const_iterator nextUnifier;
+  int nrInsertedUnifiers = 0;  // numbers the unifiers in the unification trace
 };
 
 #endif
