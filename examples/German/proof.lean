@@ -1,167 +1,26 @@
+import examples.German.rule
 import conPanna.conPanna
 import conPanna.Unification.Certification.Multiset
 
 /-!
-# German's cache-coherence protocol: a feasibility draft
+# German's cache-coherence protocol: the invariant and its top-level proofs
 
 The control part of German's protocol (no data), object-oriented: cache objects, each
 with its three single-slot channels, and one directory object, in one ACU configuration;
 the directory's sharer and invalidate sets are a second ACU sort (ids).
 
 Forward: an invariant with one patch per directory situation (`inv`), preserved rule by
-rule; coherence by disjointness from the bad patterns (`german_coherent`).
-A draft: the condition proofs are `sorry`. The invariant was checked by explicit-state
-enumeration outside the framework (inductive for 2 caches; all states reachable with 3
-caches satisfy it). Six post patches do not route by matching: a condition fixes a
-constructor value the target states literally (e.g. a cache state known to be invalid);
-they need a case split, or a narrowing step that solves such conditions.
+rule (`*_inv`, each by `narrow` with Maude's filtered unifiers); coherence by disjointness
+from the bad patterns (`inv_bad`, still open). Most post patches route by matching and
+their conditions close by simplification; the rest have short explicit proofs (multiset
+bookkeeping on the sharer and invalidate sets, or an explicit substitution where a
+condition fixes a constructor value). Certification claims: `cert.lean`; the linked
+theorems: `main.lean`.
 -/
 
 namespace German
 
 open Expresso Unification Narrowing Subsumption
-
-/-! ## Model -/
-
-abbrev Oid := Nat
-abbrev Oids := ACU Oid
-
-inductive CacheState where
-  | invalid | shared | exclusive
-  deriving DecidableEq
-
-/-- Channel 1, cache to directory: a request. -/
-inductive Req where
-  | noReq | reqS | reqE
-
-/-- Channel 2, directory to cache: an invalidation or a grant. -/
-inductive Gnt where
-  | noGnt | inv | gntS | gntE
-  deriving DecidableEq
-
-/-- Channel 3, cache to directory: an invalidation acknowledgement. -/
-inductive Ack where
-  | noAck | invAck
-  deriving DecidableEq
-
-/-- The request the directory is serving. -/
-inductive Cmd where
-  | idle | cmdS | cmdE
-  deriving DecidableEq
-
-/-- `< I : Cache | state, chan1, chan2, chan3 >` -/
-structure Cache where
-  id : Oid
-  state : CacheState
-  ch1 : Req
-  ch2 : Gnt
-  ch3 : Ack
-
-/-- `< Dir | cmd, ptr, exGntd, shr, inv >`: the request served and its requester; whether
-an exclusive copy was granted; the sharers; those still to invalidate. -/
-structure Dir where
-  cmd : Cmd
-  ptr : Oid
-  exGntd : Bool
-  shr : Oids
-  inv : Oids
-
-inductive Item where
-  | cache (c : Cache)
-  | dir (d : Dir)
-
-abbrev Items := ACU Item
-
-structure Conf where
-  cf : Items
-
-#dump_model Conf
-
-/-! ## Rules -/
-
-def sendReqS : Rule Conf := .bind fun ((I, C2, C3, CF) : Oid × Gnt × Ack × Items) =>
-  { lhs := ⟨{Item.cache ⟨I, .invalid, .noReq, C2, C3⟩} + CF⟩
-    rhs := ⟨{Item.cache ⟨I, .invalid, .reqS, C2, C3⟩} + CF⟩ }
-
-def sendReqEI : Rule Conf := .bind fun ((I, C2, C3, CF) : Oid × Gnt × Ack × Items) =>
-  { lhs := ⟨{Item.cache ⟨I, .invalid, .noReq, C2, C3⟩} + CF⟩
-    rhs := ⟨{Item.cache ⟨I, .invalid, .reqE, C2, C3⟩} + CF⟩ }
-
-def sendReqES : Rule Conf := .bind fun ((I, C2, C3, CF) : Oid × Gnt × Ack × Items) =>
-  { lhs := ⟨{Item.cache ⟨I, .shared, .noReq, C2, C3⟩} + CF⟩
-    rhs := ⟨{Item.cache ⟨I, .shared, .reqE, C2, C3⟩} + CF⟩ }
-
-/-- The directory takes a shared request: the sharers are to be invalidated (if needed). -/
-def recvReqS : Rule Conf := .bind fun ((P, X, SH, IV, I, S, C2, C3, CF) :
-    Oid × Bool × Oids × Oids × Oid × CacheState × Gnt × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.idle, P, X, SH, IV⟩} + ({Item.cache ⟨I, S, .reqS, C2, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.cmdS, I, X, SH, SH⟩} + ({Item.cache ⟨I, S, .noReq, C2, C3⟩} + CF)⟩ }
-
-def recvReqE : Rule Conf := .bind fun ((P, X, SH, IV, I, S, C2, C3, CF) :
-    Oid × Bool × Oids × Oids × Oid × CacheState × Gnt × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.idle, P, X, SH, IV⟩} + ({Item.cache ⟨I, S, .reqE, C2, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.cmdE, I, X, SH, SH⟩} + ({Item.cache ⟨I, S, .noReq, C2, C3⟩} + CF)⟩ }
-
-/-- Invalidate a sharer: for an exclusive request, or a shared one after an exclusive grant. -/
-def sendInvE : Rule Conf := .bind fun ((P, X, SH, I, IV, S, C1, C3, CF) :
-    Oid × Bool × Oids × Oid × Oids × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.cmdE, P, X, SH, {I} + IV⟩} + ({Item.cache ⟨I, S, C1, .noGnt, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.cmdE, P, X, SH, IV⟩} + ({Item.cache ⟨I, S, C1, .inv, C3⟩} + CF)⟩ }
-
-def sendInvS : Rule Conf := .bind fun ((P, SH, I, IV, S, C1, C3, CF) :
-    Oid × Oids × Oid × Oids × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.cmdS, P, true, SH, {I} + IV⟩} + ({Item.cache ⟨I, S, C1, .noGnt, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.cmdS, P, true, SH, IV⟩} + ({Item.cache ⟨I, S, C1, .inv, C3⟩} + CF)⟩ }
-
-/-- A cache acknowledges an invalidation and drops its copy. -/
-def sendInvAck : Rule Conf := .bind fun ((I, S, C1, CF) : Oid × CacheState × Req × Items) =>
-  { lhs := ⟨{Item.cache ⟨I, S, C1, .inv, .noAck⟩} + CF⟩
-    rhs := ⟨{Item.cache ⟨I, .invalid, C1, .noGnt, .invAck⟩} + CF⟩ }
-
-/-- The directory takes an acknowledgement (while serving a request): `I` is no longer a
-sharer, and no exclusive copy remains. Split on whether `I` is a sharer (sets are
-multisets kept duplicate-free: membership is a pattern, non-membership a condition). -/
-def recvInvAckS : Rule Conf := .bind fun ((K, P, X, I, SH, IV, S, C1, C2, CF) :
-    Cmd × Oid × Bool × Oid × Oids × Oids × CacheState × Req × Gnt × Items) =>
-  { lhs := ⟨{Item.dir ⟨K, P, X, {I} + SH, IV⟩} + ({Item.cache ⟨I, S, C1, C2, .invAck⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨K, P, false, SH, IV⟩} + ({Item.cache ⟨I, S, C1, C2, .noAck⟩} + CF)⟩
-    cond := K ≠ Cmd.idle }
-
-def recvInvAckN : Rule Conf := .bind fun ((K, P, X, SH, IV, I, S, C1, C2, CF) :
-    Cmd × Oid × Bool × Oids × Oids × Oid × CacheState × Req × Gnt × Items) =>
-  { lhs := ⟨{Item.dir ⟨K, P, X, SH, IV⟩} + ({Item.cache ⟨I, S, C1, C2, .invAck⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨K, P, false, SH, IV⟩} + ({Item.cache ⟨I, S, C1, C2, .noAck⟩} + CF)⟩
-    cond := K ≠ Cmd.idle ∧ I ∉ SH.toMultiset }
-
-/-- Grant a shared copy to the requester (no exclusive copy out). -/
-def sendGntSN : Rule Conf := .bind fun ((I, SH, IV, S, C1, C3, CF) :
-    Oid × Oids × Oids × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.cmdS, I, false, SH, IV⟩} + ({Item.cache ⟨I, S, C1, .noGnt, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.idle, I, false, {I} + SH, IV⟩} + ({Item.cache ⟨I, S, C1, .gntS, C3⟩} + CF)⟩
-    cond := I ∉ SH.toMultiset }
-
-def sendGntSS : Rule Conf := .bind fun ((I, SH, IV, S, C1, C3, CF) :
-    Oid × Oids × Oids × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.cmdS, I, false, {I} + SH, IV⟩} + ({Item.cache ⟨I, S, C1, .noGnt, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.idle, I, false, {I} + SH, IV⟩} + ({Item.cache ⟨I, S, C1, .gntS, C3⟩} + CF)⟩ }
-
-/-- Grant an exclusive copy: only when there are no sharers. -/
-def sendGntE : Rule Conf := .bind fun ((I, IV, S, C1, C3, CF) :
-    Oid × Oids × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.dir ⟨.cmdE, I, false, ∅, IV⟩} + ({Item.cache ⟨I, S, C1, .noGnt, C3⟩} + CF)⟩
-    rhs := ⟨{Item.dir ⟨.idle, I, true, {I}, IV⟩} + ({Item.cache ⟨I, S, C1, .gntE, C3⟩} + CF)⟩ }
-
-def recvGntS : Rule Conf := .bind fun ((I, S, C1, C3, CF) : Oid × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.cache ⟨I, S, C1, .gntS, C3⟩} + CF⟩
-    rhs := ⟨{Item.cache ⟨I, .shared, C1, .noGnt, C3⟩} + CF⟩ }
-
-def recvGntE : Rule Conf := .bind fun ((I, S, C1, C3, CF) : Oid × CacheState × Req × Ack × Items) =>
-  { lhs := ⟨{Item.cache ⟨I, S, C1, .gntE, C3⟩} + CF⟩
-    rhs := ⟨{Item.cache ⟨I, .exclusive, C1, .noGnt, C3⟩} + CF⟩ }
-
-def german : System Conf :=
-  [sendReqS, sendReqEI, sendReqES, recvReqS, recvReqE, sendInvE, sendInvS, sendInvAck,
-   recvInvAckS, recvInvAckN, sendGntSN, sendGntSS, sendGntE, recvGntS, recvGntE]
 
 /-! ## Bad patterns: coherence fails -/
 
@@ -492,6 +351,14 @@ theorem sendReqES_inv : isOverPost [sendReqES] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
+  -- the request leaves a shared cache sharing; it stays in the sharer set
+  · cond_decomp
+    obtain ⟨⟨⟨hE, hIA, hNA⟩, hfree⟩, ⟨hnot, hnd⟩, hSH, hle, ⟨hi1, hi2⟩, hcmd⟩ := hc
+    refine ⟨⟨hfree, hE, hIA, hNA, fun h => absurd h hNA⟩, ⟨hnd, hnot⟩, ?_, hle, ⟨hi2, hi1⟩, ?_⟩
+    · rw [hSH]; simp [← Multiset.singleton_add, add_comm]
+    · rcases hcmd with h | ⟨⟨h1, h2⟩, h0⟩
+      · exact .inl h
+      · right; simp [h1, h2, h0]
 
 -- routing a rule's patches takes more than the default budget
 set_option maxHeartbeats 4000000 in
@@ -552,35 +419,17 @@ theorem sendInvE_inv : isOverPost [sendInvE] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
-  -- open: the protocol's remaining facts (multiset bookkeeping on the sharer and
-  -- invalidate sets), and the patches whose constructor values only their conditions fix
   -- no copy out: the cache invalidated is a sharer (it is in `IV ⊆ SH`), not one with an
-  -- acknowledgement pending (that one is out of `IV`), so it is shared; it leaves `IV`
+  -- acknowledgement pending, so it is shared; it leaves `IV`
   · cond_decomp
-    obtain ⟨⟨hE, hia⟩, hSH, hle, hA1, hA2⟩ := hc
-    have hA : x.2.2.2.1 = .noAck := by
-      cases h : x.2.2.2.1
-      · rfl
-      · simp [h] at hA1
-    have hS : x.2.1 = .shared := by
-      cases h : x.2.1
-      · simp [h, hA] at hSH; rw [hSH] at hle; simp at hle
-      · rfl
-      · exact absurd h hE
-    simp only [hS, true_or, if_true] at hSH
-    rw [hSH] at hle ⊢
-    have h0 : ACU.toMultiset x.2.2.2.2.1 = 0 := by
-      rw [← Multiset.cons_zero, Multiset.cons_le_cons_iff] at hle; exact Multiset.le_zero.1 hle
-    simp [hS, hA, h0]
-  · cond_decomp
-    obtain ⟨⟨hrest, hE, hia⟩, ⟨hnd, hI⟩, hSH, hle, ⟨-, hA1⟩, hinv, hA2⟩ := hc
+    obtain ⟨⟨⟨hE, hia⟩, hrest⟩, ⟨hI, hnd⟩, hSH, hle, ⟨hA1, -⟩, -, hinv⟩ := hc
     have hA : x.2.2.2.2.1 = .noAck := by
       cases h : x.2.2.2.2.1
       · rfl
       · simp [h] at hA1
     have hS : x.2.2.1 = .shared := by
       cases h : x.2.2.1
-      · simp only [h, hA, reduceCtorEq, or_self, if_false, add_zero] at hSH
+      · simp only [h, hA, reduceCtorEq, or_self, if_false, zero_add] at hSH
         rw [hSH] at hle
         exact absurd (Multiset.mem_of_le hle (Multiset.mem_cons_self _ _)) (shrIds_notMem hI)
       · rfl
@@ -593,26 +442,19 @@ theorem sendInvE_inv : isOverPost [sendInvE] inv inv := by
         Multiset.count_eq_zero.2 (shrIds_notMem hI)] at hc
       have := Multiset.count_pos.2 hm
       omega
-    refine ⟨⟨hrest, hE, ⟨hS, hA⟩, fun h => by simp [hA] at h, fun h => by simp [hA] at h⟩,
-      ⟨hnd, hI⟩, by simp, le_trans (Multiset.le_cons_self _ _) hle, ⟨hinv, by simp [hIn]⟩,
-      .inl trivial⟩
+    refine ⟨⟨hrest, hE, ⟨hS, hA⟩, hia, fun h => by simp [hA] at h⟩, ⟨hnd, hI⟩, by simp [add_comm],
+      le_trans (Multiset.le_cons_self _ _) hle, ⟨hinv, by simp [hIn]⟩, .inl trivial⟩
   -- an exclusive copy out: as for `sendInvS`
   all_goals first
     | (cond_decomp; casesm* _ ∧ _
        exact absurd (Multiset.mem_singleton.1 (‹_ ::ₘ _ = {_}› ▸ Multiset.mem_cons_self _ _))
          ‹¬_ = _›)
     | (refine ⟨ownInv, by simp [inv], ?_⟩
-       unfold sendInvE_inv.post_10 ownInv
-       refine Subsumption.subsumes_of_match
-         (fun x => (Cmd.cmdE, x.2.2.2, x.2.1, x.2.2.1, (∅ : Items))) fun x hc => ?_
-       have h0 : x.1 = ∅ := ACU.eq_iff.2 (by simpa using cons_eq_singleton.1 hc)
-       exact ⟨by simp [h0, ACU.plus_unit], by simp [cacheIds_unit]⟩)
-    | (refine ⟨ownInv, by simp [inv], ?_⟩
-       unfold sendInvE_inv.post_12 ownInv
+       unfold sendInvE_inv.post_3 ownInv
        refine Subsumption.subsumes_of_match
          (fun x => (Cmd.cmdE, x.2.2.2.2, x.2.2.1, x.2.2.2.1, x.2.1)) fun x hc => ?_
-       obtain ⟨hoth, hnd, hcons⟩ := hc
-       have h0 : x.1 = ∅ := ACU.eq_iff.2 (by simpa using cons_eq_singleton.1 hcons)
+       obtain ⟨hoth, hnd, hIV⟩ := hc
+       have h0 : x.1 = ∅ := ACU.eq_iff.2 (by simpa using hIV)
        exact ⟨by simp [h0], by simp, hoth, hnd⟩)
 
 -- routing a rule's patches takes more than the default budget
@@ -634,8 +476,6 @@ theorem sendInvS_inv : isOverPost [sendInvS] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
-  -- open: the protocol's remaining facts (multiset bookkeeping on the sharer and
-  -- invalidate sets), and the patches whose constructor values only their conditions fix
   -- invalidating while an exclusive copy is out: the invalidate set holds at most the
   -- owner, so the cache invalidated is the owner (the patches where it is another cache
   -- are contradictory), and its invalidate set becomes empty
@@ -644,17 +484,11 @@ theorem sendInvS_inv : isOverPost [sendInvS] inv inv := by
        exact absurd (Multiset.mem_singleton.1 (‹_ ::ₘ _ = {_}› ▸ Multiset.mem_cons_self _ _))
          ‹¬_ = _›)
     | (refine ⟨ownInv, by simp [inv], ?_⟩
-       unfold sendInvS_inv.post_6 ownInv
-       refine Subsumption.subsumes_of_match
-         (fun x => (Cmd.cmdS, x.2.2.2, x.2.1, x.2.2.1, (∅ : Items))) fun x hc => ?_
-       have h0 : x.1 = ∅ := ACU.eq_iff.2 (by simpa using cons_eq_singleton.1 hc)
-       exact ⟨by simp [h0, ACU.plus_unit], by simp [cacheIds_unit]⟩)
-    | (refine ⟨ownInv, by simp [inv], ?_⟩
-       unfold sendInvS_inv.post_8 ownInv
+       unfold sendInvS_inv.post_2 ownInv
        refine Subsumption.subsumes_of_match
          (fun x => (Cmd.cmdS, x.2.2.2.2, x.2.2.1, x.2.2.2.1, x.2.1)) fun x hc => ?_
-       obtain ⟨hoth, hnd, hcons⟩ := hc
-       have h0 : x.1 = ∅ := ACU.eq_iff.2 (by simpa using cons_eq_singleton.1 hcons)
+       obtain ⟨hoth, hnd, hIV⟩ := hc
+       have h0 : x.1 = ∅ := ACU.eq_iff.2 (by simpa using hIV)
        exact ⟨by simp [h0], by simp, hoth, hnd⟩)
 
 -- routing a rule's patches takes more than the default budget
@@ -676,6 +510,11 @@ theorem sendInvAck_inv : isOverPost [sendInvAck] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
+  -- the acknowledging cache stays a sharer
+  · cond_decomp
+    obtain ⟨⟨-, hfree⟩, ⟨hnot, hnd⟩, hSH, hle, ⟨hx, hi2⟩, hcmd⟩ := hc
+    refine ⟨hfree, ⟨hnd, hnot⟩, ?_, hle, ⟨hi2, by simpa using hx⟩, .inl hcmd⟩
+    rw [hSH]; simp [← Multiset.singleton_add, add_comm]
 
 -- routing a rule's patches takes more than the default budget
 set_option maxHeartbeats 4000000 in
@@ -696,21 +535,11 @@ theorem recvInvAckS_inv : isOverPost [recvInvAckS] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
-  -- open: the protocol's remaining facts (multiset bookkeeping on the sharer and
-  -- invalidate sets), and the patches whose constructor values only their conditions fix
   -- the acknowledging cache leaves the sharers (and was not to be invalidated again)
   · cond_decomp
-    obtain ⟨⟨⟨hE, hG, hInv, hS, hGn⟩, hSH, hIV, hIIV, hK⟩, -⟩ := hc
-    have h0 := cons_eq_singleton.1 hSH
-    refine ⟨⟨hE, hG, fun h => absurd h hInv⟩, by simp [h0, hS, hGn], ?_, by simp [hGn], .inl hK⟩
-    rw [h0] at hIV ⊢
-    exact (Multiset.le_cons_of_notMem hIIV).1 hIV
-  · cond_decomp
-    obtain ⟨⟨⟨hrest, hE, hG, hInv, hS, hGn⟩, ⟨hnd, hI⟩, hSH, hIV, ⟨hinv1, hIIV⟩, hK⟩, -⟩ := hc
-    have hM := cons_eq_add_singleton.1 hSH
-    refine ⟨⟨hrest, hE, hG, fun h => absurd h hInv⟩, ⟨hnd, hI⟩, by simp [hM, hS, hGn], ?_,
+    obtain ⟨⟨⟨⟨hE, hG, hInv, hS, hGn⟩, hrest⟩, ⟨hI, hnd⟩, hSH, hIV, ⟨hIIV, hinv1⟩, hK⟩, -⟩ := hc
+    refine ⟨⟨hrest, hE, hG, fun h => absurd h hInv⟩, ⟨hnd, hI⟩, by simp [hSH, hS, hGn], ?_,
       ⟨hinv1, by simp [hGn]⟩, .inl hK⟩
-    rw [hM] at hIV ⊢
     exact (Multiset.le_cons_of_notMem hIIV).1 hIV
   -- the owner's acknowledgement: no copy out any more, and the rest is idle
   · cond_decomp
@@ -777,30 +606,20 @@ theorem sendGntSS_inv : isOverPost [sendGntSS] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
-  -- open: the protocol's remaining facts (multiset bookkeeping on the sharer and
-  -- invalidate sets), and the patches whose constructor values only their conditions fix
   -- the requester was already a sharer: it is shared (else its id would be among the
   -- rest's sharers, which are caches with other ids), and the sharer set is unchanged
   · cond_decomp
-    obtain ⟨⟨hrest, hE, hia⟩, ⟨hnd, hI⟩, hSH, hIV, ⟨hinv1, hinv2⟩, hinv0, hna⟩ := hc
-    have h0 : shrIds x.1 = 0 := by
-      by_cases hs : x.2.1 = CacheState.shared
-      · simpa [hs] using hSH
-      · simp only [hs, hna, or_self, if_false, add_zero] at hSH
-        exact absurd (hSH ▸ Multiset.mem_singleton_self _) (shrIds_notMem hI)
-    exact ⟨⟨hrest, hE, hia, fun h => hna h⟩, ⟨hnd, hI⟩, by simp [h0], hIV, ⟨hinv1, hinv2⟩,
-      by simp [hinv0, hna]⟩
-  · cond_decomp
-    obtain ⟨⟨hrest, hE, hia⟩, ⟨hnd, hI⟩, hSH, hIV, ⟨hinv1, hinv2⟩, hinv0, hna⟩ := hc
+    obtain ⟨⟨⟨hE, hia⟩, hrest⟩, ⟨hI, hnd⟩, hSH, hIV, ⟨hinv1, hinv2⟩, hna, hinv0⟩ := hc
     have hM : ACU.toMultiset x.2.2.2.2.1 = shrIds x.1 := by
       by_cases hs : x.2.1 = CacheState.shared
       · simp only [hs, true_or, if_true] at hSH
-        exact cons_eq_add_singleton.1 hSH
-      · simp only [hs, hna, or_self, if_false, add_zero] at hSH
-        exact absurd hSH (cons_ne_shrIds hI)
-    refine ⟨⟨hrest, hE, hia, fun h => hna h⟩, ⟨hnd, hI⟩, ?_, by rwa [Multiset.singleton_add],
-      ⟨hinv1, hinv2⟩, by simp [hinv0, hna]⟩
-    simp [hM, add_comm]
+        rw [add_comm] at hSH
+        exact add_left_cancel hSH
+      · simp only [hs, hna, or_self, if_false, zero_add] at hSH
+        exact absurd (hSH ▸ Multiset.mem_add.2 (.inr (Multiset.mem_singleton_self _)))
+          (shrIds_notMem hI)
+    refine ⟨⟨hrest, hE, hia, hna⟩, ⟨hnd, hI⟩, by simp [hM, add_comm], by rwa [add_comm],
+      ⟨hinv2, hinv1⟩, by simp [hinv0, hna]⟩
 
 -- routing a rule's patches takes more than the default budget
 set_option maxHeartbeats 4000000 in
@@ -821,25 +640,14 @@ theorem sendGntE_inv : isOverPost [sendGntE] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
-  -- open: the protocol's remaining facts (multiset bookkeeping on the sharer and
-  -- invalidate sets), and the patches whose constructor values only their conditions fix
   -- the exclusive grant: the requester holds nothing (not exclusive, not a sharer: it is
   -- invalid, with no acknowledgement pending), and nobody else shares, so the rest is idle;
   -- matching cannot see the fields these conditions fix, so the substitution is explicit
   · refine ⟨ownG, by simp [inv], ?_⟩
     unfold sendGntE_inv.post_1 ownG
     refine Subsumption.subsumes_of_match
-      (fun x => (Cmd.idle, x.2.2.2.1, x.2.2.2.2, x.2.2.2.1, x.2.1, (∅ : Items))) fun x hc => ?_
-    obtain ⟨⟨hE, -⟩, ⟨hS, hA⟩, hIV, -⟩ := hc
-    have hS' : x.1 = .invalid := by cases h : x.1 <;> simp_all
-    have hA' : x.2.2.1 = .noAck := by cases h : x.2.2.1 <;> simp_all
-    refine ⟨by simp [hS', hA', ACU.plus_unit], ?_⟩
-    simp [cacheIds_unit, hIV]
-  · refine ⟨ownG, by simp [inv], ?_⟩
-    unfold sendGntE_inv.post_2 ownG
-    refine Subsumption.subsumes_of_match
       (fun x => (Cmd.idle, x.2.2.2.2.1, x.2.2.2.2.2, x.2.2.2.2.1, x.2.2.1, x.1)) fun x hc => ?_
-    obtain ⟨⟨hrest, hE, -⟩, ⟨hnd, hI⟩, hSH, hIV, -, -⟩ := hc
+    obtain ⟨⟨⟨hE, -⟩, hrest⟩, ⟨hI, hnd⟩, hSH, hIV, -, -⟩ := hc
     have h0 : shrIds x.1 = 0 ∧ ¬(x.2.1 = .shared ∨ x.2.2.2.1 = .invAck) := by
       split_ifs at hSH with hc'
       · exact absurd hSH.symm (by simp [add_eq_zero])
@@ -867,6 +675,14 @@ theorem recvGntS_inv : isOverPost [recvGntS] inv inv := by
   all_goals try route
   all_goals try cond_close
   all_goals try cond_close2
+  -- the granted cache stays a sharer
+  · cond_decomp
+    obtain ⟨⟨⟨-, hNA⟩, hfree⟩, ⟨hnot, hnd⟩, hSH, hle, ⟨hi1, hi2⟩, hcmd⟩ := hc
+    refine ⟨⟨hfree, hNA⟩, ⟨hnd, hnot⟩, ?_, hle, ⟨hi2, hi1⟩, ?_⟩
+    · rw [hSH]; simp [← Multiset.singleton_add, add_comm]
+    · rcases hcmd with h | ⟨h1, h0⟩
+      · exact .inl h
+      · right; simp [h1, h0]
 
 -- routing a rule's patches takes more than the default budget
 set_option maxHeartbeats 4000000 in

@@ -236,6 +236,7 @@ partial def sortOf (g : Gen) : T → String
     | _, some s => s
     | _, _ => ((g.udf.sig.ops.find? fun (o, d, _) => o == op && d.size == args.size).map (·.2.2)).getD ""
 
+
 def isBag (g : Gen) (s : String) : Bool := g.udf.sig.acu.any (·.2.1 == s)
 
 partial def render (g : Gen) : T → Except String String
@@ -249,7 +250,13 @@ partial def render (g : Gen) : T → Except String String
     if (identOf g op).isSome then return "∅"
     let some tmpl := (g.ops.getObjValAs? String op).toOption
       | throw s!"udf: no Lean name for Maude operator {op}"
-    let rs ← args.toList.mapM fun a => return paren (← render g a)
+    -- an argument of a bag sort that is one element (a subsort) is a singleton
+    let dom := ((g.udf.sig.ops.find? fun (o, d, _) => o == op && d.size == args.size).map
+      (·.2.1)).getD #[]
+    let rs ← (List.range args.size).mapM fun i => do
+      let r ← render g args[i]!
+      let d := dom[i]?.getD ""
+      return if isBag g d && sortOf g args[i]! != d then "{" ++ r ++ "}" else paren r
     if (tmpl.splitOn "{0}").length > 1 then
       let mut out := tmpl
       for i in [0:rs.length] do
@@ -455,11 +462,19 @@ where
     emit (ind + 3) s!"intro v hv hne"
     emit (ind + 3) s!"obtain ⟨{", ".intercalate vnames}, rfl⟩ : ∃ {" ".intercalate vnames}, v = {vec vnames} :="
     emit (ind + 4) s!"⟨{", ".intercalate ((List.range ncols).map (s!"v {·}"))}, funext fun i => by fin_cases i <;> rfl⟩"
-    emit (ind + 3) "udf_arith⟩"
+    -- S3′ split by alien patterns: each alien column is 0 or 1
+    if m == 0 then emit (ind + 3) "udf_arith⟩"
+    else
+      emit (ind + 3) "udf_s3_unfold"
+      let splits := (List.range m).map fun c =>
+        s!"(rcases (show v{n + c} = 0 ∨ v{n + c} = 1 by omega) with rfl | rfl)"
+      emit (ind + 3) (" <;>\n      ".intercalate splits)
+      emit (ind + 3) "all_goals udf_s3_case⟩"
     emit (ind + 2) s!"(fun {pat g ctx} h => by udf_from h)"
     emit (ind + 2) "(fun _ => by udf_clash)"
     emit (ind + 2) s!"[{", ".intercalate selsL}] (by decide) ?_"
-    -- one premise per selection
+    -- one premise per selection (none: the system has no solution, the branch closes)
+    if sels.isEmpty then emit ind "exact List.forall_mem_nil _"
     for i in [0:sels.size] do
       let s := sels[i]!.items
       let sel := s[1]!.items.map (·.nat!)

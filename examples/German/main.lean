@@ -1,10 +1,12 @@
-import examples.German.draft.obligation
+import examples.German.cert
 
 /-!
 # German's protocol: coherence
 
-The per-rule invariance proofs with their certificates linked in (completeness certified
-by Maude in `obligation.lean`; soundness, and the disjointness `inv_bad`, still open).
+The per-rule invariance proofs (`proof.lean`) with their certification obligations
+(`cert.lean`) linked in, combined into the whole protocol's invariance, and coherence from
+the disjointness of the invariant and the bad patterns (`inv_bad`, still open: its `sorry`
+is the one `#print axioms` shows).
 -/
 
 namespace German
