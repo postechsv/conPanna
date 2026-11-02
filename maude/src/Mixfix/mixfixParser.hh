@@ -1,0 +1,409 @@
+/*
+
+    This file is part of the Maude 3 interpreter.
+
+    Copyright 1997-2026 SRI International, Menlo Park, CA 94025, USA.
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+*/
+
+//
+//      Class for mixfix parser with actions.
+//
+#ifndef _mixfixParser_hh_
+#define _mixfixParser_hh_
+#include <unordered_map>
+#include <unordered_set>
+#include "intSet.hh"
+#include "parser.hh"
+#include "token.hh"
+
+class MixfixParser
+{
+  NO_COPYING(MixfixParser);
+
+public:
+  enum SemanticActions
+  {
+    NOP,
+    PASS_THRU,
+    //
+    //	Term construction actions.
+    //
+    MAKE_TERM,
+    ASSOC_LIST,
+    MAKE_TERM_DISJUNCTION,
+    //
+    //	Special kinds of terms.
+    //
+    MAKE_OTF_VARIABLE_KNOWN_SORT,
+    MAKE_OTF_VARIABLE,
+    MAKE_BARE_OTF_VARIABLE,
+    MAKE_VARIABLE_FROM_ALIAS,
+    MAKE_WILDCARD_VARIABLE,
+    MAKE_OBJECT_WITH_EMPTY_ATTRIBUTE_SET,
+    MAKE_NATURAL,
+    MAKE_INTEGER,
+    MAKE_RATIONAL,
+    MAKE_FLOAT,
+    MAKE_QUOTED_IDENTIFIER,
+    MAKE_STRING,
+    MAKE_SORT_TEST,  // HACK used for condition fragment as well
+    MAKE_POLYMORPH,
+    MAKE_ITER,
+    MAKE_POLYMORPH_ITER,
+    MAKE_SMT_NUMBER,
+    MAKE_BUBBLE,
+    //
+    //	Statement construction actions.
+    //
+    MAKE_MB,
+    MAKE_CMB,
+    MAKE_EQ,
+    MAKE_CEQ,
+    MAKE_RL,
+    MAKE_CRL,
+    MAKE_LABEL,
+    MAKE_ATTRIBUTE_PART,
+    //
+    //	Condition construction actions.
+    //
+    FRAGMENT_LIST,
+    MAKE_TRUE,
+    MAKE_EQUALITY,
+    MAKE_ASSIGNMENT,
+    MAKE_REWRITE,
+    //
+    //	Attribute construction actions.
+    //
+    MAKE_LABEL_ATTRIBUTE,
+    MAKE_METADATA_ATTRIBUTE,
+    MAKE_NONEXEC_ATTRIBUTE,
+    MAKE_OWISE_ATTRIBUTE,
+    MAKE_VARIANT_ATTRIBUTE,
+    MAKE_NARROWING_ATTRIBUTE,
+    MAKE_EXTENSION_ATTRIBUTE,
+    MAKE_DNT_ATTRIBUTE,
+    MAKE_PRINT_ATTRIBUTE,
+    MAKE_PRINT_VARIABLE,
+    MAKE_ATTRIBUTE_LIST,
+    //
+    //	Command construction actions.
+    //
+    CONDITIONAL_COMMAND,
+    PAIR_LIST,
+    MAKE_TERM_LIST,
+    //
+    //	Strategy expression construction actions
+    //
+    MAKE_TRIVIAL,
+    MAKE_ALL,
+    MAKE_APPLICATION,
+    MAKE_CALL,
+    MAKE_TOP,
+    MAKE_CONCATENATION,
+    MAKE_UNION,
+    MAKE_ITERATION,
+    MAKE_BRANCH,
+    MAKE_TEST,
+    MAKE_REW,
+    MAKE_ONE,
+    MAKE_STRATEGY_LIST,
+
+    MAKE_SUBSTITUTION,
+    MAKE_USING_PAIR,
+    MAKE_USING_LIST,
+    //
+    // Strategy module actions
+    //
+    MAKE_SD,
+    MAKE_CSD,
+
+    MAKE_PRINT_LIST
+  };
+
+  typedef IntSet TokenSet;
+  
+  MixfixParser(MixfixModule& client,
+	       bool complexFlag,
+	       int componentNonTerminalBase,
+	       int numberOfTypes,
+	       int nextNonTerminalCode,
+	       int nrTokensGuess);
+  ~MixfixParser();
+  //
+  //	Functions to construct parser.
+  //
+  void insertProduction(int lhs,
+			const Vector<int>& rhs,
+			int prec,
+			const Vector<int>& gather,
+			int action = NOP,
+			int data = NONE,
+			int data2 = NONE);
+  void insertBubbleProduction(int lhs,
+			      int lowerBound,
+			      int upperBound,
+			      int leftParenCode,
+			      int rightParenCode,
+			      const Vector<int>& excluded,
+			      int bubbleSpecIndex);
+  void insertSpecialTerminal(int tokenProperty, int codeToUse);
+  void insertComponentTerminal(int componentIndex, int codeToUse);
+  void insertBareOtfVariableTerminal(int componentIndex, int codeToUse);
+  void insertLeadTerminal(int sortNameCode, int codeToUse);
+  void insertIterSymbolTerminal(int iterSymbolNameCode, int codeToUse);
+  void setWildcard(int codeToUse);
+  //
+  //	Function that parses a vector of tokens to a parse tree.
+  //
+  int parseSentence(const Vector<Token>& original,
+		    int root,
+		    int& firstBad,
+		    int begin,
+		    int nrTokens);
+  //
+  //	Functions that analyse the parse tree.
+  //
+  void makeTerms(Term*& first, Term*& second);
+  void makeStrategyExprs(StrategyExpression*& first, StrategyExpression*& second);
+  void insertStatement();
+  void makeMatchCommand(Term*& pattern,
+			Term*& subject,
+			Vector<ConditionFragment*>& condition);
+  void makeUnifyCommand(Vector<Term*>& lhs, Vector<Term*>& rhs);
+  void makeSearchCommand(Vector<Term*>& initial,
+			 int& searchType,
+			 Term*& target,
+			 Vector<ConditionFragment*>& condition);
+  void makeGetVariantsCommand(Term*& initial, Vector<Term*>& constraint);
+  void makeVariantUnifyOrMatchCommand(Vector<Term*>& lhs,
+				      Vector<Term*>& rhs,
+				      Vector<Term*>& constraint);
+  void makeStrategyCommand(Term*& subject, StrategyExpression*& strategy);
+
+  void makeAssignment(int node, Vector<Term*>& variables, Vector<Term*>& values);
+  void makeSubstitution(int node, Vector<Term*>& variables, Vector<Term*>& values);
+  int newNonTerminal();
+  //
+  //	Functions to get info about the parser.
+  //
+  const TokenSet& getTokenSet();  // HACK
+  
+  bool isComplex() const;
+  int getComponentNonTerminalBase() const;
+  int getNumberOfTypes() const;
+  int getNrProductions() const;
+  int getNrNonTerminals() const;
+  int getNrTerminals() const;
+
+private:
+  struct OtfDef
+  {
+    int location;
+    int sortIndex;
+    bool uncertain;
+  };
+  
+  typedef unordered_map<int,int> IntMap;
+  typedef unordered_set<int> NameSet;
+  typedef unordered_map<int,Vector<OtfDef>> OtfDefMap;
+  typedef set<pair<int, int>> VarDeclSet;
+
+  enum Flags
+  {
+    NONEXEC = 1,
+    OWISE = 2,
+    PRINT = 4,
+    VARIANT = 8,
+    NARROWING = 16,
+    EXTENSION = 32,
+    DNT = 128
+  };
+
+  struct Action
+  {
+    int data;		// main data
+    short action;	// action to take on data
+    short data2;	// auxillary data for actions that need it
+  };
+
+  int tokenToIndex(int token);
+  Sort* getSort(int node);
+  Term* makeTerm(int node);
+  void makeAssocList(int node, Vector<Term*>& args);
+  StrategyExpression* makeStrategy(int node);
+  std::pair<RewriteStrategy*, Term*> makeStrategyCall(int node);
+  ConditionFragment* makeConditionFragment(int node);
+  void makeCondition(int node, Vector<ConditionFragment*>& condition);
+  void makeStatement(int node);
+  void makeAttributePart(int node,
+			 int& label,
+			 int& metadata,
+			 FlagSet& flags,
+			 Vector<int>& printNames,
+			 Vector<Sort*>& printSorts);
+  void makePrintList(int node, Vector<int>& names, Vector<Sort*>& sorts);
+  void makePrintListVariable(int node, Vector<int>& names, Vector<Sort*>& sorts);
+  void makeStatementPart(int node,
+			 int label,
+			 int metadata,
+			 FlagSet& flags,
+			 const Vector<int>& printNames,
+			 const Vector<Sort*>& printSorts);
+  void makeTermList(int node, Vector<Term*>& termList);
+  void makeStrategyList(int node, Vector<StrategyExpression*>& strategies);
+  void appendUsingPair(int node, Vector<Term*>& terms, Vector<StrategyExpression*>& strategies);
+  void makeUsingList(int node, Vector<Term*>& terms, Vector<StrategyExpression*>& strategies);
+  void makeTermDisjunction(int node, Vector<Term*>& terms);
+  int translateSpecialToken(int code);
+  void handleContainsColon(int code, Index index, Index beyondEnd);
+  ConnectedComponent* checkSortNames(const Vector<int>& sortNames) const;
+  void handleEndsInColon(int code, Index index, Index beyondEnd);
+  void makeOtfTranslations();
+  void makeOtfTranslation(int varName, int location, int sortIndex, bool uncertain);
+  bool guaranteedFresh(int code) const;
+  int makeFreshVariableName(int code);
+  int classicParse(int root, int& firstBad, int nrTokens);
+  int extendedParse(int root, int& firstBad, int nrTokens);
+  bool checkParse(int& firstBad);
+  bool checkSubparse(int node, int& firstBad);
+
+  MixfixModule& client;
+  const bool complexParser;
+  const int componentNonTerminalBase;
+  const int numberOfTypes;
+  int nextNonTerminal;
+  Parser parser;			// CFG parser
+  Vector<int> productionRhs;		// to avoid creating a new Vector for each production insertion
+  TokenSet tokenSet;			// mapping between token codes and terminal numbers
+  Vector<Action> actions;		// action associated with each production
+  Vector<int> specialTerminals;		// special terminals for tokens with special properties
+  Vector<int> componentTerminals;	// special terminals for regular otf variables
+  Vector<int> bareOtfVariableTerminals;	// special terminals for bare otf variables
+  IntMap leadTerminals;			// special terminals for X:Foo where Foo{...} is a sort
+  IntMap iterSymbolTerminals;		// special terminals for tokens like f^42
+  int wildcardTerminal = NONE;		// special terminal for wildcards
+  bool bubblesAllowed;			// do we allow bubbles of unknown tokens
+  bool inexact;
+  //
+  //	We store the tokens we are parsing here to avoid passing extra parameters
+  //	when recursing down a parse tree.
+  //
+  const Vector<Token>* currentSentence;	// actual tokens so we can deal with special tokens
+  Vector<int> sentence;			// sentence translated into terminal numbers
+  int currentOffset;			// start of parsed tokens
+  int nrParses;
+  //
+  //	Used for extended parsing mode.
+  //
+  OtfDefMap otfTranslations;
+  NameSet usedNames;			// names already used for wildcard variables
+  Vector<Vector<int>> terminalLists;
+  VarDeclSet seenSet;
+};
+
+inline int
+MixfixParser::getNrProductions() const
+{
+  return actions.length();
+}
+
+inline bool
+MixfixParser::isComplex() const
+{
+  return complexParser;
+}
+
+inline int
+MixfixParser::getComponentNonTerminalBase() const
+{
+  return componentNonTerminalBase;
+}
+
+inline int
+MixfixParser::getNumberOfTypes() const
+{
+  return numberOfTypes;
+}
+
+inline int
+MixfixParser::getNrNonTerminals() const
+{
+  return -nextNonTerminal;
+}
+
+inline int
+MixfixParser::getNrTerminals() const
+{
+  return tokenSet.size();
+}
+
+inline int
+MixfixParser::newNonTerminal()
+{
+  return --nextNonTerminal;
+}
+
+inline int
+MixfixParser::tokenToIndex(int token)
+{
+  return tokenSet.insert(token);
+}
+
+inline const MixfixParser::TokenSet&
+MixfixParser::getTokenSet()  // HACK
+{
+  return tokenSet;
+}
+
+inline void
+MixfixParser::insertSpecialTerminal(int tokenProperty, int codeToUse)
+{
+  specialTerminals[tokenProperty] = tokenToIndex(codeToUse);
+}
+
+inline void
+MixfixParser::insertComponentTerminal(int componentIndex, int codeToUse)
+{
+  componentTerminals[componentIndex] = tokenToIndex(codeToUse);
+}
+
+inline void
+MixfixParser::insertBareOtfVariableTerminal(int sortIndex, int codeToUse)
+{
+  bareOtfVariableTerminals[sortIndex] = tokenToIndex(codeToUse);
+}
+
+inline void
+MixfixParser::insertLeadTerminal(int sortNameCode, int codeToUse)
+{
+  leadTerminals[sortNameCode] = tokenToIndex(codeToUse);
+}
+
+inline void
+MixfixParser::insertIterSymbolTerminal(int iterSymbolNameCode, int codeToUse)
+{
+  iterSymbolTerminals[iterSymbolNameCode] = tokenToIndex(codeToUse);
+}
+
+inline void
+MixfixParser::setWildcard(int codeToUse)
+{
+  wildcardTerminal = tokenToIndex(codeToUse);
+}
+
+#endif

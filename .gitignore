@@ -10,3 +10,18 @@ producer/.cache/
 
 # Generated test grid (producer/tools/grid.py)
 producer/tests/grid/
+
+# Maude build outputs (maude/: run autoreconf -i, then configure and make in maude/Opt)
+maude/Opt/
+maude/autom4te.cache/
+maude/aclocal.m4
+maude/configure
+maude/config.h.in
+maude/compile
+maude/config.guess
+maude/config.sub
+maude/depcomp
+maude/install-sh
+maude/missing
+maude/ylwrap
+maude/**/Makefile.in

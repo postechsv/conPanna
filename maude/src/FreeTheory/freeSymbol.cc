@@ -1,0 +1,941 @@
+/*
+
+    This file is part of the Maude 3 interpreter.
+
+    Copyright 1997-2026 SRI International, Menlo Park, CA 94025, USA.
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+*/
+
+//
+//	Implementation for class FreeSymbol.
+//
+
+//	utility stuff
+#include "macros.hh"
+#include "vector.hh"
+#include "unionFind.hh"
+#include "indent.hh"
+
+//	forward declarations
+#include "interface.hh"
+#include "core.hh"
+#include "variable.hh"
+#include "fullCompiler.hh"
+#include "freeTheory.hh"
+
+//	interface class definitions
+#include "symbol.hh"
+#include "dagNode.hh"
+#include "term.hh"
+#include "lhsAutomaton.hh"
+#include "rhsAutomaton.hh"
+
+//      core class definitions
+#include "rewritingContext.hh"
+#include "equation.hh"
+#include "sortBdds.hh"
+#include "hashConsSet.hh"
+
+//	full compiler class definitions
+#include "compilationContext.hh"
+
+//	free theory class definitions
+#include "freePreNet.hh"
+#include "freeNet.hh"
+#include "freeSymbol.hh"
+#include "freeNullarySymbol.hh"
+#include "freeDagNode.hh"
+#include "freeOccurrence.hh"
+#include "freeTerm.hh"
+#include "freeLhsAutomaton.hh"
+#include "freeRemainder.hh"
+
+#include "freeFastInstruction.hh"
+#include "freeGeneralCtor.hh"
+#include "freeGeneralCtorFinal.hh"
+#include "freeGeneralExtor.hh"
+#include "freeGeneralExtorFinal.hh"
+
+template<int n>
+bool
+FreeSymbol::eqRewriteCtor(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	Symbol has 0, 1, 2 or 3 arguments, standard strategy and no equations.
+  //	We reduce the arguments using the unroller idiom and then return false.
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return false;
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteUnroll(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	Symbol has 0, 1, 2 or 3 arguments and standard strategy and equations.
+  //	We reduce the arguments using the unroller idiom and use applyReplace()
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.applyReplace(subject, context);
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteLowArity(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	Symbol has 1, 2 or 3 arguments and standard strategy and equations.
+  //
+  //	Furthermore, all symbols in the discrimination net are either alien or
+  //	free with arity 0, 1, 2 or 3.
+  //	Furthermore the discrimination net cannot be null - there must be at least
+  //	one free symbol to test.
+  //
+  //	We reduce the arguments using the unroller idiom and use lowArityApplyReplace()
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.lowArityApplyReplace(subject, context);
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteNullNetGeneral(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	Symbol has 1, 2 or 3 arguments and standard strategy and equations.
+  //	Degenerate case when the discrimination net is empty, but we can't use
+  //	fast or super-fast cases because remainders.
+  //	This typically happens when we have a definition given by one or more
+  //	conditional equations.
+  //
+  //	We reduce the arguments using the unroller idiom and use generalNullNet(()
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.generalNullNet(subject, context);
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteFast(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	All the requirements for eqRewriteLowArity(), together with the
+  //	requirement that there is a single used remainder in each applicable list.
+  //
+  //	Furthermore, all used remainders are are FAST or SUPER_FAST:
+  //    * have a lhs that parses into a non-error sort
+  //	* be left linear
+  //	* be unconditional
+  //	* have no "problem" variables (bound from a lazy position)
+  //	* have the sort of each variable qualify with fastGeqSufficient()
+  //	* not foreign (already ruled out by all symbols in the net being free)
+  //
+  //	We reduce the arguments using the unroller idiom and use fastApplyReplace()
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.fastApplyReplace(subject, context);
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteNullNetFast(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	Degenerate case of the above when the discrimination net is empty.
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.fastNullNet(subject, context);
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteSuperFast(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	All the requirements for eqRewriteFast() but also all used remainders are
+  //	SUPER_FAST - i.e. sorts of terms bound to variable need not be checked.
+  //
+  //	We reduce the arguments using the unroller idiom and use superFastapplyReplace()
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.superFastApplyReplace(subject, context);
+}
+
+template<int n>
+bool
+FreeSymbol::eqRewriteNullNetSuperFast(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  //
+  //	Degenerate case of the above when the discrimination net is empty.
+  //
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  reduceArgs<n>(static_cast<FreeDagNode*>(subject), context);
+  return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.superFastNullNet(subject, context);
+}
+
+bool
+FreeSymbol::eqRewriteSlow(Symbol* symbol, DagNode* subject, RewritingContext& context)
+{
+  Assert(symbol == subject->symbol(), "bad symbol");  
+  if (symbol->standardStrategy())
+    {
+      int nrArgs = symbol->arity();
+      DagNode* const* args = static_cast<FreeDagNode*>(subject)->argArray();
+      for (int i = nrArgs; i > 0; i--, args++)
+        (*args)->reduce(context);
+      return safeCastNonNull<FreeSymbol*>(symbol)->discriminationNet.applyReplace(subject, context);
+    }
+  return safeCastNonNull<FreeSymbol*>(symbol)->complexStrategy(subject, context);
+}
+
+FreeSymbol*
+FreeSymbol::newFreeSymbol(int id, int arity, const Vector<int>& strategy, bool memoFlag)
+{
+  if (arity == 0 && !memoFlag)
+    {
+      //
+      //	Strategy must be equivalent to (0).
+      //	Nullary constructors can cache constant dags.
+      //
+      return new FreeNullarySymbol(id);
+    }
+  return new FreeSymbol(id, arity, strategy, memoFlag);
+}
+
+FreeSymbol::FreeSymbol(int id, int arity, const Vector<int>& strategy, bool memoFlag)
+  : Symbol(id, arity, memoFlag)
+{
+  setStrategy(strategy, arity, memoFlag);
+}
+
+void
+FreeSymbol::compileEquations()
+{
+  const Vector<Equation*>& equations = getEquations();
+  Index nrEquations = equations.size();
+  for (Index i = 0; i < nrEquations; ++i)
+    {
+      Equation* e = equations[i];
+      Term* p = e->getLhs();
+      if (FreeTerm* f = dynamic_cast<FreeTerm*>(p))
+	{
+	  e->compile(false);
+	  //
+	  //	Even though we pass compileLhs as false, if the equation has the variant
+	  //	property it will get compiled anyway and we need to reset the slot indices
+	  //	to make it safe to use them in constructing a discrimination net.
+	  //
+	  f->resetSlotIndices();
+	  f->setSlotIndex(0);
+	}
+      else
+	e->compile(true);  // foreign equation so compile lhs
+    }
+  FreePreNet n(false);
+  n.buildNet(this);
+  n.semiCompile(discriminationNet);
+  setEqRewrite(chooseEqRewriteFunction());
+}
+
+#if 0
+
+#define Return(p)							\
+  { (cerr << Tty(Tty::RED) << this << " uses "#p << Tty(Tty::RESET) << endl); return &p; }
+
+#else
+
+#define Return(p) return &p;
+
+#endif
+
+EqRewriter::EqRewriteFunctionPtr
+FreeSymbol::chooseEqRewriteFunction() const
+{
+  //
+  //	Pick a specialized function to do the equational rewriting.
+  //	We have 4 + 10 + 12 = 26 fast functions and a backstop.
+  //
+  //	We only optimize if for symbols with standard strategy and arity 0,.., 3.
+  //
+  int nrArgs = arity();
+  if (nrArgs <= 3 && standardStrategy())
+    {
+      if (getEquations().size() == 0)
+	{
+	  //
+	  //	Pure constructor case.
+	  //
+	  switch (nrArgs)
+	    {
+	    case 0:
+	      Return(eqRewriteCtor<0>);
+	    case 1:
+	      Return(eqRewriteCtor<1>);
+	    case 2:
+	      Return(eqRewriteCtor<2>);
+	    case 3:
+	      Return(eqRewriteCtor<3>);
+	    }
+	}
+      if (discriminationNet.emptyNet())
+	return chooseNullNetFunction();
+      return chooseNonNullNetFunction();
+    }
+  //
+  //	The backstop.
+  //
+  Return(eqRewriteSlow);
+}
+
+EqRewriter::EqRewriteFunctionPtr
+FreeSymbol::chooseNullNetFunction() const
+{
+  //
+  //	We don't have any stable symbols to match; just one or more remainders.
+  //	We use one of 10 fast functions or the backstop.
+  //
+  int nrArgs = arity();
+  if (discriminationNet.getSpeed() == FreeRemainder::SUPER_FAST)
+    {
+      //
+      //	Remainder can't fail, and thus there should only be one.
+      //
+      Assert(discriminationNet.getMaxNrRemainders() == 1,
+	     "more than one remainder for " << this);
+      switch (nrArgs)
+	{
+	case 0:
+	  Return(eqRewriteNullNetSuperFast<0>);
+	case 1:
+	  Return(eqRewriteNullNetSuperFast<1>);
+	case 2:
+	  Return(eqRewriteNullNetSuperFast<2>);
+	case 3:
+	  Return(eqRewriteNullNetSuperFast<3>);
+	}
+    }
+  if (discriminationNet.getSpeed() == FreeRemainder::FAST)
+    {
+      if (discriminationNet.getMaxNrRemainders() == 1)
+	{
+	  switch (nrArgs)
+	    {
+	    case 1:
+	      Return(eqRewriteNullNetFast<1>);
+	    case 2:
+	      Return(eqRewriteNullNetFast<2>);
+	    case 3:
+	      Return(eqRewriteNullNetFast<3>);
+	    case 0:
+	      //
+	      //	We can't bind variables so we're either slow or super-fast.
+	      //
+	      CantHappen("nullary symbol " << this << " must be super-fast");
+	    }
+	}
+    }
+  //
+  //	We have a simple defintion, but with a non-trivial remainder. We don't
+  //	both with the 0 arity case because this only arises with a constant
+  //	condition.
+  //
+  switch (nrArgs)
+    {
+    case 1:
+      Return(eqRewriteNullNetGeneral<1>);
+    case 2:
+      Return(eqRewriteNullNetGeneral<2>);
+    case 3:
+      Return(eqRewriteNullNetGeneral<3>);
+    }
+  //
+  //	Catch the pathological constant condition case.
+  //
+  Return(eqRewriteSlow);
+}
+
+EqRewriter::EqRewriteFunctionPtr
+FreeSymbol::chooseNonNullNetFunction() const
+{
+  //
+  //	We have stable symbols to match.
+  //	We can use one of 12 fast functions.
+  //
+  int nrArgs = arity();
+  Assert(nrArgs != 0, "nullary symbol " << this << " can't have non-null net");
+
+  if (discriminationNet.noHighArityFreeSymbols())
+    {
+      //
+      //	The discrimination net only has low arity free symbols and
+      //	perhaps stable aliens.
+      //	See if we qualify for FAST or SUPER_FAST execution.
+      //
+      if (discriminationNet.getSpeed() == FreeRemainder::SUPER_FAST)
+	{
+	  //
+	  //	Remainder can't fail, and thus there should only be one.
+	  //
+	  Assert(discriminationNet.getMaxNrRemainders() == 1,
+		 "more than one remainder for " << this);
+	  switch (nrArgs)
+	    {
+	    case 1:
+	      Return(eqRewriteSuperFast<1>);
+	    case 2:
+	      Return(eqRewriteSuperFast<2>);
+	    case 3:
+	      Return(eqRewriteSuperFast<3>);
+	    }
+	}
+      if (discriminationNet.getSpeed() == FreeRemainder::FAST)
+	{
+	  if (discriminationNet.getMaxNrRemainders() == 1)
+	    {
+	      switch (nrArgs)
+		{
+		case 1:
+		  Return(eqRewriteFast<1>);
+		case 2:
+		  Return(eqRewriteFast<2>);
+		case 3:
+		  Return(eqRewriteFast<3>);
+		}
+	    }
+	}
+      //
+      //	We have a remainder that is not FAST or SUPER_FAST and/or
+      //	we have multiple remainders in some applicable list.
+      //	We can still execute the free net assuming internal storage
+      //	of arguments.
+      //
+      switch (nrArgs)
+	{
+	case 1:
+	  Return(eqRewriteLowArity<1>);
+	case 2:
+	  Return(eqRewriteLowArity<2>);
+	case 3:
+	  Return(eqRewriteLowArity<3>);	  
+	}
+    }
+  //
+  //	Due to high arity free symbols that need to be matched we need to
+  //	run general purpose free net code.
+  //	We can still unroll the reduction of our arguments.
+  //
+  switch (nrArgs)
+    {
+    case 1:
+      Return(eqRewriteUnroll<1>);
+    case 2:
+      Return(eqRewriteUnroll<2>);
+    case 3:
+      Return(eqRewriteUnroll<3>);
+    }
+  CantHappen("Didn't find a fast function for " << this);
+  return nullptr;
+}
+
+Term*
+FreeSymbol::makeTerm(const Vector<Term*>& args)
+{
+  return new FreeTerm(this, args);
+}
+
+DagNode*
+FreeSymbol::makeDagNode(const Vector<DagNode*>& args)
+{
+  FreeDagNode* f = new FreeDagNode(this);
+  DagNode** args2 = f->argArray();
+  for (int i = arity() - 1; i >= 0; i--)
+    args2[i] = args[i];
+  return f;
+}
+
+bool
+FreeSymbol::complexStrategy(DagNode* subject, RewritingContext& context)
+{
+  if (isMemoized())
+    {
+      MemoTable::SourceSet from;
+      memoStrategy(from, subject, context);
+      memoEnter(from, subject);
+      return false;
+    }
+  int nrArgs = arity();
+  DagNode** args = static_cast<FreeDagNode*>(subject)->argArray();
+  //
+  //	Execute user supplied strategy.
+  //
+  const Vector<int>& userStrategy = getStrategy();
+  int stratLen = userStrategy.length();
+  bool seenZero = false;
+  for (int i = 0; i < stratLen; i++)
+    {
+      int a = userStrategy[i];
+      if(a == 0)
+	{
+	  if (!seenZero)
+	    {
+	      for (int j = 0; j < nrArgs; j++)
+		args[j]->computeTrueSort(context);
+	      seenZero = true;
+	    }
+	  if ((i + 1 == stratLen) ? DISC_NET.applyReplace(subject, context) :
+	      DISC_NET.applyReplaceNoOwise(subject, context))
+	    return true;
+	}
+      else
+	{
+	  --a;  // real arguments start at 0 not 1
+	  if (seenZero)
+	    {
+	      args[a] = args[a]->copyReducible();
+	      //
+	      //	A previous call to discriminationNet.applyReplace() may have
+	      //	computed a true sort for our subject which will be
+	      //	invalidated by the reduce we are about to do.
+	      //
+	      subject->repudiateSortInfo();
+	    }
+	  args[a]->reduce(context);
+	}
+    }
+  return false;
+}
+
+void
+FreeSymbol::memoStrategy(MemoTable::SourceSet& from,
+			 DagNode* subject,
+			 RewritingContext& context)
+{
+  int nrArgs = arity();
+  DagNode** args = static_cast<FreeDagNode*>(subject)->argArray();
+  //
+  //	Execute user supplied strategy.
+  //
+  const Vector<int>& userStrategy = getStrategy();
+  int stratLen = userStrategy.length();
+  bool seenZero = false;
+  for (int i = 0; i < stratLen; i++)
+    {
+      int a = userStrategy[i];
+      if(a == 0)
+	{
+	  if (!seenZero)
+	    {
+	      for (int j = 0; j < nrArgs; j++)
+		args[j]->computeTrueSort(context);
+	      seenZero = true;
+	    }
+	  if (memoRewrite(from, subject, context))
+	    return;
+	  if ((i + 1 == stratLen) ? DISC_NET.applyReplace(subject, context) :
+	      DISC_NET.applyReplaceNoOwise(subject, context))
+	    {
+	      subject->reduce(context);
+	      return;
+	    }
+	}
+      else
+	{
+	  --a;  // real arguments start at 0 not 1
+	  if (seenZero)
+	    {
+	      args[a] = args[a]->copyReducible();
+	      //
+	      //	A previous call to discriminationNet.applyReplace() may have
+	      //	computed a true sort for our subject which will be
+	      //	invalidated by the reduce we are about to do.
+	      //
+	      subject->repudiateSortInfo();
+	    }
+	  args[a]->reduce(context);
+	}
+    }
+}
+
+void
+FreeSymbol::computeBaseSort(DagNode* subject)
+{
+  Assert(this == subject->symbol(), "bad symbol");
+  int nrArgs = arity();
+  if (nrArgs == 0)
+    {
+      subject->setSortIndex(traverse(0, 0));  // HACK
+      return;
+    }
+  DagNode* const* args = static_cast<FreeDagNode*>(subject)->argArray();
+
+  int state = 0;
+  for (int i = 0; i < nrArgs; i++)
+    {
+      int t = args[i]->getSortIndex();
+#if 0
+      DebugAdvisory("FreeSymbol::computeBaseSort() arg " << i <<
+		    " is " << args[i] <<
+		    " at " << ((void*) args[i]) <<
+		    " with sort index " << t);
+#endif
+      Assert(t != Sort::SORT_UNKNOWN, "unknown sort encountered for arg " << i
+	     << " subject = " << subject);
+      state = traverse(state, t);
+    }
+  subject->setSortIndex(state);
+}
+
+void
+FreeSymbol::normalizeAndComputeTrueSort(DagNode* subject, RewritingContext& context)
+{
+  Assert(this == subject->symbol(), "bad symbol");
+  int nrArgs = arity();
+  DagNode* const* args = static_cast<FreeDagNode*>(subject)->argArray();
+  //
+  //	First make sure each of our subterms has a sort.
+  //
+  for (int i = 0; i < nrArgs; i++)
+    args[i]->computeTrueSort(context);
+  //
+  //	Now compute subjects true sort.
+  //
+  fastComputeTrueSort(subject, context);
+}
+
+void
+FreeSymbol::stackArguments(DagNode* subject,
+			   Vector<RedexPosition>& stack,
+			   int parentIndex,
+			   bool respectFrozen,
+			   bool respectUnstackable,
+			   bool eagerContext)
+{
+  int nrArgs = arity();
+  if (nrArgs != 0)
+    {
+      const NatSet& frozen = getFrozen();
+      DagNode* const* args = static_cast<FreeDagNode*>(subject)->argArray();
+      for (int i = 0; i < nrArgs; i++)
+	{
+	  DagNode* d = args[i];
+	  if (!(respectFrozen && frozen.contains(i)) && !(respectUnstackable && d->isUnstackable()))
+	    stack.append(RedexPosition(args[i], parentIndex, i, eagerContext & eagerArgument(i)));
+	}
+    }
+}
+
+Term*
+FreeSymbol::termify(DagNode* dagNode)
+{
+  int nrArgs = arity();
+  Vector<Term*> args(nrArgs);
+  DagNode* const* dagNodeArgs = safeCast(FreeDagNode*, dagNode)->argArray();
+  for (int i = 0; i < nrArgs; i++)
+    {
+      DagNode* d = dagNodeArgs[i];
+      args[i] = d->symbol()->termify(d);
+    }
+  return new FreeTerm(this, args);
+}
+
+//
+//	Unification code.
+//
+
+int 
+FreeSymbol::unificationPriority() const
+{
+  //
+  //	We don't expect this to be used by current code since there are no free
+  //	unification subproblems.
+  //
+  return 1;
+}
+
+void
+FreeSymbol::computeGeneralizedSort(const SortBdds& sortBdds,
+				   const Vector<int>& realToBdd,
+				   DagNode* subject,
+				   Vector<Bdd>& generalizedSort)
+{
+  DebugAdvisory("computeGeneralizedSort() called on symbol " << this << " for dag " << subject);
+  int nrArgs = arity();
+  Assert(nrArgs > 0, "we shouldn't be called on constants: " << subject);
+  //
+  //	We need to do this early since it may increase the number of bdd variables and we
+  //	will need those variables for our argMap.
+  //
+  DebugAdvisory("getting sort function for " << this << " " << subject);
+  const Vector<Bdd>& sortFunction = sortBdds.getSortFunction(this);
+
+  DagNode* const* args = safeCast(FreeDagNode*, subject)->argArray();
+  int varCounter = 0;
+  bddPair* argMap = bdd_newpair();
+  for (int i = 0; i < nrArgs; i++)
+    {
+      Vector<Bdd> argGenSort;
+      args[i]->computeGeneralizedSort(sortBdds, realToBdd, argGenSort);
+      int nrBdds = argGenSort.size();
+      for (int j = 0; j < nrBdds; ++j, ++varCounter)
+	bdd_setbddpair(argMap, varCounter, argGenSort[j]);
+    }
+  int nrBdds = sortFunction.size();
+  generalizedSort.resize(nrBdds);
+  for (int i = 0; i < nrBdds; ++i)
+    generalizedSort[i] = bdd_veccompose(sortFunction[i], argMap);
+  bdd_freepair(argMap);
+}
+
+bool
+FreeSymbol::isStable() const
+{
+  return true;
+}
+
+bool
+FreeSymbol::determineGround(DagNode* dagNode)
+{
+  Index nrArgs = arity();
+  DagNode* const* args = safeCastNonNull<FreeDagNode*>(dagNode)->argArray();
+  for (Index i = 0; i < nrArgs; ++i)
+    {
+      if (!(args[i]->determineGround()))
+	return false;  // fail early
+    }
+  dagNode->setGround();
+  return true;
+}
+
+// experimental code for faster sort computations
+void
+FreeSymbol::computeGeneralizedSort2(const SortBdds& sortBdds,
+				    const Vector<int>& realToBdd,
+				    DagNode* subject,
+				    Vector<Bdd>& outputBdds)
+{
+  DebugAdvisory("computeGeneralizedSort2() called on symbol " << this << " for dag " << subject);
+  int nrArgs = arity();
+  Assert(nrArgs > 0, "we shouldn't be called on constants: " << subject);
+  //
+  //	Gather the input BDDs for the generalized sorts of the arguments.
+  //
+  Vector<Bdd> inputBdds;
+  DagNode* const* args = safeCast(FreeDagNode*, subject)->argArray();
+  for (int i = 0; i < nrArgs; i++)
+    args[i]->computeGeneralizedSort2(sortBdds, realToBdd, inputBdds);
+  //
+  //	Append our generalized sort to the output BDDs.
+  //
+  sortBdds.operatorCompose(this, inputBdds, outputBdds);
+}
+
+//
+//	Hash cons code.
+//
+
+DagNode*
+FreeSymbol::makeCanonical(DagNode* original, HashConsSet* hcs)
+{
+  int nrArgs = arity();
+  DagNode* const* p = safeCast(FreeDagNode*, original)->argArray();
+  for (int i = 0; i < nrArgs; i++)
+    {
+      DagNode* d = p[i];
+      DagNode* c = hcs->getCanonical(hcs->insert(d));
+      if (c != d)
+        {
+	  //
+	  //	Detected a non-canonical argument so need to make a new node.
+	  //
+	  FreeDagNode* n = new FreeDagNode(this);
+	  n->copySetRewritingFlags(original);
+	  n->setSortIndex(original->getSortIndex());
+	  DagNode** q = n->argArray();
+	  for (int j = 0; j < i; ++j, ++p, ++q)
+            *q = *p;
+	  *q = c;
+	  ++p;
+	  ++q;
+	  for (int j = i + 1; j < nrArgs;  ++j, ++p, ++q)
+	    *q = hcs->getCanonical(hcs->insert(*p));
+	  return n;
+        }
+    }
+  return original;  // can use the original dag node as the canonical version
+}
+
+DagNode*
+FreeSymbol::makeCanonicalCopy(DagNode* original, HashConsSet* hcs)
+{
+  //
+  //	We have a unreduced node - copy forced.
+  //
+  FreeDagNode* n = new FreeDagNode(this);
+  n->copySetRewritingFlags(original);
+  n->setSortIndex(original->getSortIndex());
+  DagNode** q = n->argArray();
+
+  int nrArgs = arity();
+  DagNode* const* p = safeCast(FreeDagNode*, original)->argArray();
+  for (int i = 0; i < nrArgs; ++i, ++p, ++q)
+    *q = hcs->getCanonical(hcs->insert(*p));
+  return n;
+}
+
+Instruction*
+FreeSymbol::generateFinalInstruction(const Vector<int>& argumentSlots)
+{
+  if (discriminationNet.getSpeed() == FreeRemainder::SLOW)
+    return new FreeGeneralExtorFinal(this, argumentSlots);
+
+  int nrArgs = arity();
+  if (nrArgs > 3)
+    {
+      if (equationFree())
+	return new FreeGeneralCtorFinal(this, argumentSlots);
+      else
+	return new FreeGeneralExtorFinal(this, argumentSlots);
+    }
+  switch (nrArgs)
+    {
+    case 0:
+      return new FreeFastInstruction(this, 0, 0);
+    case 1:
+      return new FreeFastInstruction(this, argumentSlots[0], 0, 0);
+    case 2:
+      return new FreeFastInstruction(this, argumentSlots[0], argumentSlots[1], 0, 0);
+    case 3:
+      return new FreeFastInstruction(this, argumentSlots[0], argumentSlots[1], argumentSlots[2], 0, 0);
+    }
+  return 0;
+}
+
+Instruction*
+FreeSymbol::generateInstruction(int destination, const Vector<int>& argumentSlots, Instruction* nextInstruction)
+{
+  if (discriminationNet.getSpeed() == FreeRemainder::SLOW)
+    return new FreeGeneralExtor(this, argumentSlots, destination, nextInstruction);
+
+  int nrArgs = arity();
+  if (nrArgs > 3)
+    {
+      if (equationFree())
+	return new FreeGeneralCtor(this, argumentSlots, destination, nextInstruction);
+      else
+	return new FreeGeneralExtor(this, argumentSlots, destination, nextInstruction);
+    }
+  switch (nrArgs)
+    {
+    case 0:
+      return new FreeFastInstruction(this, destination, nextInstruction);
+    case 1:
+      return new FreeFastInstruction(this, argumentSlots[0], destination, nextInstruction);
+    case 2:
+      return new FreeFastInstruction(this, argumentSlots[0], argumentSlots[1], destination, nextInstruction);
+    case 3:
+      return new FreeFastInstruction(this, argumentSlots[0], argumentSlots[1], argumentSlots[2], destination, nextInstruction);
+    }
+  return 0;
+}
+
+#ifdef COMPILER
+void
+FreeSymbol::generateCons(CompilationContext& context, int indentLevel) const
+{
+  int nrArgs = arity();
+  //
+  //	Generate code to create new node with our function symbol in it.
+  //
+  context.body() << Indent(indentLevel) << "Node* r = reinterpret_cast<Node*>(g.memNext);\n";
+  context.body() << Indent(indentLevel) << "char* n = g.memNext + sizeof(Node)";
+  if (nrArgs > 0)
+    context.body() << " + " << nrArgs << " * sizeof(Node*)";
+  context.body() << ";\n";
+  context.body() << Indent(indentLevel) << "if (n > g.memEnd)\n";
+  //
+  //	Out of ephemeral space case.
+  //
+  context.body() << Indent(indentLevel + 1) << "{\n";
+  context.body() << Indent(indentLevel + 2) << "g.nrArgs = " << nrArgs << ";\n";
+  for (int i = 0; i < nrArgs; i++)
+    context.body() << Indent(indentLevel + 2) << "g.args[" << i << "] = a" << i << ";\n";
+  context.body() << Indent(indentLevel + 2) << "collectGarbage();\n";
+  context.body() << Indent(indentLevel + 2) << "r = reinterpret_cast<Node*>(g.memNext);\n";
+  context.body() << Indent(indentLevel + 2) << "n = g.memNext + sizeof(Node)";
+  if (nrArgs > 0)
+    context.body() << " + " << nrArgs << " * sizeof(Node*)";
+  context.body() << ";\n";
+
+  for (int i = 0; i < nrArgs; i++)
+    context.body() << Indent(indentLevel + 2) << 'a' << i << " = g.args[" << i << "];\n";
+  context.body() << Indent(indentLevel + 1) << "}\n";
+  //
+  //	Normal case.
+  //
+  context.body() << Indent(indentLevel) << "g.memNext = n;\n";
+  for (int i = 0; i < nrArgs; i++)
+    context.body() << Indent(indentLevel) << "r->args[" << i << "] = a" << i << ";\n";
+  //
+  //	Generate code to fill in symbol and flags and return node.
+  //
+  int index = getIndexWithinModule();
+  context.body() << Indent(indentLevel) << "r->symbol = " << index << ";\n";
+  Sort *s = getSingleNonErrorSort();
+  if (s != 0 && !(canProduceErrorSort()))
+    {
+      context.body() << Indent(indentLevel) << "const Flags c = {" <<
+	s->index() << "};\n";
+      context.body() << Indent(indentLevel) << "r->flags = c;\n";
+    }
+  else
+    {
+      context.body() << Indent(indentLevel) << "r->flags = f" << index << "_0";
+      for (int i = 0; i < nrArgs; i++)
+	context.body() << "[a" << i << "->flags.sortIndex]";
+      context.body() << ";\n";
+    }
+  context.body() << Indent(indentLevel) << "return r;\n";
+}
+
+void
+FreeSymbol::generateCode(CompilationContext& context) const
+{
+  if (!(getSingleNonErrorSort()) || canProduceErrorSort())
+    generateSortDiagram(context);
+  FreePreNet n(true);
+  n.buildNet(const_cast<FreeSymbol*>(this));
+  n.generateCode(context);
+  // n.dump(cerr);
+}
+#endif
+
+#ifdef DUMP
+void
+FreeSymbol::dump(ostream& s, int indentLevel)
+{
+  Symbol::dump(s, indentLevel);
+  discriminationNet.dump(s, indentLevel);
+}
+#endif

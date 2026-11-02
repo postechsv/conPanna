@@ -1,0 +1,218 @@
+fmod FOO1 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat -> Nat .
+  eq f(0) = 1 .
+  eq f(s X:Nat) = s X:Nat * f(X:Nat) [print "X = " X:Nat] .
+endfm
+Warning: <standard input>, line 21 (fmod FOO2): bad token X.
+Warning: <standard input>, line 21 (fmod FOO2): no parse for statement
+eq f (s X) = f (X) * s X [print "X = " X:Nat] .
+fmod FOO3 is
+  including BOOL .
+  protecting SET{@[NAT]} .
+  op f : Set{Nat} -> Set{Nat} .
+  eq f(empty) = empty .
+  eq f((N:Nat, S:Set{Nat})) = s N:Nat, f(S:Set{Nat}) .
+endfm
+fmod FOO4 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat Nat -> Nat .
+  eq f(Y:Nat, Y:Nat) = Y:Nat .
+endfm
+fmod FOO5 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat Bool -> Nat .
+  eq f(Y:Nat, Y:Bool) = Y:Nat .
+endfm
+fmod FOO5a is
+  including BOOL .
+  protecting NAT .
+  op f : Nat Nat -> Nat .
+  var Y : Nat .
+  eq f(Y:NzNat, Y) = Y .
+endfm
+fmod FOO6 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat Nat -> Nat .
+  var Y : Bool .
+  eq f(Y:NzNat, Y:NzNat) = Y:NzNat .
+endfm
+fmod FOO7 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat Nat -> Nat .
+  op Y : -> Nat .
+  eq f(Y, Y:NzNat) = Y .
+endfm
+fmod FOO8 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat Nat -> Nat .
+  op Y : -> Bool .
+  eq f(Y:NzNat, Y:NzNat) = Y:NzNat .
+endfm
+fmod FOO9 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat -> Nat .
+  op [_X_] : Bool Bool -> Bool [prec 0 gather (& &)] .
+  eq f(X:Nat) = X:Nat .
+endfm
+fmod FOO10 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat -> Nat .
+  eq f(if:Nat) = if:Nat .
+  eq f(=>:Nat) = =>:Nat .
+endfm
+fmod FOO11 is
+  including BOOL .
+  protecting NAT .
+  op f : Nat -> Nat .
+  eq f("6":Nat) = "6":Nat .
+  eq f(X::Nat) = X::Nat .
+  eq f(X:Y:Nat) = X:Y:Nat .
+endfm
+fmod FOO12 is
+  including BOOL .
+  sort Foo{Bar{Baz}{X},Y} .
+  op f : Foo{Bar{Baz}{X},Y} -> Foo{Bar{Baz}{X},Y} .
+  eq f(Z:Foo{Bar{Baz}{X},Y}) = Z:Foo{Bar{Baz}{X},Y} .
+endfm
+fmod FOO13 is
+  including BOOL .
+  sort Foo{Bar{Baz}}{Y} .
+  op f : Foo{Bar{Baz}}{Y} -> Foo{Bar{Baz}}{Y} .
+  eq f(Z:Foo{Bar{Baz}}{Y}) = Z:Foo{Bar{Baz}}{Y} .
+endfm
+fmod FOO14 is
+  including BOOL .
+  sort Foo{X} .
+  op f : Foo{X} -> Foo{X} .
+  eq f(X:Foo{X}) = X:Foo{X} .
+  eq f(Foo:Foo{X}) = Foo:Foo{X} .
+endfm
+fmod FOO15 is
+  including BOOL .
+  sorts Foo Foo{Bar} .
+  subsort Foo < Foo{Bar} .
+  op f : Foo -> Foo .
+  eq f(X:Foo) = X:Foo .
+  eq f(Y:Foo{Bar}) = Y:Foo{Bar} .
+endfm
+fmod FOO16 is
+  including BOOL .
+  sorts Foo Foo{Bar} .
+  op f : Foo -> Foo .
+  op _{Bar} : Foo -> Foo [prec 15 gather (E)] .
+  eq f(X:Foo{Bar}) = X:Foo .
+endfm
+fmod FOO17 is
+  including BOOL .
+  sorts Foo Foo{Baz} .
+  op f : Foo -> Foo .
+  op _{Bar} : Foo -> Foo [prec 15 gather (E)] .
+  eq f(X:Foo{Bar}) = X:Foo .
+endfm
+fmod FOO18 is
+  including BOOL .
+  sort Foo .
+  op X:Foo : -> Bool .
+  op f : Foo -> Foo .
+  eq f(X:Foo) = X:Foo .
+endfm
+fmod FOO19 is
+  including BOOL .
+  sorts Foo Bar .
+  op X:Bar : -> Bool .
+  op f : Foo -> Foo .
+  eq f(X:Foo) = if X:Bar then X:Foo else X:Foo fi .
+endfm
+fmod FOO20 is
+  including BOOL .
+  sort Foo .
+  op X:Bar : -> Bool .
+  op f : Foo -> Foo .
+  eq f(X:Foo) = if X:Bar then X:Foo else X:Foo fi .
+endfm
+fmod BAR1 is
+  including BOOL .
+  sort Foo .
+  op f : Foo -> Foo .
+  eq f(X:[Foo]) = X:[Foo] .
+endfm
+fmod BAR2 is
+  including BOOL .
+  protecting SET{@[NAT]} .
+  op f : Set{Nat} -> Set{Nat} .
+  eq f(X:[Set{Nat}]) = X:[Set{Nat}] .
+endfm
+fmod BAR3 is
+  including BOOL .
+  sort Foo .
+  op X: : -> Foo .
+  op f : Foo Foo -> Foo .
+  eq f(X:[Foo], X:) = X:[Foo] .
+endfm
+fmod BAR4 is
+  including BOOL .
+  sort Foo .
+  op X: : -> Foo .
+  op f : Foo Foo -> Foo .
+  eq f(X:Foo, X:) = X:Foo .
+endfm
+fmod BAR5 is
+  including BOOL .
+  sorts Foo Bar .
+  op X:_ : Foo -> Bar [prec 15 gather (E)] .
+  op [Foo] : -> Foo .
+  op f : Foo Bar -> Foo .
+  eq f(X:[Foo], X: [Foo]) = X:[Foo] .
+endfm
+Advisory: redefining module BAR5.
+fmod BAR5 is
+  including BOOL .
+  sorts Foo Bar .
+  op X:_ : Foo -> Bar [prec 15 gather (E)] .
+  op [Foo] : -> Foo .
+  op f : Foo Bar -> Foo .
+  eq f(Y:[Foo], X: [Foo]) = Y:[Foo] .
+endfm
+fmod BAZ1{X :: TRIV} is
+  including BOOL .
+  sorts Foo{X} Bar .
+  op f : [Foo{X}] [Foo{X}] [Bar] [Foo{X}] -> [Foo{X}] .
+  op g : [Foo{X}] [Foo{X}] [Bar] [Foo{X}] -> [Foo{X}] .
+  var A : Foo{X} .
+  eq f(A, B:Foo{X}, C:Bar, D:[Foo{X}]) = g(A, B:Foo{X}, C:Bar, D:[Foo{X}]) [
+    print A B:Foo{X} C:Bar D:[Foo{X}]] .
+endfm
+fmod BAZ2{X :: TRIV} is
+  including BOOL .
+  sorts Foo{X} Bar .
+  op f : [Foo{X}] [Foo{X}] [Bar] [Foo{X}] -> [Foo{X}] .
+  op g : [Foo{X}] [Foo{X}] [Bar] [Foo{X}] -> [Foo{X}] .
+  var A : Foo{X} .
+  eq f(A, B:Foo{X}, C:Bar, D:[Foo{X}]) = g(A, B:Foo{X}, C:Bar, D:[Foo{X}]) [
+    print A B:Foo{X} C:Bar D:[Foo{X}]] .
+endfm
+Warning: <standard input>, line 275 (fmod BAZ3): bad token B.
+Warning: <standard input>, line 275 (fmod BAZ3): no parse for statement
+eq f (A, B, C, D) = g (A, B, C, D) [print A B:Foo {X} C:Bar D: [Foo {X}]] .
+Warning: <standard input>, line 286 (fmod QUUX): didn't expect token N:
+eq f ( N:Nat ) = N <---*HERE*
+Warning: <standard input>, line 286 (fmod QUUX): no parse for statement
+eq f (N:Nat) = N + 1 .
+view V from T to M is
+  sort Elt to Foo .
+  op f(X:Elt) to term g(X:Foo, X:Foo) .
+endv
+==========================================
+reduce in NAT : X:Nat + X:Nat .
+rewrites: 0
+result Nat: X:Nat + X:Nat
+Bye.
