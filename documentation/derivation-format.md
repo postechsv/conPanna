@@ -46,10 +46,13 @@ The checker compares terms modulo ACU (flattening, permutation, identity).
            | (acu name sort identity)                ACU operator with its identity constant
            | (var name sort)
 
-    answer ::= (unifier name (binders var ...) (bind var term) ...)
+    answer ::= (unifier name (binders (var sort) ...) (bind var term) ...)
 
 `answers` is present when the derivation certifies a given set of unifiers; when it is
-absent, the claimed set is the set of leaves of the derivation (§4, `leaf`).
+absent, the claimed set is the set of leaves of the derivation (§4, `leaf`). With
+`answers`, every leaf of the derivation is closed by `cover`: the leaves may be more
+numerous than the answers (some leaves being instances of others), and the claim is that
+every unifier is an instance of an answer.
 
 ## 3. Steps and states
 
@@ -73,21 +76,25 @@ Notation: E = e₀, …, eₙ₋₁; `E∖i` removes eᵢ; `σE` applies a subst
 | `decomp` | `:eq i` | eᵢ is `f(s₁…sₖ) = f(t₁…tₖ)`, f free | ⟨α ; s₁=t₁, …, sₖ=tₖ, E∖i⟩ | same free constructor |
 | `clash` | `:eq i` | eᵢ is `f(…) = g(…)`, f ≠ g free | none (closed) | different free constructors |
 | `occurs` | `:eq i` | eᵢ is `V = t`, V occurs in t, t not V | none (closed) | the occurrence is under a free constructor |
-| `elim` | `:eq i :var V` | eᵢ is `V = t` or `t = V`, V not in t | ⟨[V↦t]∘α ; [V↦t](E∖i)⟩ | V does not occur in t |
+| `elim` | `:eq i :var V` | eᵢ is `V = t` or `t = V`, V not in t | ⟨[V↦t]∘α ; [V↦t](E∖i)⟩ | V does not occur in t; t has V's sort |
+| `ground` | `:eq i` | eᵢ is `s = t`, both ground | none (closed) | s and t differ modulo ACU |
 | `acu-solve` | see §5 | equations eᵢ (i in `:eqs`) with top operator f | one per selection | §5 |
 | `leaf` | | E is empty | none | — (α is a claimed unifier) |
 | `cover` | `:answer name :witness ((var term) ...)` | E is empty | none | α = β∘σ modulo ACU, for the named answer σ and witness β |
 
 `occurs` is restricted to occurrences under a free constructor: inside an ACU operator a
-variable can still be solved (by `acu-solve`).
+variable can still be solved (by `acu-solve`). `elim` respects sorts: a variable of an
+element sort (a strict subsort of an ACU sort) is not bound to a sum; such an equation is
+solved by `acu-solve`, where the variable is an alien.
 
 ## 5. `acu-solve`
 
     (step id acu-solve
        :op f                                   the ACU operator
        :eqs (i ...)                            the equations it solves, all with top f or a variable side
-       :unknowns (u₁ ... uₘ)                   the distinct maximal non-f subterms of those equations
+       :unknowns (u₁ ... uₘ)                   the maximal non-f subterms of those equations
        :bounds (b₁ ... bₘ)                     inf for a variable of sort f, 1 otherwise ("alien")
+       [:cover (c₁ ... cₘ)]                    1 if uⱼ must receive an element; default: 1 exactly for aliens
        :rows ((c₁ ... cₘ) ...)                 one per equation: occurrences left minus right
        :basis ((v₁ ... vₘ) ...)                minimal nonzero solutions of the rows within the bounds
        :selections ((sel (k ...) :fresh (Z ...)) ...)   one per premise, by basis position
@@ -99,14 +106,25 @@ complete. AC operators without identity are out of its scope.
 
 Unknowns with bound `inf` are the variables of sort f ("bag variables"); unknowns with
 bound 1 are aliens: non-variable terms, and variables of a strict subsort of f (single
-elements). Aliens that appear on both sides with equal multiplicity are cancelled before
-the system is formed.
+elements). A bag variable is one unknown. An alien term may label several unknowns: each
+then stands for some of the term's occurrences (a producer with lazy bindings, like
+Maude, keeps w(N) and w(M) apart after binding N to M). An alien may also be cancelled
+when it occurs on both sides. The rows say which unknown takes which occurrences (§5,
+obligation 1).
+
+Two aliens *clash* when both are non-variable terms with different top symbols: no
+element equals both.
+
+`:cover` is reserved for AC operators (no identity), where every bag variable must
+receive an element. Version 1 accepts only its default.
 
 **Selections.** A selection S is a set of basis positions. It is *legal* if every alien
 lies in exactly one selected vector (Σ_{k∈S} v_k[j] = 1 for each alien j), and it
 *includes every alien-free vector*. The legal selections are exactly the maximal ones;
 `:selections` must list all of them, in any order, each with a fresh variable for each of
-its alien-free vectors (in order of their positions).
+its alien-free vectors (in order of their positions). The basis may be empty; then the
+only legal selection, if no alien needs covering, is the empty one, which maps every bag
+variable to the identity.
 
 **Premise of a selection S.** For each selected alien-free vector v_k, its fresh variable
 Z_k stands for a multiset; for each selected vector v_k with aliens A_k = {u_j : v_k[j] = 1},
@@ -119,25 +137,36 @@ and the premise is
 
     ⟨θ_S∘α ; (u = r_k for u ∈ A_k, u ≠ r_k, k ∈ S),  θ_S(E∖eqs)⟩
 
+Version 1 requires that no alien contains a bag variable of the system, so θ_S leaves the
+aliens and these pending equations unchanged. (In the models so far, aliens lie under a
+free constructor of another sort, and hold variables of other operators.)
+
 so aliens selected together become pending equations, solved by the free rules.
 
 **Checker obligations.**
 
-1. *Rows.* Each row is the occurrence count of every unknown, left minus right, in the
-   corresponding equation (modulo ACU flattening).
+1. *Rows.* For each equation and each term t, the coefficients of the unknowns labelled
+   t sum to the occurrences of t, left minus right (modulo ACU flattening); a bag
+   variable labels one unknown; and every unknown with a nonzero coefficient is a
+   summand of its equation.
 2. *Basis vectors are solutions.* Each `v_k` solves every row and respects the bounds.
-3. *Basis completeness.* Every nonzero vector within the bounds that solves every row is
-   componentwise above some basis vector. (A closed Presburger formula.)
+3. *Basis completeness (clash-free).* Every nonzero vector within the bounds that solves
+   every row and has no two clashing aliens is componentwise above some basis vector.
+   (A closed Presburger formula.)
 4. *Selections.* The listed selections are exactly the legal selections.
 
 Obligations 1, 2 and 4 are finite computations; 3 is the only quantified one.
 
 **Why it is sound** (every solution of the conclusion reaches a premise). For a solution
 ρ and each element x, the vector of copies of x in each unknown under ρ solves the rows
-and respects the bounds (an alien is one element). By 3, it decomposes into a sum of
-basis vectors; their alien parts partition the aliens equal to x. Collecting over all x
-gives a legal selection S, with Z_k the multiset of the x whose decomposition uses v_k
-(with multiplicity), and the aliens of each selected alien vector equal to one x.
+(by obligation 1, the rows add up the occurrences correctly however they are shared
+among unknowns) and respects the bounds (an alien is one element). Its aliens all equal
+x, so no two of them clash. By 3, it is above a basis vector; subtracting it leaves a
+smaller clash-free solution, so it decomposes into a sum of basis vectors, whose alien
+parts partition the aliens equal to x. Collecting over all x gives a legal selection S,
+with Z_k the multiset of the x whose decomposition uses v_k (with multiplicity), and the
+aliens of each selected alien vector equal to one x. (The detailed argument, with the
+Lean rule, is in documentation/acu-solve-design.md.)
 
 ## 6. Example
 
@@ -195,11 +224,13 @@ The eight leaves are the eight most general unifiers: four with A and B each in 
 ## 7. Relation to the producer and the checker
 
 - **Producer (Maude).** `MAUDE_UNIFICATION_TRACE` makes Maude print one event per
-  inference step; `producer/tools/trace_tree.py` rebuilds the search tree. Extraction to
-  UDF keeps only the maximal selections (Maude also enumerates non-maximal ones, for
-  order-sorted reasons), undoes Maude's purification of aliens by fresh variables, and
-  numbers the steps. Any other unification tool can produce UDF by reporting the same
-  steps.
+  inference step; `producer/tools/trace_tree.py` rebuilds the search tree, and
+  `producer/tools/trace_to_udf.py` extracts the derivation. It keeps only the maximal
+  selections (Maude also enumerates non-maximal ones, for order-sorted reasons), undoes
+  Maude's purification of aliens by fresh variables, and reads each basis from Maude
+  (Maude leaves out vectors with clashing aliens, hence obligation 3's form). The answers
+  are Maude's filtered unifiers, and each leaf is covered by one. Any other unification
+  tool can produce UDF by reporting the same steps.
 - **Checker (Lean).** Each rule is a theorem proved once; the checker reads the file,
   computes the states, applies the rule theorems as terms, and discharges the obligations
   (§4, §5), by local reflection where they are computations.

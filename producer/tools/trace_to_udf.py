@@ -440,6 +440,9 @@ class Deriv:
         # the acu-solve step, in Maude's column order
         U = [cols[j] for j in keep]
         bounds = [sy.bounds[j] for j in keep]
+        bagvars = {u for u, b in zip(U, bounds) if b == INF}
+        if any(occurs(x, u) for u, b in zip(U, bounds) if b == 1 for x in bagvars):
+            raise ValueError("an alien contains a bag variable of its system (outside UDF 1)")
         mine = [k for k, v in enumerate(vecs) if any(v[j] for j in keep)]
         if any(vecs[k][j] for k in mine for j in dropped):
             raise ValueError("a vector of Maude's basis mixes kept and dropped unknowns")
