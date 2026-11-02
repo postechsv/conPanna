@@ -288,4 +288,110 @@ theorem row_identity {f : Nat} {unk : List Term} {row : List Int} {l r : Term}
 
 end Row
 
+/-! ## Part B: the semantic step -/
+
+namespace Model
+
+variable {M : Model}
+
+theorem msum_summands (hM : M.Lawful) {f : Nat} {A : AcuOp M.T} (hA : M.acu? f = some A)
+    {ρ : M.Valuation} {t : Term} {y : M.T A.bag} (h : M.eval ρ t = some ⟨A.bag, y⟩) :
+    msum A ρ (summands f t) = some (ACU.toMultiset (A.toBag y)) := by
+  obtain ⟨h1, -, h3⟩ := acu_law hM hA
+  have hc : M.contrib A ⟨A.bag, y⟩ = some (A.toBag y) := by
+    simp [contrib, M.get?_ne (s := A.elem) (v := ⟨A.bag, y⟩) (Ne.symm h3)]
+  have single : msum A ρ [t] = some (ACU.toMultiset (A.toBag y)) := by
+    simp [msum, cval, h, hc]
+  cases t with
+  | acu g ts =>
+    simp only [summands]
+    split
+    · next hfg =>
+      simp only [beq_iff_eq] at hfg; subst hfg
+      simp only [eval, hA] at h
+      rw [← sumL_msum]
+      cases hs : M.sumL ρ A ts with
+      | none => simp [hs] at h
+      | some Y =>
+        simp only [hs, Option.map_some, Option.some.injEq, Sigma.mk.inj_iff, heq_eq_eq, true_and] at h
+        simp [← h, h1]
+    · exact single
+  | var x => exact single
+  | app g ts => exact single
+
+theorem msum_mem {A : AcuOp M.T} {ρ : M.Valuation} :
+    ∀ {ts : List Term} {m}, msum A ρ ts = some m → ∀ t ∈ ts, ∃ a, cval A ρ t = some a
+  | [], _, _, t, ht => by simp at ht
+  | s :: ts, m, h, t, ht => by
+    simp only [msum] at h
+    cases hc : cval A ρ s with
+    | none => simp [hc] at h
+    | some a =>
+      cases hs : msum A ρ ts with
+      | none => simp [hc, hs] at h
+      | some b =>
+        rcases List.mem_cons.1 ht with rfl | ht
+        · exact ⟨a, hc⟩
+        · exact msum_mem hs t ht
+
+theorem msum_count {A : AcuOp M.T} [DecidableEq (M.T A.elem)] {ρ : M.Valuation} (e : M.T A.elem) :
+    ∀ {ts : List Term} {m}, msum A ρ ts = some m →
+      (ts.map fun t => (((cval A ρ t).getD 0).count e : Int)).sum = (m.count e : Int)
+  | [], m, h => by simp only [msum, Option.some.injEq] at h; subst h; simp
+  | s :: ts, m, h => by
+    simp only [msum] at h
+    cases hc : cval A ρ s with
+    | none => simp [hc] at h
+    | some a =>
+      cases hs : msum A ρ ts with
+      | none => simp [hc, hs] at h
+      | some b =>
+        simp only [hc, hs, Option.bind_some, Option.map_some, Option.some.injEq] at h
+        subst h
+        simp [hc, msum_count e hs, Multiset.count_add]
+
+theorem msum_replicate {A : AcuOp M.T} {ρ : M.Valuation} {t : Term} {a} (h : cval A ρ t = some a) :
+    ∀ n, msum A ρ (List.replicate n t) = some (n • a)
+  | 0 => by simp [msum]
+  | n + 1 => by
+    simp only [List.replicate_succ, msum, h, msum_replicate h n, Option.bind_some, Option.map_some,
+      succ_nsmul, add_comm]
+
+theorem msum_flatMap {A : AcuOp M.T} {ρ : M.Valuation} (g : Nat → List Term) (W : Nat → Multiset (M.T A.elem)) :
+    ∀ S : List Nat, (∀ k ∈ S, msum A ρ (g k) = some (W k)) →
+      msum A ρ (S.flatMap g) = some ((S.map W).sum)
+  | [], _ => by simp [msum]
+  | k :: S, h => by
+    rw [List.flatMap_cons, msum_append, h k (by simp),
+      msum_flatMap g W S (fun k hk => h k (by simp [hk]))]
+    simp
+
+end Model
+
+theorem mem_powerset : ∀ {T al : List Nat}, T.Sublist al → T ∈ powerset al
+  | _, [], h => by simp [List.sublist_nil.1 h, powerset]
+  | T, k :: al, h => by
+    simp only [powerset, List.mem_append, List.mem_map]
+    cases h with
+    | cons _ h => exact Or.inr (mem_powerset h)
+    | cons₂ _ h => exact Or.inl ⟨_, mem_powerset h, rfl⟩
+
+theorem perm_insN (n : Nat) : ∀ l, (insN n l).Perm (n :: l)
+  | [] => List.Perm.refl _
+  | m :: l => by
+    simp only [insN]
+    split
+    · exact ((perm_insN n l).cons m).trans (List.Perm.swap n m l)
+    · exact List.Perm.refl _
+
+theorem perm_sortN : ∀ l, (sortN l).Perm l
+  | [] => List.Perm.refl _
+  | n :: l => (perm_insN n _).trans ((perm_sortN l).cons n)
+
+theorem natEqL_iff : ∀ {a b : List Nat}, natEqL a b = true ↔ a = b
+  | [], [] => by simp [natEqL]
+  | x :: a, y :: b => by simp [natEqL, natEqL_iff]
+  | [], _ :: _ => by simp [natEqL]
+  | _ :: _, [] => by simp [natEqL]
+
 end Reflect
