@@ -18,6 +18,7 @@ macro_rules
   | `(tactic| udf_eval $[$loc:location]?) => `(tactic| udf_eval [] $[$loc:location]?)
   | `(tactic| udf_eval [$xs,*] $[$loc:location]?) => `(tactic|
       simp only [Eqs, State.start, unifiedBy, List.foldr_cons, List.foldr_nil, and_true,
+        List.take_succ_cons, List.take_zero,
         Basis.theta, Basis.pending, System.Holds, side, sum, copies, Function.comp_apply, id_eq,
         List.ofFn_succ, List.ofFn_zero, List.flatten_cons, List.flatten_nil, List.nil_append,
         List.cons_append, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
@@ -52,6 +53,18 @@ elab "udf_cancel" : tactic => withMainContext do
           toMultiset_copies, Multiset.count_add, Multiset.count_nsmul, Multiset.count_zero,
           smul_eq_mul] at *
         omega)))
+
+/-- Evaluate list bookkeeping in the goal's state: `pick`'s reordering, `acu_solve_take`'s
+`take`/`drop`, the pending equations of a selection. -/
+macro "udf_list" : tactic => `(tactic|
+  try simp only [List.getElem_cons_succ, List.getElem_cons_zero, List.eraseIdx_cons_succ,
+    List.eraseIdx_cons_zero, List.drop_succ_cons, List.drop_zero, List.map_cons, List.map_nil,
+    List.cons_append, List.nil_append, Basis.pending, List.ofFn_succ, List.ofFn_zero,
+    List.flatten_cons, List.flatten_nil, List.singleton_append, Matrix.cons_val,
+    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.cons_val_succ, Fin.reduceNatAdd,
+    Fin.reduceSucc, Fin.isValue, Fin.succ_zero_eq_one, ne_eq, one_ne_zero, not_false_eq_true,
+    not_true_eq_false, and_true, true_and, and_false, false_and, Bool.false_eq_true,
+    ↓reduceIte, Fin.reduceEq, Fin.reduceNe])
 
 /-- Close the goal from `h` after evaluating ACU-SOLVE's data in both, modulo AC. Used for
 the rows of a system (`heq`) and to restate a premise's equations (`restate`). -/

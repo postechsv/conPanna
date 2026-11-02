@@ -313,9 +313,11 @@ partial def subst (σ : String → Option T) : T → T
 
 /-- Restate the pending equations as `E`, in this text's form (`acu_solve` matches them
 literally). -/
-def restate (ctx : Array String) (E : Array (T × T)) (ind : Nat) : G Unit := do
-  let g ← get
-  emit ind s!"refine restate {← lamEqs g ctx E} (fun {pat g ctx} h => by udf_from h) ?_"
+def front (i : Nat) (ind : Nat) : G Unit := do
+  if i != 0 then
+    emit ind s!"refine pick {i} (by decide) ?_"
+    emit ind "udf_list"
+    emit ind "checkpoint"
 
 def injOf (g : Gen) (t : T) : List String :=
   match t with
@@ -343,14 +345,14 @@ partial def step (id : String) (ctx : Array String) (E : Array (T × T)) (ind : 
   match st.rule with
   | "delete" =>
     emit ind s!"-- {id} delete"
-    restate ctx (#[E[eqIdx]!] ++ E.eraseIdx! eqIdx) ind
+    front eqIdx ind
     emit ind "refine delete ?_"
     step st.premises[0]! ctx (E.eraseIdx! eqIdx) ind
   | "decomp" =>
     emit ind s!"-- {id} decomp"
     let (l, r) := E[eqIdx]!
     let rest := E.eraseIdx! eqIdx
-    if eqIdx != 0 then restate ctx (#[E[eqIdx]!] ++ rest) ind
+    front eqIdx ind
     let (.app _ ls, .app _ rs) := (l, r) | throw "udf: decomp of a variable"
     let new := ls.zip rs
     emit ind s!"refine decomp {← lamEqs g ctx new}"
@@ -362,7 +364,7 @@ partial def step (id : String) (ctx : Array String) (E : Array (T × T)) (ind : 
     let (l, r) := E[eqIdx]!
     let t := if l == .var v then r else l
     let rest := E.eraseIdx! eqIdx
-    if eqIdx != 0 then restate ctx (#[E[eqIdx]!] ++ rest) ind
+    front eqIdx ind
     let new := ctx.filter (· != v)
     let tl ← renderAt g (g.sorts.getD v "") t
     let image := tupleOf g ctx (ctx.toList.map fun x => if x == v then tl else leanName g x)
@@ -424,7 +426,12 @@ where
     let solved := eqs.map (E[·]!)
     let others := (List.range E.size).filter (!eqs.contains ·) |>.toArray.map (E[·]!)
     emit ind s!"-- {id} acu-solve"
-    restate ctx (solved ++ others) ind
+    -- bring the solved equations to the front, in order (`pick`, last one first)
+    let mut order := (List.range E.size).toArray
+    for j in eqs.reverse do
+      let p := (order.idxOf? j).getD 0
+      front p ind
+      order := #[j] ++ order.eraseIdx! p
     let col (v : Array Int) (sgn : Int) : String :=
       vec (cols.map fun j => toString (max (0 : Int) (sgn * v[j]!)).toNat)
     let rowsL := rows.toList.map fun r => s!"({col r 1}, {col r (-1)})"
@@ -449,9 +456,8 @@ where
     let selsL := sels.toList.map fun s => selVec (s.items[1]!.items.map (·.nat!))
     let ncols := n + m
     let vnames := (List.range ncols).map (s!"v{·}")
-    emit ind s!"refine acu_solve (Γ := {ctxType g ctx}) (Γr := {ctxType g rest})"
+    emit ind s!"refine acu_solve_take (Γ := {ctxType g ctx}) (Γr := {ctxType g rest}) {eqs.size}"
     emit (ind + 2) s!"(n := {n}) (m := {m}) (k₀ := {k₀}) (k₁ := {k₁})"
-    emit (ind + 2) s!"(es := {← lamEqs g ctx solved}) (E := {← lamEqs g ctx others})"
     emit (ind + 2) s!"\{ V := {lam g ctx (vec (bagVars.map (leanName g)))}, rest := {lam g ctx (tupleTerm (rest.toList.map (leanName g)))},"
     emit (ind + 3) s!"glue := fun r V => {glue} }"
     emit (ind + 2) s!"(fun r => {vec aliens})"
@@ -514,7 +520,7 @@ where
       emit (ind + 3) s!"(fun ({restP}, Z) => {tupleTerm (rest.toList.map (leanName g) ++ (List.range k).map (s!"Z {·}"))})"
       emit (ind + 3) s!"(fun ({restP}, Z) => Prod.ext rfl (funext {cases})) ?_"
       emit (ind + 1) "checkpoint"
-      restate inner E' (ind + 1)
+      emit (ind + 1) "udf_list"
       step premise inner E' (ind + 1)
 
 /-- The proof script of a goal `complete P U` from a UDF derivation. -/

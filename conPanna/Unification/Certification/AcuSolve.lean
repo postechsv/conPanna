@@ -297,4 +297,31 @@ theorem restate {s : State Γ₀ Γ} (E' : List (Γ → Prop)) (h : ∀ ρ, Eqs 
     (next : (⟨s.α, E', s.D⟩ : State Γ₀ Γ) ⊩ unifiers) : s ⊩ unifiers :=
   fun ρ hE hD => next ρ (h ρ hE) hD
 
+/-- Not a rule of the paper: bring the `i`-th pending equation to the front (the rules act on
+the first one). -/
+theorem pick (i : Nat) (hi : i < E.length)
+    (next : (⟨α, E[i] :: E.eraseIdx i, D⟩ : State Γ₀ Γ) ⊩ unifiers) :
+    (⟨α, E, D⟩ : State Γ₀ Γ) ⊩ unifiers :=
+  restate (s := ⟨α, E, D⟩) _ (fun ρ hE => (eqs_iff _ _).2 fun e he => by
+    have hE := (eqs_iff _ _).1 hE
+    rcases List.mem_cons.1 he with rfl | he
+    · exact hE _ (List.getElem_mem hi)
+    · exact hE _ (List.mem_of_mem_eraseIdx he)) next
+
+/-- `acu_solve` on the first `k` pending equations, as they stand: bookkeeping that splits
+the list with `take` and `drop` (`List.take_append_drop`), so that the certificate need not
+restate them. -/
+theorem acu_solve_take {Γr : Type w'} (k : Nat) (sp : Split El Γ Γr n) (a : Γr → Fin m → El)
+    (q : System n m) (B : Basis n m k₀ k₁) (valid : B.Valid q)
+    (heq : ∀ ρ, Eqs (E.take k) ρ → q.Holds (sp.V ρ) (a (sp.rest ρ)))
+    (hclash : ∀ r, ∀ p ∈ q.clash, a r p.1 ≠ a r p.2)
+    (sels : List (Fin k₁ → Bool)) (hsels : ∀ S, B.Legal S = true → S ∈ sels)
+    (next : ∀ S ∈ sels,
+      (⟨α ∘ fun p => sp.glue p.1 (B.theta (a p.1) S p.2),
+        B.pending a S ++ (E.drop k).map (· ∘ fun p => sp.glue p.1 (B.theta (a p.1) S p.2)),
+        D ∘ fun p => sp.glue p.1 (B.theta (a p.1) S p.2)⟩ : State Γ₀ _) ⊩ unifiers) :
+    (⟨α, E, D⟩ : State Γ₀ Γ) ⊩ unifiers := by
+  have h := acu_solve (α := α) (D := D) (E := E.drop k) sp a q B valid heq hclash sels hsels next
+  rwa [List.take_append_drop] at h
+
 end Unification.Certification
