@@ -602,7 +602,8 @@ def extract(model, module, eqs, answers=None, context=(), canonical=False):
     own = answers is None
     covers, survivors, traced, free = filter_events(trace)
     if own:
-        answers = traced
+        # a variable in no equation is left as it is (Lean's decoding binds it so too)
+        answers = [{**{v: v for v in variables}, **a} for a in traced]
     answers = [{x: sig.norm(t) for x, t in a.items()} for a in answers]
     names = [{y.name: (f"#{i + 1}" if canonical else y.name) for i, y in enumerate(sorted(
         {y for t in a.values() for y in walk(t) if isinstance(y, V)}, key=lambda y: y.name))}
