@@ -27,11 +27,6 @@ def Adm (v : Fin unk.length → ℕ) : Prop :=
 /-- Basis vector `k` as a function. -/
 def bf (k : Nat) (j : Fin unk.length) : ℕ := entry basis k j
 
-theorem nth_eq_getElem? {β} : ∀ (l : List β) (n : Nat), nth l n = l[n]?
-  | [], _ => rfl
-  | _ :: _, 0 => rfl
-  | _ :: l, n + 1 => by simp [nth, nth_eq_getElem? l n]
-
 theorem nthD_eq {β} (l : List β) (n : Nat) (d : β) : nthD l n d = l.getD n d := by
   simp [nthD, nth_eq_getElem?, List.getD_eq_getElem?_getD]
 

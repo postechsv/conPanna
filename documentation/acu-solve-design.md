@@ -123,7 +123,7 @@ not needed for soundness.
 
 | Obligation | Kind | Discharge |
 |---|---|---|
-| the equations are the rows (`heq`) | equality modulo AC per equation | the existing AC normalizer (`acu_eq`) |
+| the equations are the rows (`heq`) | equality modulo AC per equation | normalization modulo ACU |
 | (N), (S) | closed arithmetic on numerals | `decide` / `norm_num` |
 | (S3′) | closed Presburger formula, one per system | `omega`, as today's S3 (`acu_basis`). Local reflection (a verified completeness check) is the Phase 5 alternative if this is slow. |
 | clash pairs differ | constructor distinctness | `noConfusion` / `simp` (it was `hdistinct` today) |

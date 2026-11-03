@@ -1,5 +1,4 @@
 import conPanna.Unification.Tactics.maudeAdapter
-import conPanna.Unification.Certification.UdfTactics
 import conPanna.Unification.LaterAx
 
 /-!

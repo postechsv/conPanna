@@ -1,41 +1,19 @@
 import conPanna.Reflect.AcuSound
-import conPanna.Unification.Unification
+import conPanna.Reflect.Bridge
 
 /-!
-Soundness of the checker: `check M c = true` gives `complete P U` for the problem and
-unifiers the data `c` mirrors (documentation/reflection-design.md, §2 and §4).
+Completeness by reflection: `check M c = true` gives `complete P U` for the problem and
+unifiers the certificate's claim mirrors (documentation/reflection-design.md, §2 and §4).
 -/
 
 namespace Reflect
 
 open Term Unification
 
-/-- An answer with its Lean unifier body. -/
-structure LAns (M : Model) (sh : Shp) where
-  bsh : Shp
-  img : List Term
-  body : bsh.Ty M.T → sh.Ty M.T
-
 namespace Model
 
 variable {M : Model}
 
-mutual
-theorem varsBelow_occurs {n x : Nat} : ∀ {t : Term}, varsBelow n t = true → occursT x t = true → x < n
-  | .var y, h1, h2 => by
-    simp only [varsBelow, Nat.blt_eq] at h1; simp only [occursT, beq_iff_eq] at h2; omega
-  | .app _ ts, h1, h2 => varsBelowL_occurs (by simpa [varsBelow] using h1) (by simpa [occursT] using h2)
-  | .acu _ ts, h1, h2 => varsBelowL_occurs (by simpa [varsBelow] using h1) (by simpa [occursT] using h2)
-theorem varsBelowL_occurs {n x : Nat} : ∀ {ts : List Term}, varsBelowL n ts = true →
-    occursTL x ts = true → x < n
-  | [], _, h2 => by simp [occursTL] at h2
-  | t :: ts, h1, h2 => by
-    simp only [varsBelowL, Bool.and_eq_true] at h1
-    simp only [occursTL, Bool.or_eq_true] at h2
-    rcases h2 with h2 | h2
-    · exact varsBelow_occurs h1.1 h2
-    · exact varsBelowL_occurs h1.2 h2
-end
 
 theorem sol_sub {vs : List Nat} {ρ : M.Valuation} {E E' : List Eqn} (h : M.Sol vs ρ E)
     (hsub : ∀ e ∈ E', e ∈ E) : M.Sol vs ρ E' :=
@@ -230,13 +208,7 @@ theorem run_sound (hM : M.Lawful) (c : Cert) (as : List (LAns M c.sh))
 end Model
 
 theorem complete_of_check (M : Model) (hM : M.Lawful) (c : Cert) (hc : check M c = true)
-    (s : Nat) (body : c.sh.Ty M.T → M.T s × M.T s)
-    (hl : ∀ γ, M.eval (M.enc c.sh γ) c.lhs = some ⟨s, (body γ).1⟩)
-    (hr : ∀ γ, M.eval (M.enc c.sh γ) c.rhs = some ⟨s, (body γ).2⟩)
-    (as : List (LAns M c.sh)) (has : c.answers = as.map fun a => ⟨a.bsh, a.img⟩)
-    (hU : AllL (fun a : LAns M c.sh => ∀ x,
-      a.img.map (M.eval (M.enc a.bsh x)) = (M.encL c.sh (a.body x)).map some) as) :
-    complete (Problem.bind body) (as.map fun a => Unifier.bind a.body) := by
+    (b : Bridge M c.toClaim) : complete b.problem b.unifiers := by
   intro γ hγ
   simp only [unifiedBy] at hγ
   simp only [check, Bool.and_eq_true, ge_iff_le, decide_eq_true_eq] at hc
@@ -244,17 +216,16 @@ theorem complete_of_check (M : Model) (hM : M.Lawful) (c : Cert) (hc : check M c
   rw [natEqL_iff] at hsorts
   have hWS : M.WS c.sorts (M.enc c.sh γ) := by
     intro x v hx
-    simp only [Model.enc] at hx
     have hxs : x < c.sh.size := by
       have := (List.getElem?_eq_some_iff.1 hx).1; rwa [Model.encL_length] at this
     have h1 : c.sorts[x]? = (c.sorts.take c.sh.size)[x]? := by rw [List.getElem?_take_of_lt hxs]
-    rw [h1, hsorts, ← Model.encL_sorts c.sh γ, List.getElem?_map, hx, Option.map_some]
-  refine Model.run_sound hM c as has hU _ _ _ _ hrun (M.enc c.sh γ) γ ⟨hWS, fun e he => ?_⟩ ?_
+    rw [h1, hsorts]; exact Model.enc_ws c.sh γ x v hx
+  refine Model.run_sound hM c b.as b.has b.hU _ _ _ _ hrun (M.enc c.sh γ) γ ⟨hWS, fun e he => ?_⟩ ?_
   · simp only [List.mem_singleton] at he
     subst he
-    refine ⟨⟨s, (body γ).1⟩, ?_, ?_⟩
-    · rw [Model.eval_norm hM hWS, hl]
-    · rw [Model.eval_norm hM hWS, hr, hγ]
+    refine ⟨⟨b.s, (b.body γ).1⟩, ?_, ?_⟩
+    · rw [Model.eval_norm hM hWS, b.hl]
+    · rw [Model.eval_norm hM hWS, b.hr, hγ]
   · apply List.ext_getElem
     · simp [Model.encL_length]
     · intro y h1 h2

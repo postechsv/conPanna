@@ -1,25 +1,27 @@
 import conPanna.Reflect.Model
-import conPanna.Reflect.Sound
+import conPanna.Reflect.Completeness
+import conPanna.Reflect.Soundness
 import conPanna.Unification.Tactics.udfParse
 import conPanna.Unification.Tactics.udfStore
 
 /-!
-Certification by reflection (documentation/reflection-design.md): a goal `complete P U` from
-its stored UDF certificate, by one kernel evaluation of the checker (`Reflect/Check.lean`)
-and the theorem `complete_of_check` (`Reflect/Sound.lean`).
+Certification by reflection (documentation/reflection-design.md): the tactics of the
+certification obligations.
 
-1. the model of the goal's sorts (`T.reflect.model`, defined by `#dump_model`, or built here);
-2. the problem and the unifiers as data terms mirroring the Lean terms node for node;
-3. the certificate as data;
-4. one auxiliary lemma `complete P U`, `complete_of_check` applied to `Eq.refl true` for the
-   checker and `rfl` for the mirrors, checked by the kernel alone (as `decide +kernel`).
+* `certify_comp` proves `complete P U` from the UDF certificate narrowing stored for the
+  claim: one kernel evaluation of the checker `check` and `complete_of_check`.
+* `certify_sound` proves `sound P U`: one kernel evaluation of `checkSound` (each unifier
+  substituted into both sides, normalized modulo ACU) and `sound_of_check`.
 
-`udf_certify` tries this first; `udf_reflect` does only this, and reports why it fails.
+Both mirror the goal as data (`mirrorGoal`): the model of its sorts (`T.reflect.model`,
+which `#dump_model` defines), the problem and the unifiers as data terms mirroring the Lean
+terms node for node, and their bridge to the goal by `rfl`. The proof is one auxiliary lemma
+checked by the kernel alone, as `decide +kernel` does.
 -/
 
 namespace Reflect.Tac
 
-open Lean Meta Elab Tactic Unification MaudeAdapter UdfCertify
+open Lean Meta Elab Tactic Unification MaudeAdapter UdfFormat
 
 /-! ## Data terms -/
 
@@ -95,7 +97,7 @@ partial def shp (t : Tbl) : Shape → MetaM Expr
 /-- A UDF term as data; `expect` is the sort expected at its position (a lone element
 where a bag is expected becomes a singleton). -/
 partial def udfTerm (t : Tbl) (vidx : String → MetaM (Nat × Nat)) (expect : Option Nat) :
-    UdfCertify.T → MetaM Expr
+    UdfFormat.T → MetaM Expr
   | .var n => do
     let (i, s) ← vidx n
     wrap s (tvar i)
@@ -188,48 +190,42 @@ def steps (t : Tbl) (udf : Udf) (ids ans : Array String) (vars : Std.HashMap Str
         ← list selTy sels, ← natList ps]
     | r => throwError "reflect: rule {r} not supported"
 
-/-- Prove `target = complete P U` (literal form) by reflection, from UDF text. -/
-
-def prove (st : Dumper.State) (target : Expr) (udfText : String) : TermElabM Expr := do
+/-- The model of state type `root`: `root.reflect.model` if `#dump_model` defined it. -/
+def loadModel (st : Dumper.State) (root : Expr) : TermElabM Tbl := do
   let t ← mkTbl st
-  let base := baseOf target.getAppArgs[0]!
-  let t ← match base with
-    | some b =>
-      if (← getEnv).contains (b ++ `model) then
-        pure { t with model := mkConst (b ++ `model), lawful := mkConst (b ++ `lawful) }
-      else mkModel t
-    | none => mkModel t
+  match baseOf root with
+  | some b =>
+    if (← getEnv).contains (b ++ `model) then
+      return { t with model := mkConst (b ++ `model), lawful := mkConst (b ++ `lawful) }
+    mkModel t
+  | none => mkModel t
+
+/-- A literal goal `complete P U` or `sound P U`, mirrored: the model, the claim (`Claim`),
+its bridge to the goal (`Bridge`), and the sorts of the problem's and binders' variables. -/
+structure Mirrored where
+  t : Tbl
+  claim : Expr
+  bridge : Expr
+  sorts : Array Nat
+  binderSorts : Array (Array Nat)
+
+instance : Inhabited Tbl := ⟨{ st := {} }⟩
+
+instance : Inhabited Mirrored := ⟨⟨default, default, default, #[], #[]⟩⟩
+
+def mirrorGoal (st : Dumper.State) (target : Expr) : TermElabM Mirrored := do
+  let #[α, _, P, U] := target.getAppArgs | throwError "certify: not `complete P U` or `sound P U`"
+  let t ← loadModel st α
   let M := t.model
-  let udf ← IO.ofExcept (Udf.parse udfText)
-  let (ids, ans) ← IO.ofExcept (order udfText)
-  let #[_, _, P, U] := target.getAppArgs | throwError "reflect: not `complete P U`"
   let us ← UdfStore.listElems U
-  let Pw ← whnf P
-  let body := Pw.appArg!
-  openProblem P fun shape xs names lhs rhs => do
+  let body := (← whnf P).appArg!
+  openProblem P fun shape xs _ lhs rhs => do
     let idx (id : FVarId) : Option Nat := xs.findIdx? (· == .fvar id)
-    let _ := names
     let L ← mirror t idx lhs
     let R ← mirror t idx rhs
     let sh ← shp t shape
     let sα := t.sortIdx[← sortOfType st (← inferType lhs)]!
-    -- variables: the problem's, then the certificate's others (fresh bags)
-    let mut vars : Std.HashMap String (Nat × Nat) := {}
-    let mut sorts : Array Nat := #[]
-    for x in xs do
-      let s := t.sortIdx[← sortOfType st (← inferType x)]!
-      vars := vars.insert s!"X{sorts.size + 1}" (sorts.size, s)
-      sorts := sorts.push s
-    for id in ids do
-      let some stp := udf.steps[id]? | throwError "reflect: no step {id}"
-      if stp.rule == "acu-solve" then
-        let some (f, _) := t.acuName[(kw stp.args ":op").get!.atom!]? | throwError "reflect: ACU operator"
-        for sel in (kw stp.args ":selections").get!.items do
-          for z in (kw sel.items ":fresh").get!.items do
-            if !vars.contains z.atom! then
-              vars := vars.insert z.atom! (sorts.size, t.acus[f]!.1)
-              sorts := sorts.push t.acus[f]!.1
-    -- answers
+    let sorts ← xs.mapM fun x => do return t.sortIdx[← sortOfType st (← inferType x)]!
     let lansTy := mkApp2 (mkConst ``Reflect.LAns) M sh
     let mut lans : Array Expr := #[]
     let mut ansE : Array Expr := #[]
@@ -240,67 +236,101 @@ def prove (st : Dumper.State) (target : Expr) (udfText : String) : TermElabM Exp
         let img ← images.mapM (mirror t zidx)
         let bs ← binder.leaves.toArray.mapM fun ty => do return t.sortIdx[← sortOfType st ty]!
         return (← shp t binder, ← list termTy img, bs)
-      let ub := (← whnf u).appArg!
-      lans := lans.push (mkAppN (mkConst ``Reflect.LAns.mk) #[M, sh, bsh, img, ub])
+      lans := lans.push (mkAppN (mkConst ``Reflect.LAns.mk) #[M, sh, bsh, img, (← whnf u).appArg!])
       ansE := ansE.push (mkApp2 (mkConst ``Reflect.Ans.mk) bsh img)
       binderSorts := binderSorts.push bs
-    let stepsE ← steps t udf ids ans vars binderSorts
-    let c := mkAppN (mkConst ``Reflect.Cert.mk) #[sh, ← natList sorts.toList, L, R,
-      ← list (mkConst ``Reflect.Ans) ansE.toList, ← list (mkConst ``Reflect.Rule) stepsE]
-    let asE ← list lansTy lans.toList
+    let claim := mkAppN (mkConst ``Reflect.Claim.mk) #[sh, L, R, ← list (mkConst ``Reflect.Ans) ansE.toList]
+    -- the bridge: every fact by `rfl`, checked by the kernel
     let valTy := mkApp (mkConst ``Option [levelZero]) (mkApp (mkConst ``Reflect.Model.Val) M)
-    let refl (a : Expr) (ty : Expr) := mkApp2 (mkConst ``Eq.refl [levelOne]) ty a
+    let refl (a ty : Expr) := mkApp2 (mkConst ``Eq.refl [levelOne]) ty a
     let ctxTy (sh : Expr) := mkApp2 (mkConst ``Reflect.Shp.Ty) (mkApp (mkConst ``Reflect.Model.T) M) sh
-    let side (e : Expr) := Expr.lam `γ (ctxTy sh)
-      (refl (mkAppN (mkConst ``Reflect.Model.eval) #[M, mkAppN (mkConst ``Reflect.Model.enc) #[M, sh, .bvar 0], e]) valTy) .default
-    let hc ← if (← getOptions).getBool `udf_reflect.timing then do
-        let ty ← mkEq (mkApp2 (mkConst ``Reflect.check) M c) (mkConst ``Bool.true)
-        let t0 ← IO.monoMsNow
-        let n ← withOptions (Elab.async.set · false) do
-          mkAuxLemma [] ty (refl (mkConst ``Bool.true) (mkConst ``Bool))
-        logInfo m!"udf_reflect: check {(← IO.monoMsNow) - t0} ms"
-        pure (mkConst n)
-      else pure (refl (mkConst ``Bool.true) (mkConst ``Bool))
-    let pre := mkAppN (mkConst ``Reflect.complete_of_check) #[M, t.lawful, c, hc, nat sα, body,
-      side L, side R, asE, refl (mkApp (mkConst ``Reflect.Cert.answers) c) (← mkAppM ``List #[mkConst ``Reflect.Ans])]
-    let .forallE _ hUty _ _ ← inferType pre | throwError "reflect: theorem shape"
+    let evalAt (sh e : Expr) := mkAppN (mkConst ``Reflect.Model.eval)
+      #[M, mkAppN (mkConst ``Reflect.Model.enc) #[M, sh, .bvar 0], e]
+    let side (e : Expr) := Expr.lam `γ (ctxTy sh) (refl (evalAt sh e) valTy) .default
+    let asE ← list lansTy lans.toList
+    let has := refl (mkApp (mkConst ``Reflect.Claim.answers) claim) (← mkAppM ``List #[mkConst ``Reflect.Ans])
+    let pre := mkAppN (mkConst ``Reflect.Bridge.mk) #[M, claim, nat sα, body, asE, side L, side R, has]
+    let .forallE _ hUty _ _ ← inferType pre | throwError "certify: bridge shape"
     let Pfun := hUty.appFn!.appArg!
-    -- `AllL P as`, one `rfl` per answer
+    -- `AllL P as`: one `rfl` per answer
     let mut pf := mkConst ``True.intro
     let mut rest : List Expr := []
-    let lansL := lans.toList
-    for i in (List.range lansL.length).reverse do
-      let a := lansL[i]!
+    for a in lans.reverse do
       let tl ← list lansTy rest
       let bsh := a.getAppArgs[2]!
-      let img := a.getAppArgs[3]!
       let hx := Expr.lam `x (ctxTy bsh)
         (refl (mkAppN (mkConst ``List.map [levelZero, levelZero])
-          #[termTy, valTy, mkAppN (mkConst ``Reflect.Model.eval) #[M, mkAppN (mkConst ``Reflect.Model.enc) #[M, bsh, .bvar 0]], img])
+          #[termTy, valTy, mkAppN (mkConst ``Reflect.Model.eval)
+            #[M, mkAppN (mkConst ``Reflect.Model.enc) #[M, bsh, .bvar 0]], a.getAppArgs[3]!])
           (← mkAppM ``List #[valTy])) .default
-      pf := mkAppN (mkConst ``And.intro) #[mkApp Pfun a, mkApp3 (mkConst ``Reflect.AllL [levelZero]) lansTy Pfun tl, hx, pf]
+      pf := mkAppN (mkConst ``And.intro)
+        #[mkApp Pfun a, mkApp3 (mkConst ``Reflect.AllL [levelZero]) lansTy Pfun tl, hx, pf]
       rest := a :: rest
-    return mkApp pre pf
+    return { t, claim, bridge := mkApp pre pf, sorts, binderSorts }
 
-register_option udf_reflect.timing : Bool := {
-  defValue := false
-  descr := "udf_reflect: time the kernel check of the checker and of the rest" }
+/-- Close `goal` (of type `target`, closed) by `value`, checked by the kernel alone. -/
+def closeByKernel (goal : MVarId) (target value : Expr) : TacticM Unit := do
+  let name ← withOptions (Elab.async.set · false) do mkAuxLemma [] target value
+  goal.assign (mkConst name)
+  replaceMainGoal []
 
-/-- Prove a goal `complete P U` by reflection, from the certificate narrowing stored. -/
-elab "udf_reflect" : tactic => withMainContext do
+/-- The Python side of a certificate missing from the store, relative to the project root. -/
+def tool : System.FilePath := "producer/tools/udf.py"
+
+/-- Prove `complete P U`: the kernel evaluates the checker on the UDF certificate narrowing
+stored for this claim (or, if none, one the instrumented Maude produces now), and
+`complete_of_check` concludes. -/
+elab "certify_comp" : tactic => withMainContext do
   let goal ← getMainGoal
   let ty ← zetaReduce (← instantiateMVars (← goal.getType))
   unless ty.isAppOfArity ``Unification.complete 4 do
-    throwError "udf_reflect: the goal is not `complete P U`"
+    throwError "certify_comp: the goal is not `complete P U`"
   let st ← Dumper.model ty.getAppArgs[0]!
-  let (target, _, key) ← UdfStore.claim st ty
-  let some udfText ← UdfStore.load? key | throwError "udf_reflect: no stored certificate"
-  let value ← prove st target udfText
-  let t0 ← IO.monoMsNow
-  let name ← withOptions (Elab.async.set · false) do mkAuxLemma [] target value
-  if (← getOptions).getBool `udf_reflect.timing then
-    logInfo m!"udf_reflect: rest {(← IO.monoMsNow) - t0} ms"
-  goal.assign (mkConst name)
-  replaceMainGoal []
+  Dumper.write st
+  let (target, request, key) ← UdfStore.claim st ty
+  let udfText ← match ← UdfStore.load? key with
+    | some text => pure text
+    | none => do
+      logInfo m!"certify_comp: no stored certificate for this claim; running Maude"
+      let reply ← callTool tool request
+      IO.ofExcept (reply.getObjValAs? String "udf")
+  let m ← mirrorGoal st target
+  let t := m.t
+  let udf ← IO.ofExcept (Udf.parse udfText)
+  let (ids, ans) ← IO.ofExcept (order udfText)
+  -- variables: the problem's, then the certificate's fresh bags
+  let mut vars : Std.HashMap String (Nat × Nat) := {}
+  let mut sorts := m.sorts
+  for i in [0:sorts.size] do vars := vars.insert s!"X{i + 1}" (i, sorts[i]!)
+  for id in ids do
+    let some stp := udf.steps[id]? | throwError "certify_comp: no step {id}"
+    if stp.rule == "acu-solve" then
+      let some (f, _) := t.acuName[(kw stp.args ":op").get!.atom!]?
+        | throwError "certify_comp: unknown ACU operator"
+      for sel in (kw stp.args ":selections").get!.items do
+        for z in (kw sel.items ":fresh").get!.items do
+          if !vars.contains z.atom! then
+            vars := vars.insert z.atom! (sorts.size, t.acus[f]!.1)
+            sorts := sorts.push t.acus[f]!.1
+  let stepsE ← steps t udf ids ans vars m.binderSorts
+  let c := mkAppN (mkConst ``Reflect.Cert.mk)
+    #[m.claim, ← natList sorts.toList, ← list (mkConst ``Reflect.Rule) stepsE]
+  let hc := mkApp2 (mkConst ``Eq.refl [levelOne]) (mkConst ``Bool) (mkConst ``Bool.true)
+  closeByKernel goal target
+    (mkAppN (mkConst ``Reflect.complete_of_check) #[t.model, t.lawful, c, hc, m.bridge])
+
+/-- Prove `sound P U`: the kernel checks that each unifier, substituted into both sides,
+gives terms equal modulo ACU, and `sound_of_check` concludes. -/
+elab "certify_sound" : tactic => withMainContext do
+  let goal ← getMainGoal
+  let ty ← zetaReduce (← instantiateMVars (← goal.getType))
+  unless ty.isAppOfArity ``Unification.sound 4 do
+    throwError "certify_sound: the goal is not `sound P U`"
+  let st ← Dumper.model ty.getAppArgs[0]!
+  let (target, _) ← UdfStore.prepare st ty
+  let m ← mirrorGoal st target
+  let hc := mkApp2 (mkConst ``Eq.refl [levelOne]) (mkConst ``Bool) (mkConst ``Bool.true)
+  closeByKernel goal target
+    (mkAppN (mkConst ``Reflect.sound_of_check) #[m.t.model, m.t.lawful, m.claim, hc, m.bridge])
 
 end Reflect.Tac

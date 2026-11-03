@@ -5,7 +5,7 @@ Parsing UDF derivations (documentation/derivation-format.md): s-expressions, ter
 derivation's signature, problem, answers and steps.
 -/
 
-namespace UdfCertify
+namespace UdfFormat
 
 open Lean
 
@@ -142,4 +142,4 @@ def Udf.parse (text : String) : Except String Udf := do
     | _ => pure ()
   return { sig, problem, answers, steps, root }
 
-end UdfCertify
+end UdfFormat

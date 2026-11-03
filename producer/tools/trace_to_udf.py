@@ -586,7 +586,7 @@ def extract(model, module, eqs, answers=None, context=(), canonical=False):
     `context` adds variables that occur in no equation (a leaf keeps them as they are).
     `canonical`: each answer's variables are named #1, #2, ... in the order of their names,
     as Lean's decoding of the answers binds them (maudeUnify.lean), so that the derivation
-    is stated in the obligation's own names (udfCertify.lean)."""
+    is stated in the obligation's own names (Reflect/Tactic.lean)."""
     # one Maude run: the module, and the filtered unification with its trace
     trace, nr, out = trace_tree.run(model, module, eqs, filtered=True, before=Sig.command(module))
     sig = Sig(model, module, out)

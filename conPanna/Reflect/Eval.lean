@@ -12,6 +12,11 @@ universe u
 
 open Term
 
+theorem nth_eq_getElem? {β} : ∀ (l : List β) (n : Nat), nth l n = l[n]?
+  | [], _ => rfl
+  | _ :: _, 0 => rfl
+  | _ :: l, n + 1 => by simp [nth, nth_eq_getElem? l n]
+
 /-! ## Boolean equality -/
 
 mutual

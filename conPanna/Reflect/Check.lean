@@ -72,14 +72,18 @@ inductive Rule where
   | acu (f i : Nat) (unk : List Term) (alien : List Bool) (row : List Int)
       (basis : List (List Nat)) (sels : List (List Nat × List Nat)) (ps : List Nat)
 
-structure Cert where
-  /-- The problem's context: variables `0 … sh.size - 1`. -/
+/-- A claim about the problem `lhs = rhs` over the context `sh` (variables
+`0 … sh.size - 1`) and its answers: their completeness, or their soundness. -/
+structure Claim where
   sh : Shp
-  /-- The declared sort of every variable (problem variables first). -/
-  sorts : List Nat
   lhs : Term
   rhs : Term
   answers : List Ans
+
+/-- A completeness certificate: a UDF derivation for a claim. -/
+structure Cert extends Claim where
+  /-- The declared sort of every variable (the context's first, then fresh ones). -/
+  sorts : List Nat
   steps : List Rule
 
 /-! ## Helpers -/
@@ -336,10 +340,16 @@ def run (c : Cert) : Nat → Nat → List Term → List Eqn → Bool
       | none => false
     | none => false
 
-/-- The derivation checks, from the problem's initial state. -/
+/-- Completeness: the derivation checks, from the problem's initial state. -/
 def check (c : Cert) : Bool :=
   natEqL (c.sorts.take c.sh.size) c.sh.sorts && c.sorts.length ≥ c.sh.size &&
   run M c (c.steps.length + 1) 0 ((List.range c.sh.size).map var)
     [(norm M c.sorts c.lhs, norm M c.sorts c.rhs)]
+
+/-- Soundness: each answer, substituted into both sides, gives terms equal modulo ACU. -/
+def checkSound (c : Claim) : Bool :=
+  varsBelow c.sh.size c.lhs && varsBelow c.sh.size c.rhs &&
+  c.answers.all fun A => A.img.length == c.sh.size &&
+    beq (norm M A.sh.sorts (subst (nth A.img) c.lhs)) (norm M A.sh.sorts (subst (nth A.img) c.rhs))
 
 end Reflect

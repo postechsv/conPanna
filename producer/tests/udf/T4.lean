@@ -1,4 +1,4 @@
-import conPanna.Unification.Tactics.udfCertify
+import conPanna.Reflect.Tactic
 
 /-! `X + {w(N)} = Y + {w(M)}`: the aliens are merged (N = M) or kept apart. -/
 
@@ -20,6 +20,6 @@ def answers : UnifierSet (Bag × Bag × Nat × Nat) :=
 
 
 theorem complete : Unification.complete problem answers := by
-  udf_certify
+  certify_comp
 
 end UdfTest.T4

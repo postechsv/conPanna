@@ -1,14 +1,14 @@
 import examples.German.proof
-import conPanna.Unification.Tactics.udfCertify
+import conPanna.Reflect.Tactic
 
 /-!
 German's protocol: the certification obligations of the per-rule invariance proofs (`*_inv`), as `#obligations` prints them.
-Completeness: the certificate narrowing stored for the claim, replayed through the proved
-rules (`udf_certify`). Soundness: each unifier, instantiated, solves the problem modulo ACU.
+Completeness: the certificate narrowing stored for the claim, checked by reflection
+(`certify_comp`). Soundness: each unifier, substituted into both sides, gives terms equal
+modulo ACU, checked by reflection (`certify_sound`).
 -/
 
 set_option linter.style.longLine false
-set_option linter.unusedSimpArgs false
 
 open Expresso Unification Narrowing
 
@@ -26,7 +26,7 @@ theorem German.sendReqS_inv.obligation_1 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqS_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendReqS German.freeP)
@@ -42,17 +42,7 @@ theorem German.sendReqS_inv.obligation_2 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqS, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendReqS German.ownE)
@@ -71,7 +61,7 @@ theorem German.sendReqS_inv.obligation_3 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqS_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendReqS German.ownE)
@@ -90,17 +80,7 @@ theorem German.sendReqS_inv.obligation_4 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqS, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendReqS German.ownG)
@@ -124,7 +104,7 @@ theorem German.sendReqS_inv.obligation_5 :
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2.1, exGntd := true, shr := {x.2.1}, inv := x.2.2.2.2 }} +
                 x.1),
             x.2.2.1, x.2.2.2.1, x.2.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqS_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendReqS German.ownG)
@@ -148,17 +128,7 @@ theorem German.sendReqS_inv.obligation_6 :
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2.1, exGntd := true, shr := {x.2.1}, inv := x.2.2.2.2 }} +
                 x.1),
             x.2.2.1, x.2.2.2.1, x.2.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqS, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendReqS German.ownInv)
@@ -176,7 +146,7 @@ theorem German.sendReqS_inv.obligation_7 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqS_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendReqS German.ownInv)
@@ -194,17 +164,7 @@ theorem German.sendReqS_inv.obligation_8 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqS, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendReqS German.ownAck)
@@ -226,7 +186,7 @@ theorem German.sendReqS_inv.obligation_9 :
           ((x.2.1, German.Gnt.noGnt, German.Ack.invAck,
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2, exGntd := true, shr := {x.2.1}, inv := ∅ }} + x.1),
             x.2.2.1, x.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqS_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendReqS German.ownAck)
@@ -248,17 +208,7 @@ theorem German.sendReqS_inv.obligation_10 :
           ((x.2.1, German.Gnt.noGnt, German.Ack.invAck,
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2, exGntd := true, shr := {x.2.1}, inv := ∅ }} + x.1),
             x.2.2.1, x.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqS, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqEI_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendReqEI German.freeP)
@@ -274,7 +224,7 @@ theorem German.sendReqEI_inv.obligation_1 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqEI_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendReqEI German.freeP)
@@ -290,17 +240,7 @@ theorem German.sendReqEI_inv.obligation_2 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqEI, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqEI_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendReqEI German.ownE)
@@ -319,7 +259,7 @@ theorem German.sendReqEI_inv.obligation_3 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqEI_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendReqEI German.ownE)
@@ -338,17 +278,7 @@ theorem German.sendReqEI_inv.obligation_4 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqEI, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqEI_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendReqEI German.ownG)
@@ -372,7 +302,7 @@ theorem German.sendReqEI_inv.obligation_5 :
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2.1, exGntd := true, shr := {x.2.1}, inv := x.2.2.2.2 }} +
                 x.1),
             x.2.2.1, x.2.2.2.1, x.2.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqEI_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendReqEI German.ownG)
@@ -396,17 +326,7 @@ theorem German.sendReqEI_inv.obligation_6 :
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2.1, exGntd := true, shr := {x.2.1}, inv := x.2.2.2.2 }} +
                 x.1),
             x.2.2.1, x.2.2.2.1, x.2.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqEI, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqEI_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendReqEI German.ownInv)
@@ -424,7 +344,7 @@ theorem German.sendReqEI_inv.obligation_7 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqEI_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendReqEI German.ownInv)
@@ -442,17 +362,7 @@ theorem German.sendReqEI_inv.obligation_8 :
                   { id := x.1, state := German.CacheState.invalid, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqEI, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqEI_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendReqEI German.ownAck)
@@ -474,7 +384,7 @@ theorem German.sendReqEI_inv.obligation_9 :
           ((x.2.1, German.Gnt.noGnt, German.Ack.invAck,
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2, exGntd := true, shr := {x.2.1}, inv := ∅ }} + x.1),
             x.2.2.1, x.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqEI_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendReqEI German.ownAck)
@@ -496,17 +406,7 @@ theorem German.sendReqEI_inv.obligation_10 :
           ((x.2.1, German.Gnt.noGnt, German.Ack.invAck,
               {German.Item.dir { cmd := x.2.2.1, ptr := x.2.2.2, exGntd := true, shr := {x.2.1}, inv := ∅ }} + x.1),
             x.2.2.1, x.2.2.2, x.2.1, German.Req.noReq, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqEI, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqES_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendReqES German.freeP)
@@ -522,7 +422,7 @@ theorem German.sendReqES_inv.obligation_1 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqES_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendReqES German.freeP)
@@ -538,17 +438,7 @@ theorem German.sendReqES_inv.obligation_2 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqES, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqES_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendReqES German.ownE)
@@ -567,7 +457,7 @@ theorem German.sendReqES_inv.obligation_3 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqES_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendReqES German.ownE)
@@ -586,17 +476,7 @@ theorem German.sendReqES_inv.obligation_4 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqES, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqES_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendReqES German.ownG)
@@ -615,7 +495,7 @@ theorem German.sendReqES_inv.obligation_5 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqES_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendReqES German.ownG)
@@ -634,17 +514,7 @@ theorem German.sendReqES_inv.obligation_6 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqES, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqES_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendReqES German.ownInv)
@@ -662,7 +532,7 @@ theorem German.sendReqES_inv.obligation_7 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqES_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendReqES German.ownInv)
@@ -680,17 +550,7 @@ theorem German.sendReqES_inv.obligation_8 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqES, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendReqES_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendReqES German.ownAck)
@@ -708,7 +568,7 @@ theorem German.sendReqES_inv.obligation_9 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendReqES_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendReqES German.ownAck)
@@ -726,17 +586,7 @@ theorem German.sendReqES_inv.obligation_10 :
                   { id := x.1, state := German.CacheState.shared, ch1 := German.Req.noReq, ch2 := x.2.1,
                     ch3 := x.2.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendReqES, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.recvReqS German.freeP)
@@ -771,7 +621,7 @@ theorem German.recvReqS_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := German.Req.reqS, ch2 := x.2.2.2.1, ch3 := x.2.2.2.2.1 }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqS_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.recvReqS German.freeP)
@@ -806,17 +656,7 @@ theorem German.recvReqS_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := German.Req.reqS, ch2 := x.2.2.2.1, ch3 := x.2.2.2.2.1 }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqS, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.recvReqS German.ownE)
@@ -874,7 +714,7 @@ theorem German.recvReqS_inv.obligation_3 :
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.exclusive, German.Gnt.noGnt, German.Ack.noAck,
               x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqS_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.recvReqS German.ownE)
@@ -932,17 +772,7 @@ theorem German.recvReqS_inv.obligation_4 :
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.exclusive, German.Gnt.noGnt, German.Ack.noAck,
               x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqS, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.recvReqS German.ownG)
@@ -998,7 +828,7 @@ theorem German.recvReqS_inv.obligation_5 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ × German.Oids) =>
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.invalid, German.Gnt.gntE, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqS_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.recvReqS German.ownG)
@@ -1054,17 +884,7 @@ theorem German.recvReqS_inv.obligation_6 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ × German.Oids) =>
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.invalid, German.Gnt.gntE, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqS, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.recvReqS German.ownInv)
@@ -1117,7 +937,7 @@ theorem German.recvReqS_inv.obligation_7 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.exclusive, German.Gnt.inv, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqS_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.recvReqS German.ownInv)
@@ -1170,17 +990,7 @@ theorem German.recvReqS_inv.obligation_8 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.exclusive, German.Gnt.inv, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqS, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.recvReqS German.ownAck)
@@ -1233,7 +1043,7 @@ theorem German.recvReqS_inv.obligation_9 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.invalid, German.Gnt.noGnt, German.Ack.invAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqS_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.recvReqS German.ownAck)
@@ -1286,17 +1096,7 @@ theorem German.recvReqS_inv.obligation_10 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.invalid, German.Gnt.noGnt, German.Ack.invAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqS, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqS, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqE_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.recvReqE German.freeP)
@@ -1331,7 +1131,7 @@ theorem German.recvReqE_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := German.Req.reqE, ch2 := x.2.2.2.1, ch3 := x.2.2.2.2.1 }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqE_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.recvReqE German.freeP)
@@ -1366,17 +1166,7 @@ theorem German.recvReqE_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := German.Req.reqE, ch2 := x.2.2.2.1, ch3 := x.2.2.2.2.1 }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqE, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.recvReqE German.ownE)
@@ -1434,7 +1224,7 @@ theorem German.recvReqE_inv.obligation_3 :
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.exclusive, German.Gnt.noGnt, German.Ack.noAck,
               x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqE_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.recvReqE German.ownE)
@@ -1492,17 +1282,7 @@ theorem German.recvReqE_inv.obligation_4 :
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.exclusive, German.Gnt.noGnt, German.Ack.noAck,
               x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqE, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqE_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.recvReqE German.ownG)
@@ -1558,7 +1338,7 @@ theorem German.recvReqE_inv.obligation_5 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ × German.Oids) =>
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.invalid, German.Gnt.gntE, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqE_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.recvReqE German.ownG)
@@ -1614,17 +1394,7 @@ theorem German.recvReqE_inv.obligation_6 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ × German.Oids) =>
           ((x.2.2.1, true, {x.2.1}, x.2.2.2, x.2.1, German.CacheState.invalid, German.Gnt.gntE, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2.1, x.2.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqE, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqE_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.recvReqE German.ownInv)
@@ -1677,7 +1447,7 @@ theorem German.recvReqE_inv.obligation_7 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.exclusive, German.Gnt.inv, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqE_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.recvReqE German.ownInv)
@@ -1730,17 +1500,7 @@ theorem German.recvReqE_inv.obligation_8 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.exclusive, German.Gnt.inv, German.Ack.noAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqE, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvReqE_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.recvReqE German.ownAck)
@@ -1793,7 +1553,7 @@ theorem German.recvReqE_inv.obligation_9 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.invalid, German.Gnt.noGnt, German.Ack.invAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvReqE_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.recvReqE German.ownAck)
@@ -1846,17 +1606,7 @@ theorem German.recvReqE_inv.obligation_10 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × ℕ) =>
           ((x.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.invalid, German.Gnt.noGnt, German.Ack.invAck, x.1),
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqE, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvReqE, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvE_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendInvE German.freeP)
@@ -1891,7 +1641,7 @@ theorem German.sendInvE_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.2.1 }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvE_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendInvE German.freeP)
@@ -1926,17 +1676,7 @@ theorem German.sendInvE_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.2.1 }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvE, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendInvE German.ownE)
@@ -1995,7 +1735,7 @@ theorem German.sendInvE_inv.obligation_3 :
         Unification.Unifier.bind fun (x : German.Oids × German.Items × ℕ × German.Req × ℕ) =>
           ((x.2.2.2.2, true, {x.2.2.1}, x.2.2.1, x.1, German.CacheState.exclusive, x.2.2.2.1, German.Ack.noAck, x.2.1),
             German.Cmd.cmdE, x.2.2.2.2, x.1 + {x.2.2.1}, x.2.2.1, x.2.2.2.1, x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvE_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendInvE German.ownE)
@@ -2054,17 +1794,7 @@ theorem German.sendInvE_inv.obligation_4 :
         Unification.Unifier.bind fun (x : German.Oids × German.Items × ℕ × German.Req × ℕ) =>
           ((x.2.2.2.2, true, {x.2.2.1}, x.2.2.1, x.1, German.CacheState.exclusive, x.2.2.2.1, German.Ack.noAck, x.2.1),
             German.Cmd.cmdE, x.2.2.2.2, x.1 + {x.2.2.1}, x.2.2.1, x.2.2.2.1, x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvE, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvE_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendInvE German.ownG)
@@ -2106,7 +1836,7 @@ theorem German.sendInvE_inv.obligation_5 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvE_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendInvE German.ownG)
@@ -2148,17 +1878,7 @@ theorem German.sendInvE_inv.obligation_6 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvE, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvE_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendInvE German.ownInv)
@@ -2188,7 +1908,7 @@ theorem German.sendInvE_inv.obligation_7 :
                     { cmd := German.Cmd.cmdE, ptr := x.2.2.2.2.2.2.2.2.1, exGntd := x.2.2.2.2.2.2.2.2.2.1,
                       shr := x.2.2.2.2.2.2.2.2.2.2.1, inv := {x.1} + x.2.2.2.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvE_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendInvE German.ownInv)
@@ -2218,17 +1938,7 @@ theorem German.sendInvE_inv.obligation_8 :
                     { cmd := German.Cmd.cmdE, ptr := x.2.2.2.2.2.2.2.2.1, exGntd := x.2.2.2.2.2.2.2.2.2.1,
                       shr := x.2.2.2.2.2.2.2.2.2.2.1, inv := {x.1} + x.2.2.2.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvE, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvE_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendInvE German.ownAck)
@@ -2270,7 +1980,7 @@ theorem German.sendInvE_inv.obligation_9 :
                   { cmd := German.Cmd.cmdE, ptr := x.1, exGntd := x.2.1, shr := x.2.2.1,
                     inv := x.2.2.2.1 + {x.2.2.2.2.1} }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvE_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendInvE German.ownAck)
@@ -2312,17 +2022,7 @@ theorem German.sendInvE_inv.obligation_10 :
                   { cmd := German.Cmd.cmdE, ptr := x.1, exGntd := x.2.1, shr := x.2.2.1,
                     inv := x.2.2.2.1 + {x.2.2.2.2.1} }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvE, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendInvS German.freeP)
@@ -2348,7 +2048,7 @@ theorem German.sendInvS_inv.obligation_1 :
                     { cmd := German.Cmd.cmdS, ptr := x.2.2.2.2.2.2.2.1, exGntd := true, shr := x.2.2.2.2.2.2.2.2.1,
                       inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvS_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendInvS German.freeP)
@@ -2374,17 +2074,7 @@ theorem German.sendInvS_inv.obligation_2 :
                     { cmd := German.Cmd.cmdS, ptr := x.2.2.2.2.2.2.2.1, exGntd := true, shr := x.2.2.2.2.2.2.2.2.1,
                       inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvS, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendInvS German.ownE)
@@ -2439,7 +2129,7 @@ theorem German.sendInvS_inv.obligation_3 :
         Unification.Unifier.bind fun (x : German.Oids × German.Items × ℕ × German.Req × ℕ) =>
           ((x.2.2.2.2, {x.2.2.1}, x.2.2.1, x.1, German.CacheState.exclusive, x.2.2.2.1, German.Ack.noAck, x.2.1),
             German.Cmd.cmdS, x.2.2.2.2, x.1 + {x.2.2.1}, x.2.2.1, x.2.2.2.1, x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvS_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendInvS German.ownE)
@@ -2494,17 +2184,7 @@ theorem German.sendInvS_inv.obligation_4 :
         Unification.Unifier.bind fun (x : German.Oids × German.Items × ℕ × German.Req × ℕ) =>
           ((x.2.2.2.2, {x.2.2.1}, x.2.2.1, x.1, German.CacheState.exclusive, x.2.2.2.1, German.Ack.noAck, x.2.1),
             German.Cmd.cmdS, x.2.2.2.2, x.1 + {x.2.2.1}, x.2.2.1, x.2.2.2.1, x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvS, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendInvS German.ownG)
@@ -2545,7 +2225,7 @@ theorem German.sendInvS_inv.obligation_5 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvS_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendInvS German.ownG)
@@ -2586,17 +2266,7 @@ theorem German.sendInvS_inv.obligation_6 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvS, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendInvS German.ownInv)
@@ -2624,7 +2294,7 @@ theorem German.sendInvS_inv.obligation_7 :
                     { cmd := German.Cmd.cmdS, ptr := x.2.2.2.2.2.2.2.1, exGntd := true, shr := x.2.2.2.2.2.2.2.2.1,
                       inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvS_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendInvS German.ownInv)
@@ -2652,17 +2322,7 @@ theorem German.sendInvS_inv.obligation_8 :
                     { cmd := German.Cmd.cmdS, ptr := x.2.2.2.2.2.2.2.1, exGntd := true, shr := x.2.2.2.2.2.2.2.2.1,
                       inv := {x.1} + x.2.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvS, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendInvS German.ownAck)
@@ -2700,7 +2360,7 @@ theorem German.sendInvS_inv.obligation_9 :
             {German.Item.dir
                   { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := true, shr := x.2.1, inv := x.2.2.1 + {x.2.2.2.1} }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvS_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendInvS German.ownAck)
@@ -2738,17 +2398,7 @@ theorem German.sendInvS_inv.obligation_10 :
             {German.Item.dir
                   { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := true, shr := x.2.1, inv := x.2.2.1 + {x.2.2.2.1} }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvS, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvAck_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendInvAck German.freeP)
@@ -2763,7 +2413,7 @@ theorem German.sendInvAck_inv.obligation_1 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvAck_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendInvAck German.freeP)
@@ -2778,17 +2428,7 @@ theorem German.sendInvAck_inv.obligation_2 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvAck, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvAck_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendInvAck German.ownE)
@@ -2806,7 +2446,7 @@ theorem German.sendInvAck_inv.obligation_3 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvAck_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendInvAck German.ownE)
@@ -2824,17 +2464,7 @@ theorem German.sendInvAck_inv.obligation_4 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvAck, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvAck_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendInvAck German.ownG)
@@ -2852,7 +2482,7 @@ theorem German.sendInvAck_inv.obligation_5 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvAck_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendInvAck German.ownG)
@@ -2870,17 +2500,7 @@ theorem German.sendInvAck_inv.obligation_6 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvAck, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvAck_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendInvAck German.ownInv)
@@ -2901,7 +2521,7 @@ theorem German.sendInvAck_inv.obligation_7 :
           ((x.2.1, German.CacheState.exclusive, x.2.2.1,
               {German.Item.dir { cmd := x.2.2.2.1, ptr := x.2.2.2.2, exGntd := true, shr := {x.2.1}, inv := ∅ }} + x.1),
             x.2.2.2.1, x.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvAck_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendInvAck German.ownInv)
@@ -2922,17 +2542,7 @@ theorem German.sendInvAck_inv.obligation_8 :
           ((x.2.1, German.CacheState.exclusive, x.2.2.1,
               {German.Item.dir { cmd := x.2.2.2.1, ptr := x.2.2.2.2, exGntd := true, shr := {x.2.1}, inv := ∅ }} + x.1),
             x.2.2.2.1, x.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvAck, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendInvAck_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendInvAck German.ownAck)
@@ -2949,7 +2559,7 @@ theorem German.sendInvAck_inv.obligation_9 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendInvAck_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendInvAck German.ownAck)
@@ -2966,17 +2576,7 @@ theorem German.sendInvAck_inv.obligation_10 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.inv, ch3 := German.Ack.noAck }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendInvAck, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.recvInvAckS German.freeP)
@@ -3015,7 +2615,7 @@ theorem German.recvInvAckS_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckS_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.recvInvAckS German.freeP)
@@ -3054,17 +2654,7 @@ theorem German.recvInvAckS_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckS, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.recvInvAckS German.ownE)
@@ -3112,7 +2702,7 @@ theorem German.recvInvAckS_inv.obligation_3 :
             {German.Item.cache
                   { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckS_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.recvInvAckS German.ownE)
@@ -3160,17 +2750,7 @@ theorem German.recvInvAckS_inv.obligation_4 :
             {German.Item.cache
                   { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckS, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.recvInvAckS German.ownG)
@@ -3218,7 +2798,7 @@ theorem German.recvInvAckS_inv.obligation_5 :
             {German.Item.cache
                   { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckS_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.recvInvAckS German.ownG)
@@ -3266,17 +2846,7 @@ theorem German.recvInvAckS_inv.obligation_6 :
             {German.Item.cache
                   { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckS, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.recvInvAckS German.ownInv)
@@ -3317,7 +2887,7 @@ theorem German.recvInvAckS_inv.obligation_7 :
             {German.Item.cache
                   { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckS_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.recvInvAckS German.ownInv)
@@ -3358,17 +2928,7 @@ theorem German.recvInvAckS_inv.obligation_8 :
             {German.Item.cache
                   { id := x.2.2.2.1, state := x.1, ch1 := x.2.1, ch2 := x.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckS, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.recvInvAckS German.ownAck)
@@ -3426,7 +2986,7 @@ theorem German.recvInvAckS_inv.obligation_9 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × German.Req × German.Cmd × ℕ) =>
           ((x.2.2.2.1, x.2.2.2.2, true, x.2.1, ∅, ∅, German.CacheState.invalid, x.2.2.1, German.Gnt.noGnt, x.1),
             x.2.2.2.1, x.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckS_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.recvInvAckS German.ownAck)
@@ -3484,17 +3044,7 @@ theorem German.recvInvAckS_inv.obligation_10 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × German.Req × German.Cmd × ℕ) =>
           ((x.2.2.2.1, x.2.2.2.2, true, x.2.1, ∅, ∅, German.CacheState.invalid, x.2.2.1, German.Gnt.noGnt, x.1),
             x.2.2.2.1, x.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckS, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckN_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.recvInvAckN German.freeP)
@@ -3533,7 +3083,7 @@ theorem German.recvInvAckN_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckN_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.recvInvAckN German.freeP)
@@ -3572,17 +3122,7 @@ theorem German.recvInvAckN_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckN, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckN_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.recvInvAckN German.ownE)
@@ -3632,7 +3172,7 @@ theorem German.recvInvAckN_inv.obligation_3 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckN_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.recvInvAckN German.ownE)
@@ -3682,17 +3222,7 @@ theorem German.recvInvAckN_inv.obligation_4 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckN, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckN_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.recvInvAckN German.ownG)
@@ -3742,7 +3272,7 @@ theorem German.recvInvAckN_inv.obligation_5 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckN_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.recvInvAckN German.ownG)
@@ -3792,17 +3322,7 @@ theorem German.recvInvAckN_inv.obligation_6 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := x.2.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckN, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckN_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.recvInvAckN German.ownInv)
@@ -3843,7 +3363,7 @@ theorem German.recvInvAckN_inv.obligation_7 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := x.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckN_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.recvInvAckN German.ownInv)
@@ -3884,17 +3404,7 @@ theorem German.recvInvAckN_inv.obligation_8 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := x.2.2.2.1, ch3 := German.Ack.invAck }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckN, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvInvAckN_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.recvInvAckN German.ownAck)
@@ -3951,7 +3461,7 @@ theorem German.recvInvAckN_inv.obligation_9 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × German.Req × German.Cmd × ℕ) =>
           ((x.2.2.2.1, x.2.2.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.invalid, x.2.2.1, German.Gnt.noGnt, x.1),
             x.2.2.2.1, x.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvInvAckN_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.recvInvAckN German.ownAck)
@@ -4008,17 +3518,7 @@ theorem German.recvInvAckN_inv.obligation_10 :
         Unification.Unifier.bind fun (x : German.Items × ℕ × German.Req × German.Cmd × ℕ) =>
           ((x.2.2.2.1, x.2.2.2.2, true, {x.2.1}, ∅, x.2.1, German.CacheState.invalid, x.2.2.1, German.Gnt.noGnt, x.1),
             x.2.2.2.1, x.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvInvAckN, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSN_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendGntSN German.freeP)
@@ -4050,7 +3550,7 @@ theorem German.sendGntSN_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.2.2.2.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSN_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendGntSN German.freeP)
@@ -4082,17 +3582,7 @@ theorem German.sendGntSN_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.2.2.2.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSN, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSN_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendGntSN German.ownE)
@@ -4131,7 +3621,7 @@ theorem German.sendGntSN_inv.obligation_3 :
             x.2.2.2.2.1, x.2.2.2.2.2.1, x.2.2.2.2.2.2.1, x.2.2.1, x.2.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1, inv := x.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSN_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendGntSN German.ownE)
@@ -4170,17 +3660,7 @@ theorem German.sendGntSN_inv.obligation_4 :
             x.2.2.2.2.1, x.2.2.2.2.2.1, x.2.2.2.2.2.2.1, x.2.2.1, x.2.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1, inv := x.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSN, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSN_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendGntSN German.ownG)
@@ -4209,7 +3689,7 @@ theorem German.sendGntSN_inv.obligation_5 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := x.2.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSN_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendGntSN German.ownG)
@@ -4238,17 +3718,7 @@ theorem German.sendGntSN_inv.obligation_6 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := x.2.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSN, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSN_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendGntSN German.ownInv)
@@ -4276,7 +3746,7 @@ theorem German.sendGntSN_inv.obligation_7 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := x.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.1 }} +
               x.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSN_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendGntSN German.ownInv)
@@ -4304,17 +3774,7 @@ theorem German.sendGntSN_inv.obligation_8 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := x.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.1 }} +
               x.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSN, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSN_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendGntSN German.ownAck)
@@ -4350,7 +3810,7 @@ theorem German.sendGntSN_inv.obligation_9 :
             x.2.2.2.2.1, x.2.2.2.2.2.1, x.2.2.1, x.2.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1, inv := x.2.1 }} +
               x.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSN_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendGntSN German.ownAck)
@@ -4386,17 +3846,7 @@ theorem German.sendGntSN_inv.obligation_10 :
             x.2.2.2.2.1, x.2.2.2.2.2.1, x.2.2.1, x.2.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1, inv := x.2.1 }} +
               x.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSN, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendGntSS German.freeP)
@@ -4428,7 +3878,7 @@ theorem German.sendGntSS_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.2.2.2.2.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSS_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendGntSS German.freeP)
@@ -4460,17 +3910,7 @@ theorem German.sendGntSS_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.2.2.2.2.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSS, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendGntSS German.ownE)
@@ -4510,7 +3950,7 @@ theorem German.sendGntSS_inv.obligation_3 :
             {German.Item.dir
                   { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1 + {x.2.2.1}, inv := x.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSS_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendGntSS German.ownE)
@@ -4550,17 +3990,7 @@ theorem German.sendGntSS_inv.obligation_4 :
             {German.Item.dir
                   { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1 + {x.2.2.1}, inv := x.2.1 }} +
               x.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSS, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendGntSS German.ownG)
@@ -4589,7 +4019,7 @@ theorem German.sendGntSS_inv.obligation_5 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := {x.1} + x.2.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSS_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendGntSS German.ownG)
@@ -4618,17 +4048,7 @@ theorem German.sendGntSS_inv.obligation_6 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := {x.1} + x.2.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.2.1 }} +
               x.2.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSS, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendGntSS German.ownInv)
@@ -4656,7 +4076,7 @@ theorem German.sendGntSS_inv.obligation_7 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := {x.1} + x.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.1 }} +
               x.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSS_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendGntSS German.ownInv)
@@ -4684,17 +4104,7 @@ theorem German.sendGntSS_inv.obligation_8 :
                     { cmd := German.Cmd.cmdS, ptr := x.1, exGntd := false, shr := {x.1} + x.2.2.2.2.2.2.1,
                       inv := x.2.2.2.2.2.2.2.1 }} +
               x.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSS, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntSS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendGntSS German.ownAck)
@@ -4731,7 +4141,7 @@ theorem German.sendGntSS_inv.obligation_9 :
             {German.Item.dir
                   { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1 + {x.2.2.1}, inv := x.2.1 }} +
               x.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntSS_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendGntSS German.ownAck)
@@ -4768,17 +4178,7 @@ theorem German.sendGntSS_inv.obligation_10 :
             {German.Item.dir
                   { cmd := German.Cmd.cmdS, ptr := x.2.2.1, exGntd := false, shr := x.1 + {x.2.2.1}, inv := x.2.1 }} +
               x.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntSS, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntE_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendGntE German.freeP)
@@ -4806,7 +4206,7 @@ theorem German.sendGntE_inv.obligation_1 :
             {German.Item.cache
                   { id := x.2.2.2.2.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntE_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.sendGntE German.freeP)
@@ -4834,17 +4234,7 @@ theorem German.sendGntE_inv.obligation_2 :
             {German.Item.cache
                   { id := x.2.2.2.2.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.noGnt, ch3 := x.2.2.2.1 }} +
               x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntE, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.sendGntE German.ownE)
@@ -4878,7 +4268,7 @@ theorem German.sendGntE_inv.obligation_3 :
             x.2.2.2.1, x.2.2.2.2.1, x.2.2.2.2.2.1, x.2.1, x.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdE, ptr := x.2.1, exGntd := false, shr := ∅, inv := x.1 }} +
               x.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntE_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.sendGntE German.ownE)
@@ -4912,17 +4302,7 @@ theorem German.sendGntE_inv.obligation_4 :
             x.2.2.2.1, x.2.2.2.2.1, x.2.2.2.2.2.1, x.2.1, x.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdE, ptr := x.2.1, exGntd := false, shr := ∅, inv := x.1 }} +
               x.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntE, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntE_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendGntE German.ownG)
@@ -4948,7 +4328,7 @@ theorem German.sendGntE_inv.obligation_5 :
                 {German.Item.dir
                     { cmd := German.Cmd.cmdE, ptr := x.1, exGntd := false, shr := ∅, inv := x.2.2.2.2.2.2.1 }} +
               x.2.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntE_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.sendGntE German.ownG)
@@ -4974,17 +4354,7 @@ theorem German.sendGntE_inv.obligation_6 :
                 {German.Item.dir
                     { cmd := German.Cmd.cmdE, ptr := x.1, exGntd := false, shr := ∅, inv := x.2.2.2.2.2.2.1 }} +
               x.2.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntE, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntE_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.sendGntE German.ownInv)
@@ -5008,7 +4378,7 @@ theorem German.sendGntE_inv.obligation_7 :
                 {German.Item.dir
                     { cmd := German.Cmd.cmdE, ptr := x.1, exGntd := false, shr := ∅, inv := x.2.2.2.2.2.1 }} +
               x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntE_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.sendGntE German.ownInv)
@@ -5032,17 +4402,7 @@ theorem German.sendGntE_inv.obligation_8 :
                 {German.Item.dir
                     { cmd := German.Cmd.cmdE, ptr := x.1, exGntd := false, shr := ∅, inv := x.2.2.2.2.2.1 }} +
               x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntE, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.sendGntE_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.sendGntE German.ownAck)
@@ -5073,7 +4433,7 @@ theorem German.sendGntE_inv.obligation_9 :
             x.2.2.2.1, x.2.2.2.2.1, x.2.1, x.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdE, ptr := x.2.1, exGntd := false, shr := ∅, inv := x.1 }} +
               x.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.sendGntE_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.sendGntE German.ownAck)
@@ -5104,17 +4464,7 @@ theorem German.sendGntE_inv.obligation_10 :
             x.2.2.2.1, x.2.2.2.2.1, x.2.1, x.2.2.1,
             {German.Item.dir { cmd := German.Cmd.cmdE, ptr := x.2.1, exGntd := false, shr := ∅, inv := x.1 }} +
               x.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.sendGntE, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.recvGntS German.freeP)
@@ -5133,7 +4483,7 @@ theorem German.recvGntS_inv.obligation_1 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntS_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.recvGntS German.freeP)
@@ -5152,17 +4502,7 @@ theorem German.recvGntS_inv.obligation_2 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntS, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntS_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.recvGntS German.ownE)
@@ -5184,7 +4524,7 @@ theorem German.recvGntS_inv.obligation_3 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.2.1 }} +
               x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntS_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.recvGntS German.ownE)
@@ -5206,17 +4546,7 @@ theorem German.recvGntS_inv.obligation_4 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.2.1 }} +
               x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntS, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.recvGntS German.ownG)
@@ -5238,7 +4568,7 @@ theorem German.recvGntS_inv.obligation_5 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.2.1 }} +
               x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntS_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.recvGntS German.ownG)
@@ -5260,17 +4590,7 @@ theorem German.recvGntS_inv.obligation_6 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.2.1 }} +
               x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntS, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntS_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.recvGntS German.ownInv)
@@ -5288,7 +4608,7 @@ theorem German.recvGntS_inv.obligation_7 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntS_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.recvGntS German.ownInv)
@@ -5306,17 +4626,7 @@ theorem German.recvGntS_inv.obligation_8 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntS, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntS_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.recvGntS German.ownAck)
@@ -5334,7 +4644,7 @@ theorem German.recvGntS_inv.obligation_9 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntS_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.recvGntS German.ownAck)
@@ -5352,17 +4662,7 @@ theorem German.recvGntS_inv.obligation_10 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntS, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntS, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntE_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.recvGntE German.freeP)
@@ -5381,7 +4681,7 @@ theorem German.recvGntE_inv.obligation_1 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntE_inv.obligation_2 :
     Unification.sound (Narrowing.mayFire German.recvGntE German.freeP)
@@ -5400,17 +4700,7 @@ theorem German.recvGntE_inv.obligation_2 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntE, German.freeP]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntE_inv.obligation_3 :
     Unification.complete (Narrowing.mayFire German.recvGntE German.ownE)
@@ -5432,7 +4722,7 @@ theorem German.recvGntE_inv.obligation_3 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.2.1 }} +
               x.2.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntE_inv.obligation_4 :
     Unification.sound (Narrowing.mayFire German.recvGntE German.ownE)
@@ -5454,17 +4744,7 @@ theorem German.recvGntE_inv.obligation_4 :
             {German.Item.cache
                   { id := x.1, state := x.2.2.1, ch1 := x.2.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.2.1 }} +
               x.2.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntE, German.ownE]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntE_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.recvGntE German.ownG)
@@ -5492,7 +4772,7 @@ theorem German.recvGntE_inv.obligation_5 :
                     { cmd := x.2.2.2.1, ptr := x.2.2.2.2.1, exGntd := true, shr := {x.2.1}, inv := x.2.2.2.2.2 }} +
                 x.1),
             x.2.2.2.1, x.2.2.2.2.1, x.2.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntE_inv.obligation_6 :
     Unification.sound (Narrowing.mayFire German.recvGntE German.ownG)
@@ -5520,17 +4800,7 @@ theorem German.recvGntE_inv.obligation_6 :
                     { cmd := x.2.2.2.1, ptr := x.2.2.2.2.1, exGntd := true, shr := {x.2.1}, inv := x.2.2.2.2.2 }} +
                 x.1),
             x.2.2.2.1, x.2.2.2.2.1, x.2.2.2.2.2, x.2.1, x.2.2.1, x.1)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntE, German.ownG]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntE_inv.obligation_7 :
     Unification.complete (Narrowing.mayFire German.recvGntE German.ownInv)
@@ -5548,7 +4818,7 @@ theorem German.recvGntE_inv.obligation_7 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntE_inv.obligation_8 :
     Unification.sound (Narrowing.mayFire German.recvGntE German.ownInv)
@@ -5566,17 +4836,7 @@ theorem German.recvGntE_inv.obligation_8 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntE, German.ownInv]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
+  certify_sound
 
 theorem German.recvGntE_inv.obligation_9 :
     Unification.complete (Narrowing.mayFire German.recvGntE German.ownAck)
@@ -5594,7 +4854,7 @@ theorem German.recvGntE_inv.obligation_9 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  udf_certify
+  certify_comp
 
 theorem German.recvGntE_inv.obligation_10 :
     Unification.sound (Narrowing.mayFire German.recvGntE German.ownAck)
@@ -5612,15 +4872,4 @@ theorem German.recvGntE_inv.obligation_10 :
             {German.Item.cache
                   { id := x.1, state := x.2.1, ch1 := x.2.2.1, ch2 := German.Gnt.gntE, ch3 := x.2.2.2.1 }} +
               x.2.2.2.2.2.2.2.2)] := by
-  -- each unifier, instantiated, solves the problem
-  simp only [sound, List.forall_mem_cons, List.not_mem_nil, false_imp_iff, implies_true,
-    and_true]
-  repeat' apply And.intro
-  all_goals
-    rintro γ ⟨x, rfl⟩
-    simp only [unifiedBy, Narrowing.mayFire, German.recvGntE, German.ownAck]
-  all_goals first
-    | rfl
-    | ac_rfl
-    | simp only [ACU.plus_unit, ACU.unit_plus, ACU.plus_comm, ACU.plus_left_comm, ACU.plus_assoc]
-
+  certify_sound

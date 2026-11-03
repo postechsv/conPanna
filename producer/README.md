@@ -4,7 +4,7 @@ The producer turns Maude's own unification into completeness certificates. Narro
 (`narrow`, through the Lean tactic `maude_unify`) runs the instrumented Maude once per cell.
 That run gives Maude's filtered unifiers and, from its unification trace, a derivation in
 the Unification Derivation Format (UDF, `documentation/derivation-format.md`). Lean
-replays the derivation through rules proved once (`udf_certify`). Nothing here is
+checks the derivation by reflection, with a checker proved sound once (`certify_comp`). Nothing here is
 trusted: Lean checks every certificate.
 
 | Path | Contents |
@@ -13,10 +13,10 @@ trusted: Lean checks every certificate.
 | `tools/trace_tree.py` | Runs the instrumented Maude and rebuilds its search tree from the trace. |
 | `tools/trace_to_udf.py` | Extracts the UDF derivation from the tree: free steps, ACU steps with Maude's bases, and a `cover` per leaf from Maude's filter. |
 | `tools/unify.py` | Entry of `maude_unify`: unifiers and certificates for narrowing. |
-| `tools/udf.py` | Entry of `udf_certify` when no stored certificate exists: a derivation covered by given unifiers. |
+| `tools/udf.py` | Entry of `certify_comp` when no stored certificate exists: a derivation covered by given unifiers. |
 | `tools/match.py` | Entry of `maude_match` (subsumption by matching). |
 | `tools/test_udf.py` | Regression test: a derivation for every problem in `tests/`. |
-| `tests/` | Test problems (`NAME.maude` next to `models.maude`): demos, pipeline cases, three seeds of a generated grid, a German cell. `tests/udf/T4.lean` runs `udf_certify` end to end. |
+| `tests/` | Test problems (`NAME.maude` next to `models.maude`): demos, pipeline cases, three seeds of a generated grid, a German cell. `tests/udf/T4.lean` runs `certify_comp` end to end. |
 
 Certificates made during narrowing are kept in `.cache/udf/`, under a hash of the claim
 they certify, so certifying an obligation needs no Maude call.

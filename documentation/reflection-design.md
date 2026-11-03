@@ -2,7 +2,8 @@
 
 Goal: close `complete P U` with one kernel evaluation of a Boolean checker on the UDF
 certificate, `check c = true`, plus a theorem proved once: `check c = true → complete P U`.
-The surface is unchanged: models, rules, obligations and `udf_certify` keep their form.
+The surface is unchanged: models, rules and obligations keep their form; the obligations are
+closed by `certify_comp` (completeness) and `certify_sound` (soundness, §6).
 Same rules as the calculus (documentation/derivation-format.md); only the way they are
 applied changes (a proved function instead of a tactic script).
 
@@ -88,12 +89,12 @@ set `ρ' = ρ[Z_k ↦ U_k]` (fresh, so `ρ'` agrees with `ρ` on the state). The
 solves the premise with the same image.
 
 Systems of other shapes (several rows, other coefficients) are not checked: `check` returns
-`false` and `udf_certify` falls back to the replay.
+`false`, and `certify_comp` fails.
 
 ## 4. Bridge to the obligation
 
 The obligation is `complete (Problem.bind fun γ => (L γ, R γ)) [Unifier.bind body₁, …]` in
-the literal form `udf_certify` already prepares. With `Tup [s₁,…,sₙ] := T s₁ × … × T sₙ`
+the literal form `UdfStore.prepare` gives. With `Tup [s₁,…,sₙ] := T s₁ × … × T sₙ`
 (defeq to the user's context tuple), generic `enc : Tup ss → (ℕ → Val)` and `dec`:
 
 * the data terms `L̂`, `R̂`, `σ̂ᵢ` **mirror** the Lean terms node for node (`+`, `∅`, `{x}`,
@@ -112,14 +113,22 @@ the literal form `udf_certify` already prepares. With `Tup [s₁,…,sₙ] := T 
 | `conPanna/Reflect/Check.lean` | the checker `check` |
 | `conPanna/Reflect/Eval.lean` | typing, locality, substitution, normalization, constructors, tuples |
 | `conPanna/Reflect/AcuStep.lean`, `conPanna/Reflect/AcuSound.lean` | the ACU step: completeness of one row, the row identity, the step |
-| `conPanna/Reflect/Sound.lean` | `complete_of_check` |
 | `conPanna/Reflect/Model.lean` | the reflection model of a state type, from its constructor model |
-| `conPanna/Reflect/Tactic.lean` | data terms, certificates as data, the proof (`udf_reflect`) |
+| `conPanna/Reflect/Bridge.lean` | the bridge to the goal (`Bridge`) |
+| `conPanna/Reflect/Completeness.lean`, `Soundness.lean` | `complete_of_check`, `sound_of_check` |
+| `conPanna/Reflect/Tactic.lean` | `certify_comp`, `certify_sound` |
 
 The model of a state type is generated from the constructor model `#dump_model` writes: one
 `Op` per constructor (its function and its inverse, both by pattern matching), a tag per
 constructor, and `id` as the bag isomorphism of each ACU sort; each law holds by `rfl`.
-`#dump_model T` defines it once (`T.reflect.model`). `udf_certify` tries reflection first and
-falls back to replay when the checker does not cover a certificate; `udf_reflect` tries only
-reflection and reports why it fails. Reflection assembles one proof term (`complete_of_check` with `Eq.refl true` for the checker
+`#dump_model T` defines it once (`T.reflect.model`). Each tactic assembles one proof term (`complete_of_check` with `Eq.refl true` for the checker
 and `rfl` for the mirrors) and lets the kernel alone check it, as `decide +kernel` does.
+
+## 6. Soundness
+
+`sound P U`: every instance of every unifier solves the problem. `checkSound` takes, for each
+answer, the images `σ̂` of the problem's variables, substitutes them into both sides, and
+compares the normal forms (`norm` at the binder's sorts). **Theorem** `sound_of_check`: an
+instance `γ = body a` gives `enc γ = σ̂[enc a]` on the problem's variables (the bridge `hU`),
+so each side at `γ` evaluates as its substituted normal form at `enc a` (substitution and
+norm lemmas); equal normal forms give `(body γ).1 = (body γ).2`. No certificate is needed.

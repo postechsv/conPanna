@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A UDF derivation (documentation/derivation-format.md) for given unifiers: the entry of
-the Lean tactic `udf_certify`.
+the Lean tactic `certify_comp`.
 
   python3 producer/tools/udf.py request.json > reply.json
 
