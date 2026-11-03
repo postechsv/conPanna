@@ -402,7 +402,14 @@ def prove (st : Dumper.State) (target : Expr) (udfText : String) : TermElabM Exp
     let ctxTy (sh : Expr) := mkApp2 (mkConst ``Reflect.Shp.Ty) (mkApp (mkConst ``Reflect.Model.T) M) sh
     let side (e : Expr) := Expr.lam `γ (ctxTy sh)
       (refl (mkAppN (mkConst ``Reflect.Model.eval) #[M, mkAppN (mkConst ``Reflect.Model.enc) #[M, sh, .bvar 0], e]) valTy) .default
-    let hc := refl (mkConst ``Bool.true) (mkConst ``Bool)
+    let hc ← if (← getOptions).getBool `udf_reflect.timing then do
+        let ty ← mkEq (mkApp2 (mkConst ``Reflect.check) M c) (mkConst ``Bool.true)
+        let t0 ← IO.monoMsNow
+        let n ← withOptions (Elab.async.set · false) do
+          mkAuxLemma [] ty (refl (mkConst ``Bool.true) (mkConst ``Bool))
+        logInfo m!"udf_reflect: check {(← IO.monoMsNow) - t0} ms"
+        pure (mkConst n)
+      else pure (refl (mkConst ``Bool.true) (mkConst ``Bool))
     let pre := mkAppN (mkConst ``Reflect.complete_of_check) #[M, t.lawful, c, hc, nat sα, body,
       side L, side R, asE, refl (mkApp (mkConst ``Reflect.Cert.answers) c) (← mkAppM ``List #[mkConst ``Reflect.Ans])]
     let .forallE _ hUty _ _ ← inferType pre | throwError "reflect: theorem shape"
@@ -424,6 +431,10 @@ def prove (st : Dumper.State) (target : Expr) (udfText : String) : TermElabM Exp
       rest := a :: rest
     return mkApp pre pf
 
+register_option udf_reflect.timing : Bool := {
+  defValue := false
+  descr := "udf_reflect: time the kernel check of the checker and of the rest" }
+
 /-- `#reflect_model T`: the reflection model of state type `T`, once, as `T.reflect.model` and
 its laws `T.reflect.lawful` (otherwise each `udf_reflect` builds its own). -/
 elab "#reflect_model " t:term : command => Command.liftTermElabM do
@@ -442,7 +453,10 @@ elab "udf_reflect" : tactic => withMainContext do
   let (target, _, key) ← UdfStore.claim st ty
   let some udfText ← UdfStore.load? key | throwError "udf_reflect: no stored certificate"
   let value ← prove st target udfText
+  let t0 ← IO.monoMsNow
   let name ← withOptions (Elab.async.set · false) do mkAuxLemma [] target value
+  if (← getOptions).getBool `udf_reflect.timing then
+    logInfo m!"udf_reflect: rest {(← IO.monoMsNow) - t0} ms"
   goal.assign (mkConst name)
   replaceMainGoal []
 

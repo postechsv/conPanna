@@ -125,8 +125,8 @@ theorem run_sound (hM : M.Lawful) (c : Cert) (as : List (LAns M c.sh))
       obtain ⟨v, hv1, hv2⟩ := hsol.2 _ (mem_of_nth hE)
       -- the eliminated variable's value is the other side's
       have key : ∀ t, (beq l (var x) = true ∧ t = r) ∨ (beq r (var x) = true ∧ t = l) →
-          run M c n p (α.map fun u => norm M c.sorts (subst (fun y => if y == x then some t else none) u))
-            ((E.eraseIdx i).map (normEq M c.sorts fun y => if y == x then some t else none)) = true →
+          run M c n p (α.map (elimUpd M c.sorts x t))
+            ((E.eraseIdx i).map fun e => (elimUpd M c.sorts x t e.1, elimUpd M c.sorts x t e.2)) = true →
           ∃ σ ∈ as.map (fun a => Unifier.bind a.body), covers σ γ := by
         intro t ht hrun
         have hxt : ρ x = M.eval ρ t := by
@@ -138,12 +138,15 @@ theorem run_sound (hM : M.Lawful) (c : Cert) (as : List (LAns M c.sh))
           by_cases hy : y = x
           · subst hy; simp [hxt]
           · simp [hy]
-        have hkeep : ∀ u, M.eval ρ (norm M c.sorts (subst (fun y => if y == x then some t else none) u)) =
-            M.eval ρ u := fun u => by rw [eval_norm hM hsol.1, eval_subst, hθ]
+        have hkeep : ∀ u, M.eval ρ (elimUpd M c.sorts x t u) = M.eval ρ u := fun u => by
+          unfold elimUpd
+          split
+          · rw [eval_norm hM hsol.1, eval_subst, hθ]
+          · rfl
         refine ih p _ _ hrun ρ γ ⟨hsol.1, fun e he => ?_⟩ ?_
         · obtain ⟨e0, he0, rfl⟩ := List.mem_map.1 he
           obtain ⟨w, h1, h2⟩ := hsol.2 e0 (List.mem_of_mem_eraseIdx he0)
-          exact ⟨w, by simp only [normEq]; rw [hkeep]; exact h1, by simp only [normEq]; rw [hkeep]; exact h2⟩
+          exact ⟨w, by simp only; rw [hkeep]; exact h1, by simp only; rw [hkeep]; exact h2⟩
         · rw [List.map_map, ← hα]; exact List.map_congr_left fun u _ => hkeep u
       by_cases hl : beq l (var x) = true
       · simp only [hl, ite_true, Bool.and_eq_true] at h

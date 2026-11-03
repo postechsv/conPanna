@@ -259,6 +259,11 @@ def freshOk (vs : List Nat) (bag : Nat) (α : List Term) (E : List Eqn) (fresh :
   fresh.all fun z => vs[z]? == some bag && fresh.count z == 1 &&
     !(α.any (occursT z)) && !(E.any fun e => occursT z e.1 || occursT z e.2)
 
+/-- ACU-SOLVE's substitution on a term of the state: only terms holding a bag variable of the
+system change (and are normalized). -/
+def acuUpd (vs bv : List Nat) (θ : Nat → Option Term) (t : Term) : Term :=
+  if bv.any (occursT · t) then norm M vs (subst θ t) else t
+
 /-- The premise states of an ACU step, when its side conditions hold. -/
 def acuPremises (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat) (unk : List Term)
     (alien : List Bool) (row : List Int) (basis : List (List Nat))
@@ -272,14 +277,23 @@ def acuPremises (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat) (unk
           freshOk vs A.bag α E fresh &&
           fresh.length == (S.filter (alienFree unk alien basis)).length &&
           S.all (· < basis.length)) then
+      let bv := (List.range unk.length).filterMap fun j =>
+        if isAlien alien j then none else match nthD unk j (var 0) with
+          | var x => some x
+          | _ => none
       some <| sels.map fun (S, fresh) =>
         let θ := theta f unk alien basis S fresh
-        (α.map fun t => norm M vs (subst θ t),
-          pendingOf unk alien basis S fresh ++ (E.eraseIdx i).map (normEq M vs θ))
+        (α.map (acuUpd M vs bv θ),
+          pendingOf unk alien basis S fresh ++
+            (E.eraseIdx i).map fun e => (acuUpd M vs bv θ e.1, acuUpd M vs bv θ e.2))
     else none
   | _, _ => none
 
 /-! ## The derivation -/
+
+/-- ELIM `x := t` on a term of the state: only terms holding `x` change (and are normalized). -/
+def elimUpd (vs : List Nat) (x : Nat) (t u : Term) : Term :=
+  if occursT x u then norm M vs (subst (fun y => if y == x then some t else none) u) else u
 
 def run (c : Cert) : Nat → Nat → List Term → List Eqn → Bool
   | 0, _, _, _ => false
@@ -303,8 +317,8 @@ def run (c : Cert) : Nat → Nat → List Term → List Eqn → Bool
         let t? := if beq l (var x) then some r else if beq r (var x) then some l else none
         match t? with
         | some t => !occursT x t &&
-            let θ : Nat → Option Term := fun y => if y == x then some t else none
-            run c n p (α.map fun u => norm M c.sorts (subst θ u)) ((E.eraseIdx i).map (normEq M c.sorts θ))
+            run c n p (α.map (elimUpd M c.sorts x t))
+              ((E.eraseIdx i).map fun e => (elimUpd M c.sorts x t e.1, elimUpd M c.sorts x t e.2))
         | none => false
       | none => false
     | some (.cover a w) => E.isEmpty && match nth c.answers a with

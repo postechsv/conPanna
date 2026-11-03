@@ -403,6 +403,13 @@ theorem acu_sound (hM : M.Lawful) {vs : List Nat} {ρ : M.Valuation} {α : List 
     cases hθ : theta f unk alien basis S' fresh x with
     | some u => exact htheta x u hθ
     | none => exact hρ'out x fun hxf => by rw [ht x hxf] at hx; exact absurd hx (by simp)
+  have hkeep' : ∀ (bv : List Nat) t, (∀ z ∈ fresh, occursT z t = false) →
+      M.eval ρ' (acuUpd M vs bv (theta f unk alien basis S' fresh) t) = M.eval ρ t := by
+    intro bv t ht
+    unfold acuUpd
+    split
+    · exact hkeep t ht
+    · exact eval_congr t fun z hz => hρ'out z fun hzf => by rw [ht z hzf] at hz; exact absurd hz (by simp)
   simp only [List.getElem_map, hget]
   refine ⟨⟨hWS', fun e he => ?_⟩, ?_⟩
   · rcases List.mem_append.1 he with he | he
@@ -419,10 +426,10 @@ theorem acu_sound (hM : M.Lawful) {vs : List Nat} {ρ : M.Valuation} {α : List 
     · obtain ⟨e0, he0, rfl⟩ := List.mem_map.1 he
       have he0' := List.mem_of_mem_eraseIdx he0
       obtain ⟨w, h1, h2⟩ := hsol.2 e0 he0'
-      exact ⟨w, by simp only [normEq]; rw [hkeep _ fun z hz => (hfE z hz e0 he0').1]; exact h1,
-        by simp only [normEq]; rw [hkeep _ fun z hz => (hfE z hz e0 he0').2]; exact h2⟩
+      exact ⟨w, by simp only; rw [hkeep' _ _ fun z hz => (hfE z hz e0 he0').1]; exact h1,
+        by simp only; rw [hkeep' _ _ fun z hz => (hfE z hz e0 he0').2]; exact h2⟩
   · rw [List.map_map]
-    exact List.map_congr_left fun t ht => hkeep t fun z hz => hfα z hz t ht
+    exact List.map_congr_left fun t ht => hkeep' _ t fun z hz => hfα z hz t ht
 
 end Model
 
