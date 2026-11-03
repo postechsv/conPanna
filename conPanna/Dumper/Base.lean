@@ -1,5 +1,5 @@
 import Lean
-import Expresso.ACU
+import conPanna.BaseTheory.ACU
 
 /-!
 Dump the constructor model of a state type as the Maude module the certification

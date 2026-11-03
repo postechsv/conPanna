@@ -1,5 +1,5 @@
 import examples.TwoPC.ctor
-import Expresso.core
+import conPanna.core
 
 /-!
 Two-phase commit: the rules, one package of type `System`.

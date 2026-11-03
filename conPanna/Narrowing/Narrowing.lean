@@ -1,4 +1,4 @@
-import Expresso.core
+import conPanna.core
 import conPanna.Unification.Unification
 
 /-!

@@ -1,4 +1,4 @@
-import Expresso.core
+import conPanna.core
 
 /-!
 Proving subsumption `subsumes A B` (every state of pattern `A` is a state of `B`)

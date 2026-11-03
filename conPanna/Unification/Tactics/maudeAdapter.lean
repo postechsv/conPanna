@@ -1,6 +1,6 @@
 import conPanna.Dumper.Base
 import conPanna.Unification.Unification
-import Expresso.core
+import conPanna.core
 
 /-!
 The adapter between Lean goals and the producer's Maude tools: it encodes problems

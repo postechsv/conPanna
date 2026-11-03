@@ -1,23 +1,23 @@
-# Expresso conPanna
+# conPanna
 
 Prototype framework and tactics for constrained-pattern unification and narrowing.
 
-- `Expresso/` is the semantic framework: patterns and rules (`core.lean`), and ACU
-  sorts as quotient types (`ACU.lean`).
-- `conPanna/` is unification and narrowing on top of it: the unification problem and
-  its certification calculus (`Unification/`), narrowing reduced to unification
-  (`Narrowing/`), the model dumper (`Dumper.lean`), and the Maude tactics
-  `maude_unify`, `maude_certify_comp` and `maude_match` (`Unification/Tactics/`), and
-  the `narrow` tactic (`narrow.lean`).
+- `Expres- `conPanna/` is the whole framework:
+  - patterns and rules (`core.lean`), and ACU sorts as quotient types (`BaseTheory/ACU.lean`);
+  - unification and its certification calculus (`Unification/`), narrowing reduced to
+    unification (`Narrowing/`), and the `narrow` tactic (`narrow.lean`);
+  - the model dumper (`Dumper.lean`) and the Maude tactics `maude_unify` and `maude_match`
+    (`Unification/Tactics/`);
+  - certification by reflection, `certify_comp` and `certify_sound` (`Reflect/`);
+  - deferred obligations (`Later.lean`).
   `conPanna/conPanna.lean` imports all of it.
 - `producer/` is the Maude side: it computes unifiers and derives certificates that
   Lean checks (see `producer/README.md`).
-- `examples/` holds the paper's examples and `Bakery/`, a narrowing proof split into the
-  constructor model and the rules (`model/`), the top-down proof with
-  deferred obligations (`bakery_pf_draft_demo`), the obligations (`bakery_obligation`),
-  and the linked proof (`bakery_pf`). The deferral commands are in `conPanna/Later.lean`.
+- `examples/` holds `Bakery/`, `TwoPC/` and `German/`, each split into the constructor
+  model (`ctor.lean`), the rules (`rule.lean`), the top-down proof with deferred
+  obligations (`proof.lean`), the obligations (`cert.lean`), and the linked theorems
+  (`main.lean`).
 
-## Build
 
 Install Lean through [elan](https://github.com/leanprover/elan), then run:
 

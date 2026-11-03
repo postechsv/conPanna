@@ -1,7 +1,7 @@
 name = "conPanna"
 version = "0.1.0"
 keywords = ["math", "unification", "narrowing"]
-defaultTargets = ["Expresso", "conPanna"]
+defaultTargets = ["conPanna"]
 
 [leanOptions]
 pp.unicode.fun = true
@@ -14,10 +14,6 @@ maxSynthPendingDepth = 3
 name = "mathlib"
 scope = "leanprover-community"
 rev = "v4.25.0-rc2"
-
-[[lean_lib]]
-name = "Expresso"
-globs = ["Expresso.+"]
 
 [[lean_lib]]
 name = "conPanna"

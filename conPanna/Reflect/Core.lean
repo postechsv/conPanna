@@ -1,4 +1,4 @@
-import Expresso.ACU
+import conPanna.BaseTheory.ACU
 
 /-!
 Certification by reflection (documentation/reflection-design.md): terms as data, models,

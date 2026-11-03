@@ -1,5 +1,5 @@
 import examples.German.ctor
-import Expresso.core
+import conPanna.core
 import conPanna.Unification.Certification.Multiset
 
 /-!

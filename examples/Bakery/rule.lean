@@ -1,5 +1,5 @@
 import examples.Bakery.ctor
-import Expresso.core
+import conPanna.core
 import conPanna.Unification.Certification.Multiset
 
 /-!
