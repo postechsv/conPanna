@@ -81,3 +81,6 @@ theorem R.recvReqS_inv.obligation_9 :
             German.Cmd.idle, x.2.2, x.2.1, German.Req.reqS, x.1)] := by
   udf_reflect
 
+
+#print axioms Reflect.complete_of_check
+#print axioms R.recvReqS_inv.obligation_9
