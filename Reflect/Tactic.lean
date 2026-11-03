@@ -108,22 +108,25 @@ def mkTbl (st : Dumper.State) : MetaM Tbl := do
   return t
 
 /-- Elaborate `text` at type `ty` and add it as an auxiliary definition. -/
-def auxDef (text : String) (ty : Expr) : TermElabM Expr := do
+def auxDef (text : String) (ty : Expr) (base : Option Name := none) (suffix : String := "") :
+    TermElabM Expr := do
   let stx ← IO.ofExcept (Parser.runParserCategory (← getEnv) `term text)
   let e ← Term.elabTermEnsuringType stx ty
   Term.synthesizeSyntheticMVarsNoPostponing
   let e ← instantiateMVars e
   if e.hasMVar then throwError "reflect: could not elaborate{indentExpr e}"
-  let name ← mkAuxDeclName `_reflect
+  let name ← match base with
+    | some b => pure (b ++ suffix.toName)
+    | none => mkAuxDeclName `_reflect
   addDecl (.defnDecl { name, levelParams := [], type := ty, value := e,
                        hints := .regular 0, safety := .safe })
   return mkConst name
 
 /-- The model as constants: `T`, `tag`, the model, its laws. -/
-def mkModel (t : Tbl) : TermElabM Tbl := do
+def mkModel (t : Tbl) (base : Option Name := none) : TermElabM Tbl := do
   let Tty ← mkArrow (mkConst ``Nat) (mkSort levelOne)
   let alts := (t.sortText.toList.zipIdx.map fun (s, i) => s!" | {i} => {s}")
-  let T ← auxDef s!"fun s => match s with{String.join alts} | _ => Unit" Tty
+  let T ← auxDef s!"fun s => match s with{String.join alts} | _ => Unit" Tty base "T"
   let tagTy ← withLocalDeclD `s (mkConst ``Nat) fun s => do
     mkForallFVars #[s] (← mkArrow (mkApp T s) (mkConst ``Nat))
   let mut tagAlts := ""
@@ -132,18 +135,20 @@ def mkModel (t : Tbl) : TermElabM Tbl := do
     if os.isEmpty then continue
     let inner := String.join (os.map fun (o, i) => s!" | {o.pat} => {i}")
     tagAlts := tagAlts ++ s!" | {si} => fun (y : {t.sortText[si]!}) => (match y with{inner})"
-  let tag ← auxDef s!"fun s => match s with{tagAlts} | _ => fun _ => 0" tagTy
+  let tag ← auxDef s!"fun s => match s with{tagAlts} | _ => fun _ => 0" tagTy base "tag"
   let opTy ← mkAppM ``Reflect.Op #[T]
   let opsText := ", ".intercalate (t.ops.toList.map fun o =>
     let ub := o.unbuild.replace "fun y =>" s!"fun (y : {t.sortText[o.res]!}) =>"
     s!"\{ args := {o.args.toList}, res := {o.res}, build := {o.build}, unbuild := {ub} }")
-  let ops ← auxDef s!"[{opsText}]" (← mkAppM ``List #[opTy])
+  let ops ← auxDef s!"[{opsText}]" (← mkAppM ``List #[opTy]) base "ops"
   let acuTy ← mkAppM ``Reflect.AcuOp #[T]
   let acusText := ", ".intercalate (t.acus.toList.map fun (b, e) =>
     s!"\{ elem := {e}, bag := {b}, toBag := id, ofBag := id }")
-  let acus ← auxDef s!"[{acusText}]" (← mkAppM ``List #[acuTy])
+  let acus ← auxDef s!"[{acusText}]" (← mkAppM ``List #[acuTy]) base "acus"
   let model := mkAppN (mkConst ``Reflect.Model.mk) #[T, tag, ops, acus]
-  let mname ← mkAuxDeclName `_reflect
+  let mname ← match base with
+    | some b => pure (b ++ `model)
+    | none => mkAuxDeclName `_reflect
   addDecl (.defnDecl { name := mname, levelParams := [], type := mkConst ``Reflect.Model, value := model,
                        hints := .regular 0, safety := .safe })
   let model := mkConst mname
@@ -155,7 +160,11 @@ def mkModel (t : Tbl) : TermElabM Tbl := do
   let pf ← Term.elabTermEnsuringType stx lawTy
   Term.synthesizeSyntheticMVarsNoPostponing
   let pf ← instantiateMVars pf
-  let lname ← mkAuxLemma [] lawTy pf
+  let lname ← match base with
+    | some b => do
+      addDecl (.thmDecl { name := b ++ `lawful, levelParams := [], type := lawTy, value := pf })
+      pure (b ++ `lawful)
+    | none => mkAuxLemma [] lawTy pf
   return { t with model, lawful := mkConst lname }
 
 /-! ## Data terms -/
@@ -325,10 +334,20 @@ def steps (t : Tbl) (udf : Udf) (ids ans : Array String) (vars : Std.HashMap Str
         ← list selTy sels, ← natList ps]
     | r => throwError "reflect: rule {r} not supported"
 
+/-- The reflection model's constants of state type `root`, `<root>.reflect.*`. -/
+def baseOf (root : Expr) : Option Name := root.constName?.map (· ++ `reflect)
+
 /-- Prove `target = complete P U` (literal form) by reflection, from UDF text. -/
+
 def prove (st : Dumper.State) (target : Expr) (udfText : String) : TermElabM Expr := do
   let t ← mkTbl st
-  let t ← mkModel t
+  let base := baseOf target.getAppArgs[0]!
+  let t ← match base with
+    | some b =>
+      if (← getEnv).contains (b ++ `model) then
+        pure { t with model := mkConst (b ++ `model), lawful := mkConst (b ++ `lawful) }
+      else mkModel t
+    | none => mkModel t
   let M := t.model
   let udf ← IO.ofExcept (Udf.parse udfText)
   let (ids, ans) ← IO.ofExcept (order udfText)
@@ -404,6 +423,14 @@ def prove (st : Dumper.State) (target : Expr) (udfText : String) : TermElabM Exp
       pf := mkAppN (mkConst ``And.intro) #[mkApp Pfun a, mkApp3 (mkConst ``Reflect.AllL [levelZero]) lansTy Pfun tl, hx, pf]
       rest := a :: rest
     return mkApp pre pf
+
+/-- `#reflect_model T`: the reflection model of state type `T`, once, as `T.reflect.model` and
+its laws `T.reflect.lawful` (otherwise each `udf_reflect` builds its own). -/
+elab "#reflect_model " t:term : command => Command.liftTermElabM do
+  let ty ← Term.elabType t
+  let some b := baseOf ty | throwError "#reflect_model: {ty} is not a constant"
+  let st ← Dumper.model ty
+  discard <| mkModel (← mkTbl st) (some b)
 
 /-- Prove a goal `complete P U` by reflection, from the certificate narrowing stored. -/
 elab "udf_reflect" : tactic => withMainContext do
