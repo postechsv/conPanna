@@ -54,10 +54,12 @@ itself; each rule is sound by the argument on the right.
 | `clash i` | `app f ≠ app g` | distinctness |
 | `ground i` | a position where constructors differ (recursively) | distinctness, injectivity |
 | `elim i x` | one side is `x`; `x` not in the other `t` | `ρ x = eval ρ t`, so `ρ[x ↦ eval t] = ρ`: the same `ρ` solves the premise, same image |
-| `cover a w` | `E = []`; `norm (α y) = norm (σₐ y)[w]` for every `y`; `w` respects sorts | the witness values `ν = eval ρ ∘ w` give `a := dec ν` |
+| `cover a w` | `E = []`; `α y = norm (σₐ y)[w]` for every `y`; `w` respects sorts; every binder variable occurs in `σₐ` | the witness values `ν = eval ρ ∘ w` give `a := dec ν` |
 | `acu-solve` | §3 | §3 |
 
 Premise states are normalized (`norm` after each substitution), sound by the norm lemma.
+Only the terms a substitution changes are renormalized (those holding the eliminated
+variable, or a bag variable of the ACU system); the others keep their value as they are.
 
 ## 3. `acu-solve` on a single row
 
@@ -65,8 +67,10 @@ The certificate gives unknowns `u₁…u_N` (bag variables of `bagSort f`, or al
 `elemSort f`), one row `r` with coefficients in {−1, 0, 1}, a basis and the selections, with
 fresh variables. Checked:
 
+0. **Sorts:** both sides of the equation have the bag sort; bag variables have the bag sort,
+   aliens the element sort.
 1. **Rows:** for every summand term `t` of the equation, `Σ_{j : uⱼ = t} rⱼ = count_L t −
-   count_R t`, and every `uⱼ` with `rⱼ ≠ 0` is a summand. Then for every element `e`, the
+   count_R t`, and every `uⱼ` is a summand. Then for every element `e`, the
    count vector `vⱼ = count_e(c uⱼ)` solves the row: `Σ rⱼ vⱼ = count_e(⟦L⟧) − count_e(⟦R⟧) = 0`.
 2. **Basis vectors** are nonzero, solve the row, alien entries ≤ 1.
 3. **Completeness (single row, exact):** every `eⱼ` with `rⱼ = 0`, and every `eᵢ + eⱼ` with
@@ -100,8 +104,20 @@ the literal form `udf_certify` already prepares. With `Tup [s₁,…,sₙ] := T 
 `ρ = enc γ` solving the initial state; the derivation reaches a `cover` with `ρ'` whose
 `α`-values are those of `γ`; the witness gives `a`, and `body a = γ` by `dec`.
 
-## 5. Risks
+## 5. In Lean
 
-* The `rfl` facts must stay cheap (mirroring makes them syntactic evaluation).
-* The checker evaluated by the kernel must stay fast (measured: ≈0.5 s per certificate).
-* Per-model laws are proved by case analysis, once per model.
+| file | contents |
+|---|---|
+| `Reflect/Core.lean` | data terms, models (`Model`, `Op`, `AcuOp`, laws `Model.Lawful`), evaluation |
+| `Reflect/Check.lean` | the checker `check` |
+| `Reflect/Eval.lean` | typing, locality, substitution, normalization, constructors, tuples |
+| `Reflect/AcuStep.lean`, `Reflect/AcuSound.lean` | the ACU step: completeness of one row, the row identity, the step |
+| `Reflect/Sound.lean` | `complete_of_check` |
+| `Reflect/Tactic.lean` | `udf_reflect`, `#reflect_model` |
+
+The model of a state type is generated from the constructor model `#dump_model` writes: one
+`Op` per constructor (its function and its inverse, both by pattern matching), a tag per
+constructor, and `id` as the bag isomorphism of each ACU sort; each law holds by `rfl`.
+`#reflect_model T` defines it once; otherwise `udf_reflect` builds it per obligation.
+`udf_reflect` assembles one proof term (`complete_of_check` with `Eq.refl true` for the checker
+and `rfl` for the mirrors) and lets the kernel alone check it, as `decide +kernel` does.
