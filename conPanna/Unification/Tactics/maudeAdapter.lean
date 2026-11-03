@@ -1,4 +1,4 @@
-import conPanna.Dumper
+import conPanna.Dumper.Base
 import conPanna.Unification.Unification
 import Expresso.core
 

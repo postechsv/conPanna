@@ -1,4 +1,4 @@
-import Reflect.Core
+import conPanna.Reflect.Core
 
 /-!
 The checker of UDF certificates over data terms (documentation/reflection-design.md).

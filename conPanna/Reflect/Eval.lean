@@ -1,4 +1,4 @@
-import Reflect.Check
+import conPanna.Reflect.Check
 import conPanna.Unification.Certification.Solve
 
 /-!
@@ -7,6 +7,8 @@ typing, locality, substitution.
 -/
 
 namespace Reflect
+
+universe u
 
 open Term
 

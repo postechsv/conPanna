@@ -88,7 +88,7 @@ set `ρ' = ρ[Z_k ↦ U_k]` (fresh, so `ρ'` agrees with `ρ` on the state). The
 solves the premise with the same image.
 
 Systems of other shapes (several rows, other coefficients) are not checked: `check` returns
-`false` and certification falls back to the replay.
+`false` and `udf_certify` falls back to the replay.
 
 ## 4. Bridge to the obligation
 
@@ -108,16 +108,18 @@ the literal form `udf_certify` already prepares. With `Tup [s₁,…,sₙ] := T 
 
 | file | contents |
 |---|---|
-| `Reflect/Core.lean` | data terms, models (`Model`, `Op`, `AcuOp`, laws `Model.Lawful`), evaluation |
-| `Reflect/Check.lean` | the checker `check` |
-| `Reflect/Eval.lean` | typing, locality, substitution, normalization, constructors, tuples |
-| `Reflect/AcuStep.lean`, `Reflect/AcuSound.lean` | the ACU step: completeness of one row, the row identity, the step |
-| `Reflect/Sound.lean` | `complete_of_check` |
-| `Reflect/Tactic.lean` | `udf_reflect`, `#reflect_model` |
+| `conPanna/Reflect/Core.lean` | data terms, models (`Model`, `Op`, `AcuOp`, laws `Model.Lawful`), evaluation |
+| `conPanna/Reflect/Check.lean` | the checker `check` |
+| `conPanna/Reflect/Eval.lean` | typing, locality, substitution, normalization, constructors, tuples |
+| `conPanna/Reflect/AcuStep.lean`, `conPanna/Reflect/AcuSound.lean` | the ACU step: completeness of one row, the row identity, the step |
+| `conPanna/Reflect/Sound.lean` | `complete_of_check` |
+| `conPanna/Reflect/Model.lean` | the reflection model of a state type, from its constructor model |
+| `conPanna/Reflect/Tactic.lean` | data terms, certificates as data, the proof (`udf_reflect`) |
 
 The model of a state type is generated from the constructor model `#dump_model` writes: one
 `Op` per constructor (its function and its inverse, both by pattern matching), a tag per
 constructor, and `id` as the bag isomorphism of each ACU sort; each law holds by `rfl`.
-`#reflect_model T` defines it once; otherwise `udf_reflect` builds it per obligation.
-`udf_reflect` assembles one proof term (`complete_of_check` with `Eq.refl true` for the checker
+`#dump_model T` defines it once (`T.reflect.model`). `udf_certify` tries reflection first and
+falls back to replay when the checker does not cover a certificate; `udf_reflect` tries only
+reflection and reports why it fails. Reflection assembles one proof term (`complete_of_check` with `Eq.refl true` for the checker
 and `rfl` for the mirrors) and lets the kernel alone check it, as `decide +kernel` does.

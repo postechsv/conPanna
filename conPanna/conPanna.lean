@@ -10,5 +10,5 @@ import conPanna.narrow
 
 /-! Everything: unification and its certification calculus, narrowing and the `narrow`
 tactic, the model dumper, the Maude tactics (unify with certificates, match), certificate
-replay (`udf_certify`), deferred obligations (`later`, `laterAx`), and subsumption by
+checking (`udf_certify`: by reflection, or by replay), deferred obligations (`later`, `laterAx`), and subsumption by
 matching. -/
