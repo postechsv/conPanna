@@ -2,7 +2,8 @@ import examples.German.proof
 import Reflect.Tactic
 
 set_option linter.style.longLine false
-set_option profiler true
+set_option udf_reflect.timing true
+#reflect_model German.Conf
 
 theorem R.sendReqS_inv.obligation_5 :
     Unification.complete (Narrowing.mayFire German.sendReqS German.ownG)

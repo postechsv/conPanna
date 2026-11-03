@@ -5,7 +5,7 @@ set_option linter.style.longLine false
 
 #reflect_model German.Conf
 
-set_option profiler true
+
 
 theorem R.sendReqS_inv.obligation_1 :
     Unification.complete (Narrowing.mayFire German.sendReqS German.freeP)
