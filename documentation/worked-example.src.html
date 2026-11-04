@@ -116,21 +116,24 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section id="setting">
 <h2><span class="num">1</span>What is certified</h2>
-<p>A <em>unification problem</em> is an equation $s \stackrel{?}{=} t$ between terms with variables. Terms are built from <em>free constructors</em> (only equal when their arguments are equal) and from <em>ACU operators</em>: a union $\cup$ that is associative, commutative and has a unit $\varnothing$. Terms of an ACU sort are therefore finite multisets. A <em>solution</em> assigns values to the variables that make both sides equal.</p>
-<p>A unifier $\sigma$ maps the variables to terms over fresh variables (its <em>binders</em>). Each value of the binders gives an <em>instance</em> of $\sigma$. A set $\Sigma$ of unifiers makes two claims:</p>
-<div class="env"><span class="label">Soundness.</span> Every instance of every $\sigma \in \Sigma$ is a solution.</div>
-<div class="env"><span class="label">Completeness.</span> Every solution is an instance of some $\sigma \in \Sigma$.</div>
+<p>A <em>unification problem</em> is an equation $s \stackrel{?}{=} t$ between terms with variables. Terms are built from <em>free constructors</em> (only equal when their arguments are equal) and from <em>ACU operators</em>: a union $\cup$ that is associative, commutative and has a unit $\varnothing$. Terms of an ACU sort are therefore finite multisets. A unifier $\sigma$ maps the problem's variables to terms over fresh variables, its <em>binders</em>. Write $\rho$ and $\tau$ for valuations, $=_{\mathrm{ACU}}$ for equality modulo ACU, and $\mathcal{V}$ for the variables of the problem. A set $\Sigma$ of unifiers makes two claims:</p>
+<div class="display">$$\begin{array}{lll}
+\textbf{Solution} & \rho \text{ solves } s \stackrel{?}{=} t & :\iff\ \rho(s) =_{\mathrm{ACU}} \rho(t)\\[4pt]
+\textbf{Soundness} & \mathrm{Sound}(\Sigma) & :\iff\ \forall \sigma \in \Sigma\ \forall \tau.\ \ \tau\sigma \text{ solves } s \stackrel{?}{=} t\\[4pt]
+\textbf{Completeness} & \mathrm{Complete}(\Sigma) & :\iff\ \forall \rho \text{ solving } s \stackrel{?}{=} t.\ \ \exists \sigma \in \Sigma\ \exists \tau.\ \ \rho =_{\mathrm{ACU}} \tau\sigma \text{ on } \mathcal{V}
+\end{array}$$</div>
 <p>Soundness is a direct computation: substitute each unifier into both sides and compare normal forms modulo ACU. Completeness speaks about all solutions, of which there are infinitely many, so it needs a proof. Maude supplies that proof as a <em>derivation</em>: a finite tree of rule applications that Lean checks rule by rule. Maude is not trusted: a wrong derivation is rejected by the checker.</p>
 </section>
 
 <section id="rules">
 <h2><span class="num">2</span>States, judgments and rules</h2>
-<dl class="gloss">
-  <dt>State</dt><dd>$\langle\alpha;\ E\rangle$. The list $E$ holds the equations still to solve. The substitution $\alpha$ records, for each variable of the original problem, the term it has become so far. A solution of the state is a valuation of its current variables that solves every equation of $E$. Through $\alpha$, it gives values to the original variables.</dd>
-  <dt>Judgment</dt><dd>$\langle\alpha;\ E\rangle \Vdash \Sigma$: for every solution of the state, the values $\alpha$ gives to the original variables form an instance of some unifier in $\Sigma$.</dd>
-  <dt>Claim</dt><dd>For a problem $E_0$, the root judgment is $\langle\mathrm{id};\ E_0\rangle \Vdash \Sigma$. It says exactly that $\Sigma$ is complete.</dd>
-  <dt>Normal form</dt><dd>Terms are compared modulo ACU by normalizing them: unions are flattened, $\varnothing$ is dropped, and the summands are sorted.</dd>
-</dl>
+<p>A <em>state</em> $\langle\alpha;\ E\rangle$ pairs a list $E$ of equations still to solve with a substitution $\alpha : \mathcal{V} \to \mathit{Terms}$ recording what each original variable has become.</p>
+<div class="display">$$\begin{array}{lll}
+\textbf{Solutions} & \mathrm{Sol}\langle\alpha;\ E\rangle & :=\ \{\rho \mid \rho(s) =_{\mathrm{ACU}} \rho(t) \text{ for every } (s \stackrel{?}{=} t) \in E\}\\[4pt]
+\textbf{Judgment} & \langle\alpha;\ E\rangle \Vdash \Sigma & :\iff\ \forall \rho \in \mathrm{Sol}\langle\alpha;\ E\rangle.\ \ \exists \sigma \in \Sigma\ \exists \tau.\ \ \rho\alpha =_{\mathrm{ACU}} \tau\sigma \text{ on } \mathcal{V}\\[4pt]
+\textbf{Claim} & \mathrm{Complete}(\Sigma) & \iff\ \langle\mathrm{id};\ s \stackrel{?}{=} t\rangle \Vdash \Sigma
+\end{array}$$</div>
+<p>Terms are compared modulo ACU through a normal form: unions flattened, $\varnothing$ dropped, summands sorted. For example, $(\{b\}\cup\varnothing)\cup\{a\}$ and $\{a\}\cup\{b\}$ have the same normal form $\{a\}\cup\{b\}$.</p>
 <p>A derivation proves the root judgment with the seven rules below. They are read from the bottom up: to prove the judgment below the line, prove every judgment above it. A rule with nothing above the line closes its branch. The condition on the right is the side condition that the checker verifies.</p>
 <p>Throughout, $f, g$ are free constructors, $x$ is a variable, $\epsilon$ is the empty list of equations, and $=_{\mathrm{ACU}}$ is equality modulo ACU. The equation a rule works on may sit anywhere in the list; it is written first only for readability.</p>
 <div class="rules">
@@ -166,28 +169,50 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 <section id="acu">
 <h2><span class="num">3</span>ACU-Solve</h2>
 <p>This is the only rule that reasons about multisets. It solves one equation $s \stackrel{?}{=} t$ whose sides are unions, by counting copies of elements.</p>
-<dl class="gloss">
-  <dt>Unknowns</dt><dd>The summands of the two sides, of two kinds. A <em>bag variable</em> is a variable of the multiset sort, and can hold any number of copies of an element. An <em>alien</em> is a summand that denotes a single element: a constructor term such as $f(Y)$ or $a$, or a variable of the element sort. A summand occurring identically on both sides may be cancelled; it then gets no unknown.</dd>
-  <dt>Row</dt><dd>Fix any element $e$. Write $v_j$ for the copies of $e$ in unknown $j$; for an alien, $v_j$ is $1$ if the alien equals $e$ and $0$ otherwise. The two sides contain $e$ equally often exactly when $\sum_j r_j v_j = 0$, where $r_j$ is how often unknown $j$ occurs on the left minus on the right. This single linear equation is the <em>row</em>.</dd>
-  <dt>Basis</dt><dd>The minimal nonzero solutions of the row, with alien entries at most $1$. A solution vector says how one element is shared among the unknowns. A basis vector with no alien is a way to share elements among bag variables; one with aliens says which aliens equal the element.</dd>
-  <dt>Selection</dt><dd>A set $S$ of basis vectors that contains every alien-free vector and covers every alien exactly once. Each selected alien-free vector $b$ gets a fresh bag variable $Z_b$: the multiset of elements shared the way $b$ says.</dd>
-</dl>
-<p>Each selection $S$ gives one premise. Its substitution $\theta_S$ maps every bag variable $x$ to the union, over the selected vectors $b$, of $b_x$ copies of the vector's <em>representative</em>: $Z_b$ for an alien-free vector, its first alien otherwise. Aliens that share a vector denote the same element. The pending equations $P_S$ equate each of them with that vector's representative.</p>
-<p>The checker verifies four things.</p>
+<p><b>Unknowns.</b> After cancelling summands that occur identically on both sides, the remaining summands are the unknowns $u_1, \ldots, u_n$. Each is either a <em>bag variable</em> (a variable of the multiset sort) or an <em>alien</em> (a term denoting one element: a constructor term such as $a$ or $f(Y)$, or a variable of the element sort). $\mathcal{A} \subseteq \{1..n\}$ is the set of aliens.</p>
+<p><b>Definitions.</b> Here $e_j$ is the $j$-th unit vector, $\leq$ is componentwise, and $k\cdot u$ is $k$ copies of $u$.</p>
+<div class="display">$$\begin{array}{lll}
+\textbf{Row} & r_j & :=\ \#_s(u_j) - \#_t(u_j) \qquad \text{(occurrences left minus right)}\\[4pt]
+\textbf{Count vector} & v(e)_j & :=\ \text{copies of element } e \text{ in } \rho(u_j)\\[4pt]
+\textbf{Admissible} & \mathrm{Adm} & :=\ \{v \in \mathbb{N}^n \setminus 0 \mid r \cdot v = 0,\ \ v_j \leq 1 \text{ for } j \in \mathcal{A}\}\\[4pt]
+\textbf{Alien-free} & B_0 & :=\ \{b \in B \mid b_j = 0 \text{ for all } j \in \mathcal{A}\}\\[4pt]
+\textbf{Selections} & \mathrm{Sel}(B) & :=\ \{S \subseteq B \mid B_0 \subseteq S,\ \ |\{b \in S \mid b_j = 1\}| = 1 \text{ for all } j \in \mathcal{A}\}\\[4pt]
+\textbf{Representative} & \mathrm{rep}(b) & :=\ \begin{cases} Z_b \text{ (fresh)} & b \in B_0\\ u_{\min\{j \in \mathcal{A} \mid b_j = 1\}} & \text{otherwise}\end{cases}\\[4pt]
+\textbf{Substitution} & \theta_S(u_j) & :=\ \textstyle\bigcup_{b \in S}\ b_j \cdot \mathrm{rep}(b) \qquad (u_j \text{ a bag variable})\\[4pt]
+\textbf{Pending} & P_S & :=\ \{u_j \stackrel{?}{=} \mathrm{rep}(b) \mid b \in S,\ j \in \mathcal{A},\ b_j = 1,\ u_j \neq \mathrm{rep}(b)\}
+\end{array}$$</div>
+<p>Then $\rho$ solves $s \stackrel{?}{=} t$ iff $r \cdot v(e) = 0$ for every element $e$, and every nonzero $v(e)$ is in $\mathrm{Adm}$. The basis $B$ is given in the certificate. The checker verifies:</p>
 <ol class="flow">
-  <li><b>Row.</b> The coefficients count each summand's occurrences, left minus right.</li>
-  <li><b>Basis.</b> Every basis vector is nonzero, solves the row, and has alien entries at most $1$.</li>
-  <li><b>Completeness of the basis.</b> Every nonzero solution lies componentwise above some basis vector. With coefficients in $\{-1, 0, 1\}$ this is a finite test. Each unit vector $e_j$ with $r_j = 0$, and each sum $e_i + e_j$ with $r_i = 1$, $r_j = -1$, must lie above a basis vector, unless $i, j$ are two aliens with different top constructors (they cannot be the same element). The test suffices because a nonzero solution $v$ has some $v_k \geq 1$. If $r_k = 0$ then $v \geq e_k$. If $r_k = 1$, the row forces some $v_j \geq 1$ with $r_j = -1$, so $v \geq e_k + e_j$; the case $r_k = -1$ is symmetric.</li>
-  <li><b>Selections.</b> Every legal selection is listed, and its fresh variables are new.</li>
+  <li><b>Row.</b> $r$ is computed as above, and $r \in \{-1, 0, 1\}^n$.</li>
+  <li><b>Basis.</b> $B \subseteq \mathrm{Adm}$.</li>
+  <li><b>Completeness of the basis</b>, as a finite test. Here $\mathrm{clash}(i, j)$ means $i, j \in \mathcal{A}$ have different top constructors.
+    <div class="display">$$\begin{array}{ll}
+    \text{(C1)} & r_j = 0 \ \Longrightarrow\ \exists b \in B.\ b \leq e_j\\[2pt]
+    \text{(C2)} & r_i = 1,\ r_j = -1,\ \neg\mathrm{clash}(i, j) \ \Longrightarrow\ \exists b \in B.\ b \leq e_i + e_j
+    \end{array}$$</div></li>
+  <li><b>Selections.</b> The listed selections are exactly $\mathrm{Sel}(B)$, and their $Z_b$ are fresh.</li>
 </ol>
-<div class="env"><span class="label">Why no solution is lost.</span> Take a solution of the state. For each element $e$, its count vector solves the row. By check 3 it lies above a basis vector; subtract that vector and repeat, until the count vector is written as a sum of basis vectors. Every alien equals exactly one element, so it appears in exactly one of these decompositions, in exactly one vector. The alien vectors used therefore form, together with all alien-free vectors, a legal selection $S$. Let $Z_b$ collect the elements whose decomposition uses $b$, with multiplicity; an unused alien-free vector gets $Z_b = \varnothing$, which is why ACU's unit matters. With these values, $\theta_S$ gives every bag variable its value in the solution, and the aliens of each used vector are equal. So the solution is a solution of premise $S$, with the same values for the original variables.</div>
+<div class="env"><span class="label">Lemma 1.</span> Under (C1) and (C2), every nonzero count vector $v = v(e)$ lies above some $b \in B$.<br>
+<i>Proof.</i> Pick $k$ with $v_k \geq 1$. If $r_k = 0$, then $v \geq e_k$. If $r_k = 1$, then $r \cdot v = 0$ forces some $j$ with $r_j = -1$ and $v_j \geq 1$, so $v \geq e_k + e_j$. Here $\neg\mathrm{clash}(k, j)$ holds, since both unknowns equal $e$. The case $r_k = -1$ is symmetric. ∎</div>
+<div class="env"><span class="label">Lemma 2 (no solution is lost).</span> If $\rho \in \mathrm{Sol}\langle\alpha;\ s \stackrel{?}{=} t,\ E\rangle$, then for some $S \in \mathrm{Sel}(B)$ and some values $\rho'(Z_b)$: $\ \rho' \in \mathrm{Sol}\langle\theta_S\alpha;\ P_S,\ \theta_S E\rangle$ and $\rho'\theta_S\alpha = \rho\alpha$.<br>
+<i>Proof.</i> By Lemma 1, applied repeatedly, $v(e) = \sum_{b \in D(e)} b$ for a multiset $D(e)$ over $B$. Each alien $j$ equals exactly one element, so exactly one $b$ across all $D(e)$ has $b_j = 1$. Let $S := B_0 \cup \{\text{those } b\}$, which is in $\mathrm{Sel}(B)$. Let $\rho'(Z_b) := \biguplus_e (\#_{D(e)} b) \cdot e$, which is $\varnothing$ when $b$ is unused. Then $\rho'(\theta_S(u_j)) = \rho(u_j)$ for every bag variable, and $\rho(u_j) = \rho(\mathrm{rep}(b))$ for every pending equation. ∎</div>
 <div class="note"><b>Example</b><br>$X\cup\{a\} \stackrel{?}{=} Y$. Unknowns $(X, a, Y)$ with row $x + [e{=}a] - y = 0$, so $r = (1, 1, -1)$. The pairs to test are $(X, Y)$ and $(a, Y)$; the basis is exactly these two vectors, $b_1 = (1,0,1)$ and $b_2 = (0,1,1)$. The only legal selection is $\{b_1, b_2\}$. It gives $X := Z$ and $Y := Z\cup\{a\}$: every element of $Y$ is either one of $X$ or the $a$.</div>
 </section>
 
 <section id="why">
 <h2><span class="num">4</span>Why a derivation proves completeness</h2>
-<p>Every rule has the same kind of justification. Each solution of a node's state is, after giving values to any fresh variables, a solution of one of its premises, and $\alpha$ gives the original variables the same values there. <span class="rn">Clash</span> and <span class="rn">Ground</span> close states that have no solution. <span class="rn">Cover</span> shows that the values $\alpha$ gives are an instance of an answer.</p>
-<p>So a solution of the root travels down the tree, one rule at a time, until it reaches a leaf, and every leaf is covered by an answer. The tree does not have to say in advance which path a solution takes; each rule only guarantees that some premise receives it. The derivation is finite and given, so checking it is a terminating computation.</p>
+<div class="env"><span class="label">Lemma 3 (local soundness).</span> For every rule instance with conclusion $\langle\alpha;\ E\rangle$ and premises $\langle\alpha_i;\ E_i\rangle$:
+<div class="display">$$\forall \rho \in \mathrm{Sol}\langle\alpha;\ E\rangle.\ \ \exists i\ \exists \rho' \in \mathrm{Sol}\langle\alpha_i;\ E_i\rangle.\ \ \rho'\alpha_i =_{\mathrm{ACU}} \rho\alpha$$</div>
+<i>Proof by rule.</i> For <span class="rn">Delete</span>, <span class="rn">Decomp</span> and <span class="rn">Elim</span>, take $\rho' = \rho$. For <span class="rn">ACU-Solve</span>, use Lemma 2. For <span class="rn">Clash</span> and <span class="rn">Ground</span>, $\mathrm{Sol} = \emptyset$, so the claim holds vacuously. ∎</div>
+<div class="env"><span class="label">Theorem.</span> If every step of a derivation checks, then every node's judgment holds; in particular $\mathrm{Complete}(\Sigma)$.<br>
+<i>Proof.</i> Induction on the tree, from the leaves up.
+<ul class="flow">
+  <li><b>Cover leaf:</b> $\rho\alpha =_{\mathrm{ACU}} \rho\sigma[w] = (\rho w)\sigma$, so $\tau := \rho w$.</li>
+  <li><b>Clash or Ground leaf:</b> $\mathrm{Sol} = \emptyset$.</li>
+  <li><b>Inner node:</b> Lemma 3 hands $\rho$ to some premise, and that premise's judgment gives $\sigma$ and $\tau$ with $\tau\sigma =_{\mathrm{ACU}} \rho'\alpha_i =_{\mathrm{ACU}} \rho\alpha$.</li>
+</ul>
+∎</div>
+<p>The tree need not say which branch a given solution takes. The derivation is finite and given, so checking it terminates.</p>
 </section>
 
 <div class="part">
@@ -360,7 +385,16 @@ abbrev    Baskets := ACU Basket      -- finite multisets of baskets</code></pre>
 <tr><td>$f(\{a,b\})$</td><td>$(0,0,1,1,0,0)$</td><td>6</td><td>it is $C$, and it is in $R$</td></tr>
 </tbody></table></div>
 <p>Vectors $0$ and $3$ are not used, so $Z_5 = Z_6 = \varnothing$. The selection is $\{0, 2, 3, 4, 6\}$, which leads to $s_3$, covered by $\sigma_1$ with $Z_1 = Z_2 = \varnothing$.</p>
-<p>A second solution takes a merging branch. Let $X = W = \{b\}$, $Y = \varnothing$, $R = T = \varnothing$ and $S = \{f(\varnothing)\}$. Then $A = C = f(\{a,b\})$ and $B = f(\varnothing)$. The element $f(\{a,b\})$ has count vector $(0,0,1,0,0,1)$, which is vector $8$, and $f(\varnothing)$ uses vector $1$. The selection $\{0, 1, 3, 8\}$ leads to $s_{11}$. There, the fruit $b$ has count vector $(1,1)$ in $(X, W)$, so $Z_{15} = \{b\}$, and $s_{13}$ is covered by $\sigma_6$.</p>
+<p>A second solution takes a merging branch:</p>
+<div class="display">$$\gamma' = [X{\mapsto}\{b\},\ Y{\mapsto}\varnothing,\ W{\mapsto}\{b\},\ R{\mapsto}\varnothing,\ S{\mapsto}\{f(\varnothing)\},\ T{\mapsto}\varnothing], \qquad A = C = f(\{a,b\}),\ \ B = f(\varnothing)$$</div>
+<div class="tablewrap"><table>
+<thead><tr><th>Node</th><th>Element</th><th>Count vector</th><th>Basis vector</th><th>Reading</th></tr></thead>
+<tbody>
+<tr><td class="j">s0</td><td>$f(\{a,b\})$</td><td>$(0,0,1,0,0,1)$ over $(S,T,C,R,B,A)$</td><td>8</td><td>it is both $C$ and $A$</td></tr>
+<tr><td class="j">s0</td><td>$f(\varnothing)$</td><td>$(1,0,0,0,1,0)$</td><td>1</td><td>it is $B$, and it is in $S$</td></tr>
+<tr><td class="j">s12</td><td>$b$</td><td>$(1,1)$ over $(X, W)$</td><td>0</td><td>it is in both $X$ and $W$</td></tr>
+</tbody></table></div>
+<p>The path is selection $\{0, 1, 3, 8\} \to s_{11} \to s_{12}$, with $Z_{15} = \{b\}$, then $s_{13}$, covered by $\sigma_6$.</p>
 </section>
 
 <section id="udf">
