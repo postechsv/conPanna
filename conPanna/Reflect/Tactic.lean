@@ -137,7 +137,7 @@ def order (text : String) : Except String (Array String × Array String) := do
 
 /-- The certificate's steps as data. -/
 def steps (t : Tbl) (udf : Udf) (ids ans : Array String) (vars : Std.HashMap String (Nat × Nat))
-    (binderSorts : Array (Array Nat)) : MetaM (List Expr) := do
+    (binderSorts : Array (Array Nat)) (sortsE : Expr) : MetaM (List Expr) := do
   let vidx (n : String) : MetaM (Nat × Nat) := do
     let some v := vars[n]? | throwError "reflect: unknown variable {n}"
     return v
@@ -173,7 +173,10 @@ def steps (t : Tbl) (udf : Udf) (ids ans : Array String) (vars : Std.HashMap Str
     | "acu-solve" =>
       let some (f, _) := t.acuName[(kw a ":op").get!.atom!]? | throwError "reflect: unknown ACU operator"
       let i := (kw a ":eqs").get!.items[0]!.nat!
-      let unk ← (kw a ":unknowns").get!.items.toList.mapM (term none)
+      -- in normal form, as the checker compares them with the state's summands (an alien
+      -- may hold ACU subterms, which the producer orders its own way)
+      let unk ← (kw a ":unknowns").get!.items.toList.mapM fun x => do
+        return mkAppN (mkConst ``Reflect.norm) #[t.model, sortsE, ← term none x]
       let alien := (kw a ":bounds").get!.items.toList.map fun b =>
         if b.atom! == "1" then mkConst ``Bool.true else mkConst ``Bool.false
       let rows := (kw a ":rows").get!.items
@@ -312,9 +315,10 @@ elab "certify_comp" : tactic => withMainContext do
           if !vars.contains z.atom! then
             vars := vars.insert z.atom! (sorts.size, t.acus[f]!.1)
             sorts := sorts.push t.acus[f]!.1
-  let stepsE ← steps t udf ids ans vars m.binderSorts
+  let sortsE ← natList sorts.toList
+  let stepsE ← steps t udf ids ans vars m.binderSorts sortsE
   let c := mkAppN (mkConst ``Reflect.Cert.mk)
-    #[m.claim, ← natList sorts.toList, ← list (mkConst ``Reflect.Rule) stepsE]
+    #[m.claim, sortsE, ← list (mkConst ``Reflect.Rule) stepsE]
   let hc := mkApp2 (mkConst ``Eq.refl [levelOne]) (mkConst ``Bool) (mkConst ``Bool.true)
   closeByKernel goal target
     (mkAppN (mkConst ``Reflect.complete_of_check) #[t.model, t.lawful, c, hc, m.bridge])

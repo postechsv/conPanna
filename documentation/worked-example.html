@@ -11,7 +11,7 @@ window.MathJax = {
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg-full.js"></script>
 <style>
-/* Layout: the paper draft's reading column; the proof tree is the one wide figure. */
+/* Layout: a single reading column like a paper; the proof tree and the certificate text are the wide figures. */
 :root {
   --paper: #fbfcfd;
   --ink: #1b2330;
@@ -19,8 +19,6 @@ window.MathJax = {
   --rule: #d9dee6;
   --accent: #23518c;
   --tint: #eef2f8;
-  --warn: #8a5a00;
-  --warn-tint: #fbf3e2;
   --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
   --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -28,13 +26,13 @@ window.MathJax = {
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #12161d; --ink: #e3e7ee; --muted: #9aa4b5; --rule: #2b3340;
-    --accent: #8fb4e6; --tint: #1a212c; --warn: #e2b866; --warn-tint: #2a2416;
+    --accent: #8fb4e6; --tint: #1a212c;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #12161d; --ink: #e3e7ee; --muted: #9aa4b5; --rule: #2b3340;
-  --accent: #8fb4e6; --tint: #1a212c; --warn: #e2b866; --warn-tint: #2a2416;
+  --accent: #8fb4e6; --tint: #1a212c;
   color-scheme: dark;
 }
 html { background: var(--paper); }
@@ -50,6 +48,9 @@ header.front { display: grid; gap: .6rem; padding-bottom: 1.6rem; border-bottom:
 .kicker { font-family: var(--sans); font-size: .74rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 h1 { font-size: clamp(1.7rem, 4.4vw, 2.35rem); line-height: 1.18; margin: 0; font-weight: 700; text-wrap: balance; }
 .lede { margin: 0; color: var(--muted); }
+.part { margin-top: 3.4rem; padding-top: .9rem; border-top: 3px double var(--rule); }
+.part .kicker { color: var(--accent); }
+.part h2.parttitle { font-size: 1.65rem; margin: .2rem 0 .3rem; }
 section { position: relative; margin-top: 2.6rem; }
 h2 { font-size: 1.42rem; margin: 0 0 .7rem; line-height: 1.25; text-wrap: balance; }
 h3 { font-size: 1.1rem; margin: 1.8rem 0 .5rem; text-wrap: balance; }
@@ -67,11 +68,9 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 code { font-family: var(--mono); font-size: .88em; }
 pre { font-family: var(--mono); font-size: .86rem; line-height: 1.55; background: var(--tint); padding: .9rem 1rem; border-radius: 4px; overflow-x: auto; margin: 1rem 0; }
 pre code { font-size: inherit; }
-/* The derivation: wider than the text column, with the font sized so its longest line
-   (138 characters, about 83em in the mono face) fits; it scrolls only below a floor. */
 pre.deriv {
   width: min(calc(100vw - 48px), 64rem); position: relative; left: 50%; transform: translateX(-50%);
-  font-size: clamp(.5rem, calc((min(100vw, 64rem) - 64px) / 84), .78rem); line-height: 1.5;
+  font-size: clamp(.55rem, calc((min(100vw, 64rem) - 64px) / 84), .8rem); line-height: 1.5;
   white-space: pre; box-sizing: border-box;
 }
 pre.deriv .sup, .deriv-key .sup { color: var(--accent); font-weight: 600; }
@@ -82,18 +81,21 @@ table { border-collapse: collapse; width: 100%; font-size: .93rem; }
 th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
 th { font-family: var(--sans); font-size: .76rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 td.j { font-family: var(--sans); font-weight: 600; color: var(--accent); white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.c { text-align: center; font-variant-numeric: tabular-nums; }
 figure.tree { margin: 1.6rem 0; }
 figure.tree .scroll { overflow-x: auto; padding: 1rem .5rem; background: var(--tint); border-radius: 4px; color: var(--ink); text-align: center; }
-figure.tree svg { display: inline-block; font-size: 1.05rem; }
-.t-edge { stroke: var(--muted); stroke-width: 1.2; }
-.t-branch { font-family: var(--serif); font-style: italic; font-size: 12px; fill: var(--accent); }
-.t-j { font-family: var(--serif); font-style: italic; font-size: 16px; fill: var(--ink); }
-.t-sub { font-size: 11px; }
+figure.tree svg { display: inline-block; width: 100%; min-width: 40rem; max-width: 56rem; height: auto; }
+.t-edge { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+.t-branch { font-family: var(--serif); font-style: italic; font-size: 12.5px; fill: var(--accent); }
+.t-j { font-family: var(--serif); font-style: italic; font-size: 15px; fill: var(--ink); }
 .t-rule { font-family: var(--sans); font-weight: 600; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; fill: var(--muted); }
+.t-sub { font-family: var(--sans); font-size: 10px; fill: var(--muted); }
 figcaption { font-size: .93rem; color: var(--muted); margin-top: .6rem; }
 dl.gloss { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: .55rem 1rem; }
 dl.gloss dt { font-weight: 600; }
 dl.gloss dd { margin: 0; }
+ol.flow { padding-left: 1.3rem; }
+ol.flow li { margin: .35rem 0; }
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem; }
 @media (min-width: 62rem) {
   h2 .num { position: absolute; left: -3rem; width: 2.4rem; text-align: right; margin: 0; }
@@ -106,237 +108,329 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <main>
 <header class="front">
-  <span class="kicker">Companion to the paper draft · Worked example</span>
+  <span class="kicker">Certified unification modulo ACU · Worked example</span>
   <h1>Fruits in Baskets: One Certificate from Root to Leaves</h1>
-  <p class="lede">The paper presents the calculus one rule at a time. This page follows a single complete certificate: the whole proof tree first, then one instance of each rule, chosen to show the most.</p>
+  <p class="lede">Maude computes complete sets of unifiers modulo associativity, commutativity and identity (ACU). This page explains how such a set is certified complete: Maude writes a derivation in a small proof calculus, and Lean checks it. Part I introduces the calculus. Part II follows one certificate from its root to its leaves.</p>
 </header>
 
+<div class="part">
+<span class="kicker">Part I</span>
+<h2 class="parttitle">The calculus</h2>
+</div>
+
+<section id="setting">
+<h2><span class="num">1</span>What is certified</h2>
+<p>A <em>unification problem</em> is an equation $s \stackrel{?}{=} t$ between terms with variables. Terms are built from <em>free constructors</em> (only equal when their arguments are equal) and from <em>ACU operators</em>: a union $\cup$ that is associative, commutative and has a unit $\varnothing$. Terms of an ACU sort are therefore finite multisets. A <em>solution</em> assigns values to the variables that make both sides equal.</p>
+<p>A unifier $\sigma$ maps the variables to terms over fresh variables (its <em>binders</em>). Each value of the binders gives an <em>instance</em> of $\sigma$. A set $\Sigma$ of unifiers makes two claims:</p>
+<div class="env"><span class="label">Soundness.</span> Every instance of every $\sigma \in \Sigma$ is a solution.</div>
+<div class="env"><span class="label">Completeness.</span> Every solution is an instance of some $\sigma \in \Sigma$.</div>
+<p>Soundness is a direct computation: substitute each unifier into both sides and compare normal forms modulo ACU. Completeness speaks about all solutions, of which there are infinitely many, so it needs a proof. Maude supplies that proof as a <em>derivation</em>: a finite tree of rule applications that Lean checks rule by rule. Maude is not trusted: a wrong derivation is rejected by the checker.</p>
+</section>
+
+<section id="rules">
+<h2><span class="num">2</span>States, judgments and rules</h2>
+<dl class="gloss">
+  <dt>State</dt><dd>$\langle\alpha;\ E\rangle$. The list $E$ holds the equations still to solve. The substitution $\alpha$ records, for each variable of the original problem, the term it has become so far. A solution of the state is a valuation of its current variables that solves every equation of $E$. Through $\alpha$, it gives values to the original variables.</dd>
+  <dt>Judgment</dt><dd>$\langle\alpha;\ E\rangle \Vdash \Sigma$: for every solution of the state, the values $\alpha$ gives to the original variables form an instance of some unifier in $\Sigma$.</dd>
+  <dt>Claim</dt><dd>For a problem $E_0$, the root judgment is $\langle\mathrm{id};\ E_0\rangle \Vdash \Sigma$. It says exactly that $\Sigma$ is complete.</dd>
+  <dt>Normal form</dt><dd>Terms are compared modulo ACU by normalizing them: unions are flattened, $\varnothing$ is dropped, and the summands are sorted.</dd>
+</dl>
+<p>A derivation proves the root judgment with seven rules. Each rule takes the state at a node and either closes it or gives the states of its children (premises). The checker computes each premise state itself and checks the rule's side condition. Examples use the free constructor $f$, the constants $a, b$, and variables $X, Y, W, Z$ for multisets; $g$ is a binary free constructor, used only to illustrate <span class="rn">Ground</span>.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Rule</th><th>Applies to</th><th>Premises</th><th>Checked</th><th>Tiny example</th></tr></thead>
+<tbody>
+<tr><td><span class="rn">Delete</span></td><td>$s \stackrel{?}{=} t$</td><td>$\langle\alpha;\ E\rangle$</td><td>$s = t$ modulo ACU</td><td>$X\cup\{a\} \stackrel{?}{=} \{a\}\cup X$ is dropped</td></tr>
+<tr><td><span class="rn">Decomp</span></td><td>$f(s_1..s_n) \stackrel{?}{=} f(t_1..t_n)$</td><td>$\langle\alpha;\ s_i\stackrel{?}{=}t_i,\ E\rangle$</td><td>same free constructor</td><td>$f(\{a\}\cup X) \stackrel{?}{=} f(\{a\}\cup W)$ becomes $\{a\}\cup X \stackrel{?}{=} \{a\}\cup W$</td></tr>
+<tr><td><span class="rn">Clash</span></td><td>$f(\ldots) \stackrel{?}{=} g(\ldots)$</td><td>none: closed</td><td>different constructors</td><td>$a \stackrel{?}{=} b$ has no solution</td></tr>
+<tr><td><span class="rn">Ground</span></td><td>$s \stackrel{?}{=} t$</td><td>none: closed</td><td>following equal constructors down, two different constructors meet</td><td>$g(a, X) \stackrel{?}{=} g(b, Y)$ has no solution</td></tr>
+<tr><td><span class="rn">Elim</span></td><td>$x \stackrel{?}{=} t$</td><td>$\langle\alpha[x{:=}t];\ E[x{:=}t]\rangle$</td><td>$x$ does not occur in $t$</td><td>$Y \stackrel{?}{=} \{a\}\cup W$: replace $Y$ by $\{a\}\cup W$ everywhere</td></tr>
+<tr><td><span class="rn">ACU-Solve</span></td><td>$s \stackrel{?}{=} t$ of a multiset sort</td><td>one per selection (§3)</td><td>the row, the basis, its completeness, the selections (§3)</td><td>$X\cup\{a\} \stackrel{?}{=} Y$ gives $X := Z,\ Y := Z\cup\{a\}$</td></tr>
+<tr><td><span class="rn">Cover</span></td><td>$E$ empty</td><td>none: closed</td><td>$\alpha = \sigma[w]$ modulo ACU, for an answer $\sigma\in\Sigma$ and a witness $w$</td><td>$\alpha = [X{\mapsto}Z,\ Y{\mapsto}Z\cup\{a\}]$ is $\sigma = [X{\mapsto}U,\ Y{\mapsto}\{a\}\cup U]$ with $w = [U{\mapsto}Z]$</td></tr>
+</tbody></table></div>
+<p>The witness $w$ in <span class="rn">Cover</span> gives values to the binders of $\sigma$ in terms of the state's variables. <span class="rn">Ground</span> is a shortcut for a run of <span class="rn">Decomp</span> steps ending in <span class="rn">Clash</span>.</p>
+</section>
+
+<section id="acu">
+<h2><span class="num">3</span>ACU-Solve</h2>
+<p>This is the only rule that reasons about multisets. It solves one equation $s \stackrel{?}{=} t$ whose sides are unions, by counting copies of elements.</p>
+<dl class="gloss">
+  <dt>Unknowns</dt><dd>The summands of the two sides, of two kinds. A <em>bag variable</em> is a variable of the multiset sort, and can hold any number of copies of an element. An <em>alien</em> is a summand that denotes a single element: a constructor term such as $f(Y)$ or $a$, or a variable of the element sort. A summand occurring identically on both sides may be cancelled; it then gets no unknown.</dd>
+  <dt>Row</dt><dd>Fix any element $e$. Write $v_j$ for the copies of $e$ in unknown $j$; for an alien, $v_j$ is $1$ if the alien equals $e$ and $0$ otherwise. The two sides contain $e$ equally often exactly when $\sum_j r_j v_j = 0$, where $r_j$ is how often unknown $j$ occurs on the left minus on the right. This single linear equation is the <em>row</em>.</dd>
+  <dt>Basis</dt><dd>The minimal nonzero solutions of the row, with alien entries at most $1$. A solution vector says how one element is shared among the unknowns. A basis vector with no alien is a way to share elements among bag variables; one with aliens says which aliens equal the element.</dd>
+  <dt>Selection</dt><dd>A set $S$ of basis vectors that contains every alien-free vector and covers every alien exactly once. Each selected alien-free vector $b$ gets a fresh bag variable $Z_b$: the multiset of elements shared the way $b$ says.</dd>
+</dl>
+<p>Each selection gives one premise. Its substitution $\theta_S$ maps every bag variable $x$ to the union, over the selected vectors $b$, of $b_x$ copies of the vector's <em>representative</em>: $Z_b$ for an alien-free vector, its first alien otherwise. Aliens that share a vector denote the same element, so the premise adds an equation between each of them and the representative:</p>
+<div class="display">$$\langle\alpha;\ s \stackrel{?}{=} t,\ E\rangle \quad\leadsto\quad \langle\theta_S\alpha;\ \text{(aliens of a vector} \stackrel{?}{=} \text{its representative)},\ \theta_S E\rangle \qquad\text{for each selection } S$$</div>
+<p>The checker verifies four things.</p>
+<ol class="flow">
+  <li><b>Row.</b> The coefficients count each summand's occurrences, left minus right.</li>
+  <li><b>Basis.</b> Every basis vector is nonzero, solves the row, and has alien entries at most $1$.</li>
+  <li><b>Completeness of the basis.</b> Every nonzero solution lies componentwise above some basis vector. With coefficients in $\{-1, 0, 1\}$ this is a finite test. Each unit vector $e_j$ with $r_j = 0$, and each sum $e_i + e_j$ with $r_i = 1$, $r_j = -1$, must lie above a basis vector, unless $i, j$ are two aliens with different top constructors (they cannot be the same element). The test suffices because a nonzero solution $v$ has some $v_k \geq 1$. If $r_k = 0$ then $v \geq e_k$. If $r_k = 1$, the row forces some $v_j \geq 1$ with $r_j = -1$, so $v \geq e_k + e_j$; the case $r_k = -1$ is symmetric.</li>
+  <li><b>Selections.</b> Every legal selection is listed, and its fresh variables are new.</li>
+</ol>
+<div class="env"><span class="label">Why no solution is lost.</span> Take a solution of the state. For each element $e$, its count vector solves the row. By check 3 it lies above a basis vector; subtract that vector and repeat, until the count vector is written as a sum of basis vectors. Every alien equals exactly one element, so it appears in exactly one of these decompositions, in exactly one vector. The alien vectors used therefore form, together with all alien-free vectors, a legal selection $S$. Let $Z_b$ collect the elements whose decomposition uses $b$, with multiplicity; an unused alien-free vector gets $Z_b = \varnothing$, which is why ACU's unit matters. With these values, $\theta_S$ gives every bag variable its value in the solution, and the aliens of each used vector are equal. So the solution is a solution of premise $S$, with the same values for the original variables.</div>
+<div class="note"><b>Example</b><br>$X\cup\{a\} \stackrel{?}{=} Y$. Unknowns $(X, a, Y)$ with row $x + [e{=}a] - y = 0$, so $r = (1, 1, -1)$. The pairs to test are $(X, Y)$ and $(a, Y)$; the basis is exactly these two vectors, $b_1 = (1,0,1)$ and $b_2 = (0,1,1)$. The only legal selection is $\{b_1, b_2\}$. It gives $X := Z$ and $Y := Z\cup\{a\}$: every element of $Y$ is either one of $X$ or the $a$.</div>
+</section>
+
+<section id="why">
+<h2><span class="num">4</span>Why a derivation proves completeness</h2>
+<p>Every rule has the same kind of justification. Each solution of a node's state is, after giving values to any fresh variables, a solution of one of its premises, and $\alpha$ gives the original variables the same values there. <span class="rn">Clash</span> and <span class="rn">Ground</span> close states that have no solution. <span class="rn">Cover</span> shows that the values $\alpha$ gives are an instance of an answer.</p>
+<p>So a solution of the root travels down the tree, one rule at a time, until it reaches a leaf, and every leaf is covered by an answer. The tree does not have to say in advance which path a solution takes; each rule only guarantees that some premise receives it. The derivation is finite and given, so checking it is a terminating computation.</p>
+</section>
+
+<div class="part">
+<span class="kicker">Part II</span>
+<h2 class="parttitle">One certificate</h2>
+</div>
+
 <section id="problem">
-<h2><span class="num">1</span>The problem</h2>
-<pre><code>inductive Fruit  | a | b | c
-abbrev    Fruits  := ACU Fruit       -- finite multisets of Fruit
+<h2><span class="num">5</span>The problem</h2>
+<pre><code>inductive Fruit  | a | b
+abbrev    Fruits  := ACU Fruit       -- finite multisets of fruits
 inductive Basket | f (x : Fruits)    -- f: a free constructor
-abbrev    Baskets := ACU Basket      -- finite multisets of Basket</code></pre>
-<p>$\mathsf{ACU}\ S$ has $\varnothing$, singletons $\{s\}$ and union $\cup$ (associative, commutative, unit $\varnothing$). Variables: $X, Y, W : \mathsf{Fruits}$ and $R, S, T : \mathsf{Baskets}$.</p>
+abbrev    Baskets := ACU Basket      -- finite multisets of baskets</code></pre>
+<p>Variables: $X, Y, W : \mathsf{Fruits}$ and $R, S, T : \mathsf{Baskets}$. The problem asks for two multisets of baskets to be equal:</p>
 <div class="display">$$R\cup\{\underbrace{f(\{a\}\cup X)}_{A}\}\cup\{\underbrace{f(Y)}_{B}\} \;\stackrel{?}{=}\; S\cup T\cup\{\underbrace{f(\{a\}\cup W)}_{C}\}$$</div>
-<p>A solution, used again in §5:</p>
+<p>The labels $A$, $B$, $C$ name the three baskets written in the problem; they are used throughout. A solution, followed down the tree in §10:</p>
 <div class="display">$$\gamma = [X{\mapsto}\varnothing,\ Y{\mapsto}\{b\},\ W{\mapsto}\{b\},\ R{\mapsto}\{f(\{a,b\})\},\ S{\mapsto}\{f(\{a\})\},\ T{\mapsto}\{f(\{b\})\}]$$</div>
-<p>Both sides are $\{f(\{a\}),\ f(\{b\}),\ f(\{a,b\})\}$. Maude returns 112 answers; the certificate uses 8 of them, one per <span class="rn">Cover</span> leaf.</p>
-<p>Claim (the root): $\langle \mathrm{id};\ E;\ \varnothing\rangle \Vdash \Sigma$, where $E$ is the equation above: every solution is an instance of some answer in $\Sigma$.</p>
+<p>Both sides are $\{f(\{a\}),\ f(\{b\}),\ f(\{a,b\})\}$. Maude returns eight unifiers $\Sigma = \{\sigma_0, \ldots, \sigma_7\}$. Below, each has binders $Z_1, Z_2$ (fresh baskets) and the original variables it leaves unchanged.</p>
+<div class="tablewrap"><table>
+<thead><tr><th></th><th>Shape</th><th>$R$</th><th>$S$</th><th>$T$</th><th>Also</th></tr></thead>
+<tbody>
+<tr><td class="j">σ0</td><td>$C$ from $R$; $A, B$ into $S$</td><td>$Z_1\cup Z_2\cup\{C\}$</td><td>$Z_1\cup\{A\}\cup\{B\}$</td><td>$Z_2$</td><td></td></tr>
+<tr><td class="j">σ1</td><td>$C$ from $R$; $A$ into $S$, $B$ into $T$</td><td>$Z_1\cup Z_2\cup\{C\}$</td><td>$Z_1\cup\{A\}$</td><td>$Z_2\cup\{B\}$</td><td></td></tr>
+<tr><td class="j">σ2</td><td>$C$ from $R$; $B$ into $S$, $A$ into $T$</td><td>$Z_1\cup Z_2\cup\{C\}$</td><td>$Z_1\cup\{B\}$</td><td>$Z_2\cup\{A\}$</td><td></td></tr>
+<tr><td class="j">σ3</td><td>$C$ from $R$; $A, B$ into $T$</td><td>$Z_1\cup Z_2\cup\{C\}$</td><td>$Z_1$</td><td>$Z_2\cup\{A\}\cup\{B\}$</td><td></td></tr>
+<tr><td class="j">σ4</td><td>$B = C$; $A$ into $S$</td><td>$Z_1\cup Z_2$</td><td>$Z_1\cup\{A\}$</td><td>$Z_2$</td><td>$Y\mapsto\{a\}\cup W$</td></tr>
+<tr><td class="j">σ5</td><td>$B = C$; $A$ into $T$</td><td>$Z_1\cup Z_2$</td><td>$Z_1$</td><td>$Z_2\cup\{A\}$</td><td>$Y\mapsto\{a\}\cup W$</td></tr>
+<tr><td class="j">σ6</td><td>$A = C$; $B$ into $S$</td><td>$Z_1\cup Z_2$</td><td>$Z_1\cup\{B\}$</td><td>$Z_2$</td><td>$X\mapsto W$</td></tr>
+<tr><td class="j">σ7</td><td>$A = C$; $B$ into $T$</td><td>$Z_1\cup Z_2$</td><td>$Z_1$</td><td>$Z_2\cup\{B\}$</td><td>$X\mapsto W$</td></tr>
+</tbody></table></div>
+<p>The claim to prove is $\langle\mathrm{id};\ E_0\rangle \Vdash \Sigma$, with $E_0$ the equation above.</p>
 </section>
 
 <section id="tree">
-<h2><span class="num">2</span>The proof tree</h2>
+<h2><span class="num">6</span>The proof tree</h2>
 <figure class="tree">
-<div class="scroll" role="img" aria-label="Proof tree: J1 Identify splits into B = C (J2 Decomp, J3 Elim, J4 Solve with two Cover leaves) and B ≠ C (J7 Identify, which splits into A = C: J8 Decomp, J9 Solve, J10 Solve with two Cover leaves; and A ≠ C: J13 Solve with four Cover leaves).">
-<svg viewBox="0 0 666 392" width="666" height="392" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><line x1="230.5" y1="42.0" x2="87.0" y2="72.0" class="t-edge"/><text x="153.8" y="61.0" text-anchor="end" class="t-branch">B = C</text><line x1="87.0" y1="104.0" x2="87.0" y2="134.0" class="t-edge"/><line x1="87.0" y1="166.0" x2="87.0" y2="196.0" class="t-edge"/><line x1="87.0" y1="228.0" x2="46.0" y2="258.0" class="t-edge"/><text x="61.5" y="247.0" text-anchor="end" class="t-branch">π₁</text><text x="46.0" y="272.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">5</tspan></text><text x="46.0" y="286.0" text-anchor="middle" class="t-rule">Cover</text><line x1="87.0" y1="228.0" x2="128.0" y2="258.0" class="t-edge"/><text x="112.5" y="247.0" text-anchor="start" class="t-branch">π₂</text><text x="128.0" y="272.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">6</tspan></text><text x="128.0" y="286.0" text-anchor="middle" class="t-rule">Cover</text><text x="87.0" y="210.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">4</tspan></text><text x="87.0" y="224.0" text-anchor="middle" class="t-rule">Solve</text><text x="87.0" y="148.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">3</tspan></text><text x="87.0" y="162.0" text-anchor="middle" class="t-rule">Elim</text><text x="87.0" y="86.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">2</tspan></text><text x="87.0" y="100.0" text-anchor="middle" class="t-rule">Decomp</text><line x1="230.5" y1="42.0" x2="374.0" y2="72.0" class="t-edge"/><text x="307.2" y="61.0" text-anchor="start" class="t-branch">B ≠ C</text><line x1="374.0" y1="104.0" x2="251.0" y2="134.0" class="t-edge"/><text x="307.5" y="123.0" text-anchor="end" class="t-branch">A = C</text><line x1="251.0" y1="166.0" x2="251.0" y2="196.0" class="t-edge"/><line x1="251.0" y1="228.0" x2="251.0" y2="258.0" class="t-edge"/><line x1="251.0" y1="290.0" x2="210.0" y2="320.0" class="t-edge"/><text x="225.5" y="309.0" text-anchor="end" class="t-branch">π₁</text><text x="210.0" y="334.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">11</tspan></text><text x="210.0" y="348.0" text-anchor="middle" class="t-rule">Cover</text><line x1="251.0" y1="290.0" x2="292.0" y2="320.0" class="t-edge"/><text x="276.5" y="309.0" text-anchor="start" class="t-branch">π₂</text><text x="292.0" y="334.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">12</tspan></text><text x="292.0" y="348.0" text-anchor="middle" class="t-rule">Cover</text><text x="251.0" y="272.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">10</tspan></text><text x="251.0" y="286.0" text-anchor="middle" class="t-rule">Solve</text><text x="251.0" y="210.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">9</tspan></text><text x="251.0" y="224.0" text-anchor="middle" class="t-rule">Solve</text><text x="251.0" y="148.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">8</tspan></text><text x="251.0" y="162.0" text-anchor="middle" class="t-rule">Decomp</text><line x1="374.0" y1="104.0" x2="497.0" y2="134.0" class="t-edge"/><text x="440.5" y="123.0" text-anchor="start" class="t-branch">A ≠ C</text><line x1="497.0" y1="166.0" x2="374.0" y2="196.0" class="t-edge"/><text x="430.5" y="185.0" text-anchor="end" class="t-branch">π₁</text><text x="374.0" y="210.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">14</tspan></text><text x="374.0" y="224.0" text-anchor="middle" class="t-rule">Cover</text><line x1="497.0" y1="166.0" x2="456.0" y2="196.0" class="t-edge"/><text x="471.5" y="185.0" text-anchor="end" class="t-branch">π₂</text><text x="456.0" y="210.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">15</tspan></text><text x="456.0" y="224.0" text-anchor="middle" class="t-rule">Cover</text><line x1="497.0" y1="166.0" x2="538.0" y2="196.0" class="t-edge"/><text x="522.5" y="185.0" text-anchor="start" class="t-branch">π₃</text><text x="538.0" y="210.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">16</tspan></text><text x="538.0" y="224.0" text-anchor="middle" class="t-rule">Cover</text><line x1="497.0" y1="166.0" x2="620.0" y2="196.0" class="t-edge"/><text x="563.5" y="185.0" text-anchor="start" class="t-branch">π₄</text><text x="620.0" y="210.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">17</tspan></text><text x="620.0" y="224.0" text-anchor="middle" class="t-rule">Cover</text><text x="497.0" y="148.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">13</tspan></text><text x="497.0" y="162.0" text-anchor="middle" class="t-rule">Solve</text><text x="374.0" y="86.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">7</tspan></text><text x="374.0" y="100.0" text-anchor="middle" class="t-rule">Identify</text><text x="230.5" y="24.0" text-anchor="middle" class="t-j">J<tspan class="t-sub" dy="4">1</tspan></text><text x="230.5" y="38.0" text-anchor="middle" class="t-rule">Identify</text></svg>
+<div class="scroll" role="img" aria-label="Proof tree. The root s0 is ACU-Solve on Baskets with eight selections. Four lead directly to Cover leaves s1 to s4 (answers σ0, σ2, σ1, σ3). Two merge C with B: Decomp then Elim Y then Cover (s5–s7 with σ4, s8–s10 with σ5). Two merge C with A: Decomp then ACU-Solve on Fruits then Cover (s11–s13 with σ6, s14–s16 with σ7).">
+<svg viewBox="0 0 890 322" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <text class="t-j" x="445" y="20" text-anchor="middle">s0</text>
+  <text class="t-rule" x="445" y="36" text-anchor="middle">ACU-Solve · Baskets</text>
+  <g class="t-edge">
+    <path d="M445 44 L60 98"/><path d="M445 44 L170 98"/><path d="M445 44 L280 98"/><path d="M445 44 L390 98"/>
+    <path d="M445 44 L500 98"/><path d="M445 44 L610 98"/><path d="M445 44 L720 98"/><path d="M445 44 L830 98"/>
+    <path d="M500 182 L500 206"/><path d="M610 182 L610 206"/><path d="M720 182 L720 206"/><path d="M830 182 L830 206"/>
+    <path d="M500 250 L500 272"/><path d="M610 250 L610 272"/><path d="M720 258 L720 272"/><path d="M830 258 L830 272"/>
+  </g>
+  <g class="t-branch" text-anchor="middle">
+    <text x="60" y="116">A, B → S</text><text x="60" y="131">C ← R</text>
+    <text x="170" y="116">B → S, A → T</text><text x="170" y="131">C ← R</text>
+    <text x="280" y="116">A → S, B → T</text><text x="280" y="131">C ← R</text>
+    <text x="390" y="116">A, B → T</text><text x="390" y="131">C ← R</text>
+    <text x="500" y="116">C = B</text><text x="500" y="131">A → S</text>
+    <text x="610" y="116">C = B</text><text x="610" y="131">A → T</text>
+    <text x="720" y="116">C = A</text><text x="720" y="131">B → S</text>
+    <text x="830" y="116">C = A</text><text x="830" y="131">B → T</text>
+  </g>
+  <g text-anchor="middle">
+    <text class="t-j" x="60" y="158">s1</text><text class="t-rule" x="60" y="174">Cover σ0</text>
+    <text class="t-j" x="170" y="158">s2</text><text class="t-rule" x="170" y="174">Cover σ2</text>
+    <text class="t-j" x="280" y="158">s3</text><text class="t-rule" x="280" y="174">Cover σ1</text>
+    <text class="t-j" x="390" y="158">s4</text><text class="t-rule" x="390" y="174">Cover σ3</text>
+    <text class="t-j" x="500" y="158">s5</text><text class="t-rule" x="500" y="174">Decomp</text>
+    <text class="t-j" x="610" y="158">s8</text><text class="t-rule" x="610" y="174">Decomp</text>
+    <text class="t-j" x="720" y="158">s11</text><text class="t-rule" x="720" y="174">Decomp</text>
+    <text class="t-j" x="830" y="158">s14</text><text class="t-rule" x="830" y="174">Decomp</text>
+    <text class="t-j" x="500" y="224">s6</text><text class="t-rule" x="500" y="240">Elim Y</text>
+    <text class="t-j" x="610" y="224">s9</text><text class="t-rule" x="610" y="240">Elim Y</text>
+    <text class="t-j" x="720" y="224">s12</text><text class="t-rule" x="720" y="240">ACU-Solve</text><text class="t-sub" x="720" y="252">on Fruits</text>
+    <text class="t-j" x="830" y="224">s15</text><text class="t-rule" x="830" y="240">ACU-Solve</text><text class="t-sub" x="830" y="252">on Fruits</text>
+    <text class="t-j" x="500" y="290">s7</text><text class="t-rule" x="500" y="306">Cover σ4</text>
+    <text class="t-j" x="610" y="290">s10</text><text class="t-rule" x="610" y="306">Cover σ5</text>
+    <text class="t-j" x="720" y="290">s13</text><text class="t-rule" x="720" y="306">Cover σ6</text>
+    <text class="t-j" x="830" y="290">s16</text><text class="t-rule" x="830" y="306">Cover σ7</text>
+  </g>
+</svg>
 </div>
-<figcaption>Read from the root $J_1$ down. Each node is a judgment $\langle\alpha;E;D\rangle\Vdash\Sigma$ and the rule that proves it from its children. <span class="rn">Identify</span> branches on whether two aliens are equal; <span class="rn">Solve</span> branches on its choices $\pi_i$; every branch ends in <span class="rn">Cover</span>.</figcaption>
+<figcaption>Read from the root $s_0$ down; node names are the step names of the certificate text (§11). The root solves the basket equation and has one premise per selection. A selection either sends each of $A, B$ into $S$ or $T$ and takes $C$ from $R$, or it makes $C$ equal to $B$ or to $A$, leaving one equation between two baskets to solve. Every branch ends in <span class="rn">Cover</span>.</figcaption>
 </figure>
 <div class="tablewrap"><table>
-<thead><tr><th></th><th>Branch</th><th>Rule</th><th>Explained in</th></tr></thead>
+<thead><tr><th>Nodes</th><th>Rule</th><th>Explained in</th></tr></thead>
 <tbody>
-<tr><td class="j">J1</td><td>root</td><td><span class="rn">Identify</span> $B\sim C$</td><td>§4.1</td></tr>
-<tr><td class="j">J2, J3</td><td>$B = C$</td><td><span class="rn">Decomp</span>, <span class="rn">Elim</span> $Y := \{a\}\cup W$</td><td>§4.2</td></tr>
-<tr><td class="j">J4</td><td>$B = C$</td><td><span class="rn">Solve</span>: $C$ cancels, $A$ to $S$ or $T$</td><td>(like §4.3, simpler)</td></tr>
-<tr><td class="j">J7</td><td>$B \ne C$</td><td><span class="rn">Identify</span> $A\sim C$</td><td>(like §4.1)</td></tr>
-<tr><td class="j">J8, J9</td><td>$B\ne C$, $A = C$</td><td><span class="rn">Decomp</span>, then <span class="rn">Solve</span> inside $f$</td><td>§4.4</td></tr>
-<tr><td class="j">J10</td><td>$B\ne C$, $A = C$</td><td><span class="rn">Solve</span>: $C$ cancels, $B$ to $S$ or $T$</td><td>(like §4.3, simpler)</td></tr>
-<tr><td class="j">J13</td><td>$B\ne C$, $A \ne C$</td><td><span class="rn">Solve</span>: every part of the rule</td><td>§4.3</td></tr>
-<tr><td class="j">leaves</td><td>one per choice</td><td><span class="rn">Cover</span></td><td>§4.5</td></tr>
+<tr><td class="j">s0</td><td><span class="rn">ACU-Solve</span> on baskets, 8 selections</td><td>§7</td></tr>
+<tr><td class="j">s5, s6</td><td>$C = B$: <span class="rn">Decomp</span>, <span class="rn">Elim</span> $Y := \{a\}\cup W$</td><td>§8.1</td></tr>
+<tr><td class="j">s11, s12</td><td>$C = A$: <span class="rn">Decomp</span>, <span class="rn">ACU-Solve</span> on fruits</td><td>§8.2</td></tr>
+<tr><td class="j">leaves</td><td><span class="rn">Cover</span></td><td>§9</td></tr>
 </tbody></table></div>
+<p>The branches $s_8$–$s_{10}$ and $s_{14}$–$s_{16}$ repeat $s_5$–$s_7$ and $s_{11}$–$s_{13}$ with the other basket going into $T$.</p>
 </section>
 
-<section id="concepts">
-<h2><span class="num">3</span>The ideas the tree uses</h2>
-<dl class="gloss">
-  <dt>State</dt><dd>$\langle\alpha;E;D\rangle$: $\alpha$ maps the original variables to terms over the current variables, $E$ lists the pending equations and $D$ the recorded disequations. Its solutions are the values of the current variables that satisfy $E$ and $D$; each one gives the solution $\alpha$ of the original problem.</dd>
-  <dt>Judgment</dt><dd>$\langle\alpha;E;D\rangle\Vdash\Sigma$: every solution of the state is covered by some answer in $\Sigma$.</dd>
-  <dt>Alien</dt><dd>An element of a multiset that is not a variable: the fruit $a$ inside a basket, or a whole basket such as $A$ among the baskets. <span class="rn">Solve</span> treats aliens as opaque elements and counts their copies.</dd>
-  <dt>Count equation</dt><dd>For a multiset equation and one element $e$, the copies of $e$ on each side must agree. With $r, s, t$ the copies of $e$ in $R, S, T$, the problem gives $r + [e{=}A] + [e{=}B] = s + t + [e{=}C]$, where $[e{=}A]$ is $1$ if $e$ is $A$, else $0$.</dd>
-  <dt>Data $P$, $\mathcal B$</dt><dd>For each alien $c$, the least solutions $P_c$ of its count equation; and the basis $\mathcal B$, the least nonzero solutions where no alien occurs. Every solution is one particular solution plus a sum of basis vectors.</dd>
-  <dt>Choice, $\theta_\pi$</dt><dd>A choice $\pi$ picks one particular solution per alien. It determines the substitution $\theta_\pi$: each multiset variable gets $\pi$'s copies of the aliens plus one fresh variable $Z_j$ per basis vector. <span class="rn">Solve</span> has one premise per choice.</dd>
-  <dt>Compatible, clique</dt><dd>Two aliens on the same side are compatible when nothing rules out that they are equal. A clique is a set of pairwise compatible aliens; they may all denote one element, so their count equations are added together, and (S2) is checked for that sum.</dd>
-  <dt>(S1)–(S3)</dt><dd>(S1) the data solve the count equations; (S2) every solution, for every clique, lies above some sum of picks; (S3) every nonzero solution without aliens lies above some basis vector. Together they say no solution is lost.</dd>
-  <dt>Cover</dt><dd>Closes a state with no pending equations: one answer $\sigma$ and a witness $\beta$ with $\alpha = \beta\circ\sigma$ modulo ACU.</dd>
-</dl>
-<div class="note"><b>Not in this tree</b> <span class="rn">Delete</span> drops a trivial equation $t \stackrel{?}{=} t$. <span class="rn">Clash</span> closes a state whose constraints contradict each other, for example $0 \stackrel{?}{=} \mathsf{s}(N)$ for numbers, or a disequation $t \ne t$. A <span class="rn">Solve</span> can also have no premise at all, when some alien has no particular solution: $\{f(X)\} \stackrel{?}{=} \{f(Y)\}$ with $f(X)\ne f(Y)$ recorded in $D$ gives $1 = 0$ at $e = f(X)$, so $P_{f(X)} = \varnothing$, there is no choice, and the branch is closed.</div>
+<section id="root">
+<h2><span class="num">7</span>The root: ACU-Solve on baskets</h2>
+<p><b>Unknowns.</b> The bag variables $R, S, T$ and the aliens $A, B, C$, listed in the certificate's order $(S, T, C, R, B, A)$. Vectors below use this order.</p>
+<p><b>Row.</b> For an element $e$, with $r, s, t$ its copies in $R, S, T$:</p>
+<div class="display">$$r + [e{=}A] + [e{=}B] \;=\; s + t + [e{=}C], \qquad\text{coefficients } (S, T, C, R, B, A) = (-1, -1, -1, 1, 1, 1).$$</div>
+<p><b>Basis.</b> Nine vectors. Each pairs one unknown of the left side with one of the right side:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>#</th><th class="c">S</th><th class="c">T</th><th class="c">C</th><th class="c">R</th><th class="c">B</th><th class="c">A</th><th>Reading</th></tr></thead>
+<tbody>
+<tr><td class="j">0</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td>an element in both $S$ and $R$ (alien-free)</td></tr>
+<tr><td class="j">1</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td>$B$ goes into $S$</td></tr>
+<tr><td class="j">2</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td>$A$ goes into $S$</td></tr>
+<tr><td class="j">3</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td>an element in both $T$ and $R$ (alien-free)</td></tr>
+<tr><td class="j">4</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td>$B$ goes into $T$</td></tr>
+<tr><td class="j">5</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td>$A$ goes into $T$</td></tr>
+<tr><td class="j">6</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td>$C$ comes from $R$</td></tr>
+<tr><td class="j">7</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td>$C$ and $B$ are the same basket</td></tr>
+<tr><td class="j">8</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td class="c">0</td><td class="c">0</td><td class="c">1</td><td>$C$ and $A$ are the same basket</td></tr>
+</tbody></table></div>
+<p><b>Checks.</b></p>
+<ol class="flow">
+  <li><b>Row.</b> $R, A, B$ occur once on the left, and $S, T, C$ once on the right.</li>
+  <li><b>Basis.</b> Each vector has one $1$ at a coefficient $+1$ and one at a coefficient $-1$, so it solves the row, and alien entries are at most $1$.</li>
+  <li><b>Completeness.</b> No coefficient is $0$, so there is no unit vector to test. The pairs to test are one of $R, B, A$ with one of $S, T, C$: nine pairs. No two of $A, B, C$ clash, since all three have top constructor $f$. Each pair is a basis vector itself. ✓</li>
+  <li><b>Selections.</b> A legal selection contains vectors $0$ and $3$ and covers each of $C$, $B$, $A$ exactly once. $C$ is covered by vector $6$, $7$ or $8$:
+    <ul>
+      <li>with $6$: $B$ by $1$ or $4$, and $A$ by $2$ or $5$, giving 4 selections;</li>
+      <li>with $7$, which also covers $B$: $A$ by $2$ or $5$, giving 2 selections;</li>
+      <li>with $8$, which also covers $A$: $B$ by $1$ or $4$, giving 2 selections.</li>
+    </ul>
+    These 8 are exactly the ones listed. ✓</li>
+</ol>
+<p><b>Premises.</b> Each selection's substitution, with fresh $Z$'s for vectors $0$ and $3$:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Node</th><th>Selection</th><th>$R$</th><th>$S$</th><th>$T$</th><th>Pending</th></tr></thead>
+<tbody>
+<tr><td class="j">s1</td><td>0 1 2 3 6</td><td>$Z_1\cup Z_2\cup\{C\}$</td><td>$Z_1\cup\{B\}\cup\{A\}$</td><td>$Z_2$</td><td>none</td></tr>
+<tr><td class="j">s2</td><td>0 1 3 5 6</td><td>$Z_3\cup Z_4\cup\{C\}$</td><td>$Z_3\cup\{B\}$</td><td>$Z_4\cup\{A\}$</td><td>none</td></tr>
+<tr><td class="j">s3</td><td>0 2 3 4 6</td><td>$Z_5\cup Z_6\cup\{C\}$</td><td>$Z_5\cup\{A\}$</td><td>$Z_6\cup\{B\}$</td><td>none</td></tr>
+<tr><td class="j">s4</td><td>0 3 4 5 6</td><td>$Z_7\cup Z_8\cup\{C\}$</td><td>$Z_7$</td><td>$Z_8\cup\{B\}\cup\{A\}$</td><td>none</td></tr>
+<tr><td class="j">s5</td><td>0 2 3 7</td><td>$Z_9\cup Z_{10}$</td><td>$Z_9\cup\{A\}$</td><td>$Z_{10}$</td><td>$B \stackrel{?}{=} C$</td></tr>
+<tr><td class="j">s8</td><td>0 3 5 7</td><td>$Z_{11}\cup Z_{12}$</td><td>$Z_{11}$</td><td>$Z_{12}\cup\{A\}$</td><td>$B \stackrel{?}{=} C$</td></tr>
+<tr><td class="j">s11</td><td>0 1 3 8</td><td>$Z_{13}\cup Z_{14}$</td><td>$Z_{13}\cup\{B\}$</td><td>$Z_{14}$</td><td>$A \stackrel{?}{=} C$</td></tr>
+<tr><td class="j">s14</td><td>0 3 4 8</td><td>$Z_{16}\cup Z_{17}$</td><td>$Z_{16}$</td><td>$Z_{17}\cup\{B\}$</td><td>$A \stackrel{?}{=} C$</td></tr>
+</tbody></table></div>
+<p>In the last four rows, $C$ shares a vector with $B$ or $A$. The two baskets cancel between the sides, so neither appears in $R$, $S$ or $T$, and they must be equal: that is the pending equation, with $C$ (the vector's first alien) as the representative.</p>
 </section>
 
-<section id="nodes">
-<h2><span class="num">4</span>One instance of each rule</h2>
-<p>Each instance is shown as its rule: premises above the line, the node's state below. Labels used throughout:</p>
-<div class="display">$$A = f(\{a\}\cup X),\quad B = f(Y),\quad C = f(\{a\}\cup W),\qquad E = \bigl(R\cup\{A\}\cup\{B\} \stackrel{?}{=} S\cup T\cup\{C\}\bigr).$$</div>
-<p>For a multiset equation, $r, s, t$ are the copies of an element $e$ in $R, S, T$, and $[e{=}A]$ is $1$ if $e = A$, else $0$.</p>
-
-<h3><span class="num">4.1</span><span class="rn">Identify</span>: $J_1$</h3>
-<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ B\stackrel{?}{=}C,\ E;\ \varnothing\rangle}^{J_2}\qquad\overbrace{\langle\mathrm{id};\ E;\ B\ne C\rangle}^{J_7}}{\underbrace{\langle\mathrm{id};\ E;\ \varnothing\rangle}_{J_1}}\ \textsf{Identify}$$</div>
-<p class="where">where $E = \bigl(R\cup\{A\}\cup\{B\} \stackrel{?}{=} S\cup T\cup\{C\}\bigr)$, $\ B = f(Y)$, $\ C = f(\{a\}\cup W)$.</p>
-<p>$B$ (left) and $C$ (right) are equal exactly when $Y = \{a\}\cup W$. If equal, they cancel; if not, $C$ must be matched by something else. The count depends on which, so split. $J_7$ splits $A\sim C$ the same way. ($A$ and $B$ are on the same side: no split, they form a clique in §4.3.)</p>
-
-<h3><span class="num">4.2</span><span class="rn">Decomp</span> and <span class="rn">Elim</span>: $J_2$, $J_3$</h3>
-<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ Y\stackrel{?}{=}\{a\}\cup W,\ E;\ \varnothing\rangle}^{J_3}}{\underbrace{\langle\mathrm{id};\ f(Y)\stackrel{?}{=}f(\{a\}\cup W),\ E;\ \varnothing\rangle}_{J_2}}\ \textsf{Decomp}\qquad f\text{ is injective.}$$</div>
-<p class="where">where $E$ is carried along unchanged.</p>
-<div class="display">$$\frac{\overbrace{\langle[Y{\mapsto}\{a\}\cup W];\ R\cup\{A\}\cup\{C\}\stackrel{?}{=}S\cup T\cup\{C\};\ \varnothing\rangle}^{J_4}}{\underbrace{\langle\mathrm{id};\ Y\stackrel{?}{=}\{a\}\cup W,\ E;\ \varnothing\rangle}_{J_3}}\ \textsf{Elim}\qquad B[Y{:=}\{a\}\cup W] = C.$$</div>
-<p class="where">where $E = \bigl(R\cup\{A\}\cup\{B\} \stackrel{?}{=} S\cup T\cup\{C\}\bigr)$ with $B = f(Y)$; substituting $Y := \{a\}\cup W$ turns $B$ into $C = f(\{a\}\cup W)$.</p>
-
-<h3><span class="num">4.3</span><span class="rn">Solve</span>, every part: $J_{13}$</h3>
-<div class="display">$$\frac{\overbrace{\langle\theta_{\pi_1};\ \varnothing;\ D\rangle}^{J_{14}}\quad\overbrace{\langle\theta_{\pi_2};\ \varnothing;\ D\rangle}^{J_{15}}\quad\overbrace{\langle\theta_{\pi_3};\ \varnothing;\ D\rangle}^{J_{16}}\quad\overbrace{\langle\theta_{\pi_4};\ \varnothing;\ D\rangle}^{J_{17}}}{\underbrace{\langle\mathrm{id};\ R\cup\{A\}\cup\{B\}\stackrel{?}{=}S\cup T\cup\{C\};\ \ D = \{B\ne C,\ A\ne C\}\rangle}_{J_{13}}}\ \textsf{Solve}$$</div>
-<p class="where">where $A = f(\{a\}\cup X)$, $\ B = f(Y)$, $\ C = f(\{a\}\cup W)$; the multiset variables are $(R, S, T)$; $\theta_{\pi_i}$ is in the last table below.</p>
-<div class="env"><span class="label">Count equations.</span> With $(r, s, t)$ the copies of $e$ in $(R, S, T)$:
-$$r + [e{=}A] + [e{=}B] = s + t + [e{=}C]$$
-<div class="tablewrap"><table>
-<thead><tr><th>$e$</th><th>count equation</th><th>least solutions</th></tr></thead>
-<tbody>
-<tr><td>$A$ only</td><td>$r + 1 = s + t$</td><td>$P_A = \{(0,1,0),\ (0,0,1)\}$: $A$ goes to $S$ or to $T$</td></tr>
-<tr><td>$B$ only</td><td>$r + 1 = s + t$</td><td>$P_B = \{(0,1,0),\ (0,0,1)\}$: $B$ goes to $S$ or to $T$</td></tr>
-<tr><td>$C$ only</td><td>$r = s + t + 1$</td><td>$P_C = \{(1,0,0)\}$: $C$ must come from $R$</td></tr>
-<tr><td>other</td><td>$r = s + t$</td><td>$\mathcal B = \{b_1 = (1,1,0),\ b_2 = (1,0,1)\}$ $\to$ fresh $Z_1$ (in $R$ and $S$), $Z_2$ (in $R$ and $T$)</td></tr>
-<tr><td>$A = B$</td><td>$r + 2 = s + t$</td><td>$(0,2,0),\ (0,1,1),\ (0,0,2)$</td></tr>
-</tbody></table></div></div>
-<div class="env"><span class="label">Compatibility.</span> $D$ says $A\ne C$ and $B\ne C$, so $C$ is compatible with nothing: it cannot cancel, which is why $P_C$ puts it in $R$. Nothing rules out $A = B$ (it holds when $Y = \{a\}\cup X$), so $\{A, B\}$ is a clique.</div>
-<div class="env"><span class="label">(S1)</span> Each vector solves its equation: $0 + 1 = 1 + 0 = 0 + 1$ for $P_A, P_B$; $\ 1 = 0 + 0 + 1$ for $P_C$; $\ 1 = 1 + 0 = 0 + 1$ for $b_1, b_2$. ✓</div>
-<div class="env"><span class="label">(S2) for the clique $\{A, B\}$.</span> If $A = B$, one element carries both copies: $r + 2 = s + t$. Its least solutions must be sums of picks $p_A + p_B$:
-$$(0,1,0)+(0,1,0) = (0,2,0),\qquad (0,1,0)+(0,0,1) = (0,1,1),\qquad (0,0,1)+(0,0,1) = (0,0,2).\ ✓$$
-Without this check, solutions with $Y = \{a\}\cup X$ could be lost.</div>
-<div class="env"><span class="label">(S3)</span> $r = s + t,\ (r,s,t) \ne 0\ \Rightarrow\ s \ge 1 \lor t \ge 1\ \Rightarrow\ \ge b_1 \lor \ge b_2$. ✓</div>
-<div class="env"><span class="label">Choices.</span> $\pi = (p_A, p_B, p_C) \in P_A\times P_B\times P_C$: four choices ($p_C$ is fixed). Read each vector as copies in $(R, S, T)$, and each basis vector as a fresh variable in those places:
-<div class="tablewrap"><table>
-<thead><tr><th></th><th>$A$ to</th><th>$B$ to</th><th>$R$</th><th>$S$</th><th>$T$</th></tr></thead>
-<tbody>
-<tr><td>$\pi_1$</td><td>$S$</td><td>$S$</td><td rowspan="4">$Z_1\cup Z_2\cup\{C\}$</td><td>$Z_1\cup\{A\}\cup\{B\}$</td><td>$Z_2$</td></tr>
-<tr><td>$\pi_2$</td><td>$S$</td><td>$T$</td><td>$Z_1\cup\{A\}$</td><td>$Z_2\cup\{B\}$</td></tr>
-<tr><td>$\pi_3$</td><td>$T$</td><td>$S$</td><td>$Z_1\cup\{B\}$</td><td>$Z_2\cup\{A\}$</td></tr>
-<tr><td>$\pi_4$</td><td>$T$</td><td>$T$</td><td>$Z_1$</td><td>$Z_2\cup\{A\}\cup\{B\}$</td></tr>
-</tbody></table></div>
-$J_4$ and $J_{10}$ are the same rule with less in it: there the right-hand alien equals a left-hand one and cancels ($p = (0,0,0)$), and only one alien chooses $S$ or $T$.</div>
-
-<h3><span class="num">4.4</span><span class="rn">Solve</span> inside $f$: $J_8$, $J_9$</h3>
-<p>In the branch $B\ne C$, $A = C$, <span class="rn">Decomp</span> opens the baskets, and the equation inside is itself a multiset equation, over fruits:</p>
-<div class="display">$$\frac{\overbrace{\langle\mathrm{id};\ \{a\}\cup X\stackrel{?}{=}\{a\}\cup W,\ E;\ B\ne C\rangle}^{J_9}}{\underbrace{\langle\mathrm{id};\ f(\{a\}\cup X)\stackrel{?}{=}f(\{a\}\cup W),\ E;\ B\ne C\rangle}_{J_8}}\ \textsf{Decomp}$$</div>
-<p class="where">where $E = \bigl(R\cup\{A\}\cup\{B\} \stackrel{?}{=} S\cup T\cup\{C\}\bigr)$ is carried along.</p>
-<div class="display">$$\frac{\overbrace{\langle[X{\mapsto}Z_1,\ W{\mapsto}Z_1];\ R\cup\{B\}\cup\{C'\}\stackrel{?}{=}S\cup T\cup\{C'\};\ B\ne C'\rangle}^{J_{10}}}{\underbrace{\langle\mathrm{id};\ \{a\}\cup X\stackrel{?}{=}\{a\}\cup W,\ E;\ B\ne C\rangle}_{J_9}}\ \textsf{Solve}$$</div>
-<p class="where">where $E = \bigl(R\cup\{A\}\cup\{B\} \stackrel{?}{=} S\cup T\cup\{C\}\bigr)$; under $X, W := Z_1$ both $A$ and $C$ become $C' = f(\{a\}\cup Z_1)$.</p>
-<div class="env"><span class="label">Data at $J_9$.</span> With $(x, w)$ the copies of a fruit $e$ in $(X, W)$:
-$$x + [e{=}a] = w + [e{=}a]:\qquad e = a:\ x + 1 = w + 1,\ \ P_a = \{(0,0)\};\qquad \text{other}:\ x = w,\ \ \mathcal B = \{(1,1)\}\ \to\ Z_1.$$
-One choice: $X, W := Z_1$. The answer of this inner <span class="rn">Solve</span> rewrites the outer equation, and the next <span class="rn">Solve</span> ($J_{10}$) runs on the result.</div>
-
-<h3><span class="num">4.5</span><span class="rn">Cover</span>: $J_{15}$</h3>
-<div class="display">$$\frac{}{\underbrace{\langle\theta_{\pi_2};\ \varnothing;\ D\rangle}_{J_{15}}}\ \textsf{Cover}\ \sigma_{31},\qquad \beta = [U_1{\mapsto}Y,\ U_2{\mapsto}X,\ U_3{\mapsto}W,\ U_4{\mapsto}Z_1,\ U_5{\mapsto}Z_2]$$</div>
-<p class="where">where $\theta_{\pi_2} = [R{\mapsto}Z_1\cup Z_2\cup\{C\},\ S{\mapsto}Z_1\cup\{A\},\ T{\mapsto}Z_2\cup\{B\}]$ and $\sigma_{31} = [R{\mapsto}U_4\cup U_5\cup\{f(\{a\}\cup U_3)\},\ S{\mapsto}U_4\cup\{f(\{a\}\cup U_2)\},\ T{\mapsto}U_5\cup\{f(U_1)\},\ W{\mapsto}U_3,\ X{\mapsto}U_2,\ Y{\mapsto}U_1]$.</p>
-<p>$\beta\circ\sigma_{31}$: $R\mapsto Z_1\cup Z_2\cup\{f(\{a\}\cup W)\}$, $S\mapsto Z_1\cup\{f(\{a\}\cup X)\}$, $T\mapsto Z_2\cup\{f(Y)\}$, and $X, Y, W$ to themselves: exactly $\theta_{\pi_2}$ ✓.</p>
+<section id="pending">
+<h2><span class="num">8</span>Equal baskets: the pending equations</h2>
+<h3><span class="num">8.1</span>$C = B$: Decomp, Elim ($s_5$, $s_6$)</h3>
+<div class="display">$$\frac{\dfrac{\dfrac{}{\langle\alpha_7;\ \varnothing\rangle}\ \textsf{Cover}\ \sigma_4}{\langle\alpha_5;\ Y\stackrel{?}{=}\{a\}\cup W\rangle}\ \textsf{Elim}\ Y}{\langle\alpha_5;\ f(Y)\stackrel{?}{=}f(\{a\}\cup W)\rangle}\ \textsf{Decomp}$$</div>
+<p class="where">where $\alpha_5 = [R{\mapsto}Z_9\cup Z_{10},\ S{\mapsto}Z_9\cup\{f(\{a\}\cup X)\},\ T{\mapsto}Z_{10}]$ and $\alpha_7 = \alpha_5[Y{\mapsto}\{a\}\cup W]$. Variables not listed map to themselves.</p>
+<p>The baskets $B = f(Y)$ and $C = f(\{a\}\cup W)$ are equal exactly when their contents are equal, since $f$ is a free constructor. $Y$ does not occur in $\{a\}\cup W$, so <span class="rn">Elim</span> binds it.</p>
+<h3><span class="num">8.2</span>$C = A$: Decomp, ACU-Solve on fruits ($s_{11}$, $s_{12}$)</h3>
+<p>After <span class="rn">Decomp</span>, the pending equation is a multiset equation again, one level down, over fruits:</p>
+<div class="display">$$\{a\}\cup X \;\stackrel{?}{=}\; \{a\}\cup W$$</div>
+<p>The alien $a$ occurs once on each side and cancels, so the unknowns are $X$ and $W$, with row $x = w$ (coefficients $(1, -1)$). The basis is the single vector $(1, 1)$: every fruit in $X$ is also in $W$. The completeness test has one pair, $(X, W)$, which is that vector. There is one selection, with fresh $Z_{15}$:</p>
+<div class="display">$$\frac{\dfrac{}{\langle\alpha_{13};\ \varnothing\rangle}\ \textsf{Cover}\ \sigma_6}{\langle\alpha_{11};\ \{a\}\cup X\stackrel{?}{=}\{a\}\cup W\rangle}\ \textsf{ACU-Solve}$$</div>
+<p class="where">where $\alpha_{11} = [R{\mapsto}Z_{13}\cup Z_{14},\ S{\mapsto}Z_{13}\cup\{f(Y)\},\ T{\mapsto}Z_{14}]$ and $\alpha_{13} = \alpha_{11}[X{\mapsto}Z_{15},\ W{\mapsto}Z_{15}]$.</p>
+<p>Under $X, W := Z_{15}$, both $A$ and $C$ become $f(\{a\}\cup Z_{15})$.</p>
 </section>
 
-<section id="global">
-<h2><span class="num">5</span>Why the whole tree proves completeness</h2>
-<p>Every rule has the same shape of argument: each solution of the conclusion is a solution of some premise, with the same solution of the original problem. So a solution of the root travels down the tree, one rule at a time, until it reaches a leaf. Every leaf is covered by an answer. Hence every solution of the root is covered.</p>
-<p>The path of $\gamma$ from §1 ($X=\varnothing$, $Y=W=\{b\}$, $R=\{f(\{a,b\})\}$, $S=\{f(\{a\})\}$, $T=\{f(\{b\})\}$):</p>
-<div class="tablewrap"><table>
-<thead><tr><th>At</th><th>What $\gamma$ does</th></tr></thead>
-<tbody>
-<tr><td class="j">J1</td><td>$B = f(\{b\}) \ne f(\{a,b\}) = C$: to $J_7$.</td></tr>
-<tr><td class="j">J7</td><td>$A = f(\{a\}) \ne C$: to $J_{13}$.</td></tr>
-<tr><td class="j">J13</td><td>At $e = A$: $(r,s,t) = (0,1,0)$, $A$ in $S$. At $e = B$: $(0,0,1)$, $B$ in $T$. At $e = C$: $(1,0,0)$, $C$ in $R$. Nothing else: $Z_1 = Z_2 = \varnothing$. Choice $\pi_2$.</td></tr>
-<tr><td class="j">J15</td><td>Covered by $\sigma_{31}$ with $U_1 = U_3 = \{b\}$, $U_2 = U_4 = U_5 = \varnothing$.</td></tr>
-</tbody></table></div>
-<p>The tree does not need to say in advance which path a solution takes. Each rule only guarantees that some child receives it, and the leaves account for all children.</p>
+<section id="cover">
+<h2><span class="num">9</span>Cover</h2>
+<p>At $s_7$ no equation is left, and the state's substitution is</p>
+<div class="display">$$\alpha_7 = [X{\mapsto}X,\ Y{\mapsto}\{a\}\cup W,\ W{\mapsto}W,\ R{\mapsto}Z_9\cup Z_{10},\ S{\mapsto}Z_9\cup\{f(\{a\}\cup X)\},\ T{\mapsto}Z_{10}].$$</div>
+<p>The answer $\sigma_4$ has binders $X, W, Z_1, Z_2$. The certificate gives the witness $w = [X{\mapsto}X,\ W{\mapsto}W,\ Z_1{\mapsto}Z_9,\ Z_2{\mapsto}Z_{10}]$, and $\sigma_4[w]$ is</p>
+<div class="display">$$[X{\mapsto}X,\ Y{\mapsto}\{a\}\cup W,\ W{\mapsto}W,\ R{\mapsto}Z_9\cup Z_{10},\ S{\mapsto}Z_9\cup\{f(\{a\}\cup X)\},\ T{\mapsto}Z_{10}] = \alpha_7.\ ✓$$</div>
+<p>The checker compares the two in normal form, variable by variable. Every solution of $s_7$ is therefore an instance of $\sigma_4$: the binders take the values of $X, W, Z_9, Z_{10}$.</p>
 </section>
 
-<section id="search">
-<h2><span class="num">6</span>Proof construction</h2>
-<p>The tree is built by the Maude producer, not by Lean, and it is built without search. The producer follows a fixed strategy: it always works on the first pending equation; an equation between constructor terms gets the one rule its shape allows (<span class="rn">Delete</span>, <span class="rn">Elim</span>, <span class="rn">Decomp</span> or <span class="rn">Clash</span>); a multiset equation gets <span class="rn">Solve</span>, unless (S2) fails for some clique, and then <span class="rn">Identify</span> splits the first failing pair. The hard parts come from Maude's own algorithms: each <span class="rn">Solve</span>'s data $P$, $\mathcal B$ and its compatible pairs from unification (<code>metaUnify</code>), and each leaf's answer and witness from matching (<code>metaMatch</code>, taking the first answer that matches).</p>
-<p><b>Why no backtracking is needed.</b> Every rule keeps all solutions: each solution of a node reaches one of its children (§5). So no step can lead into a dead end that another order would have avoided, and nothing ever has to be undone. The construction can only stop at a leaf that no single answer covers; the producer then reports it as stuck, as for a deliberately incomplete answer set.</p>
-<p>The result is written as text, the <em>derivation</em> below (<code>producer/tests/pipeline/t7_example.deriv</code>). It is untrusted: it only states the side conditions and equalities, and Lean checks every one of them (§7).</p>
+<section id="path">
+<h2><span class="num">10</span>Following one solution</h2>
+<p>The solution $\gamma$ of §5 has $X = \varnothing$ and $Y = W = \{b\}$, so the three baskets are $A = f(\{a\})$, $B = f(\{b\})$ and $C = f(\{a,b\})$, all different. At the root, each element of the baskets has a count vector over $(S, T, C, R, B, A)$:</p>
 <div class="tablewrap"><table>
-<thead><tr><th>Line</th><th>Meaning</th></tr></thead>
+<thead><tr><th>Element</th><th>Count vector</th><th>Basis vector</th><th>Reading</th></tr></thead>
 <tbody>
-<tr><td><code>⊢ α | E | D</code></td><td>the state $\langle\alpha;E;D\rangle$ ($-$: empty); the left column gives its label $J_i$ from §2</td></tr>
-<tr><td><code>identify s ~ t</code>, <code>equal:</code> / <code>distinct:</code></td><td><span class="rn">Identify</span> and its two branches, indented</td></tr>
-<tr><td><code>decomp s = t ⟹ …</code>, <code>elim V := t</code></td><td><span class="rn">Decomp</span> with its new equations; <span class="rn">Elim</span></td></tr>
-<tr><td><code>solve s = t</code></td><td><span class="rn">Solve</span> on the first equation, with its data on the next two lines:</td></tr>
-<tr><td><code>vars … | aliens … | L … R … La … Ra …</code></td><td>multiset variables, aliens, and the count equation's coefficients ($L, R$ for the variables, $La, Ra$ for the aliens, left and right)</td></tr>
-<tr><td><code>compatible i~j | P […] | B […]</code></td><td>compatible pairs of aliens (by position), particular solutions per alien, basis</td></tr>
-<tr><td><code>branch [π]: θ</code></td><td>one premise per choice $\pi$, with its substitution $\theta_\pi$</td></tr>
-<tr><td><code>cover answer i with U := …</code></td><td><span class="rn">Cover</span> with the answer $\sigma_i$ and the witness $\beta$</td></tr>
+<tr><td>$f(\{a\})$</td><td>$(1,0,0,0,0,1)$</td><td>2</td><td>it is $A$, and it is in $S$</td></tr>
+<tr><td>$f(\{b\})$</td><td>$(0,1,0,0,1,0)$</td><td>4</td><td>it is $B$, and it is in $T$</td></tr>
+<tr><td>$f(\{a,b\})$</td><td>$(0,0,1,1,0,0)$</td><td>6</td><td>it is $C$, and it is in $R$</td></tr>
 </tbody></table></div>
-<p>For example, the <span class="rn">Solve</span> at $J_{13}$ is §4.3 in compact form: <code>L (1,0,0) R (0,1,1) La (1,1,0) Ra (0,0,1)</code> is the count equation $r + [e{=}A] + [e{=}B] = s + t + [e{=}C]$, <code>compatible 0~1</code> the clique $\{A, B\}$, and <code>P [(1,0,0)]</code> for the third alien puts $C$ in $R$. Maude's 112 answers are elided.</p>
-<p class="deriv-key"><span class="sup">Highlighted</span>: what the producer supplies and Lean checks: its decisions (which aliens to identify, which variable to eliminate, which answer and witness cover a leaf) and each <span class="rn">Solve</span>'s data (compatible pairs, $P$, $\mathcal B$). <span class="mech">Dimmed</span>: what follows mechanically from those (states, new equations, coefficients, the choices $\pi$ and their $\theta_\pi$), shown for reading; Lean recomputes it.</p>
-<pre class="deriv"><code>    problem R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)}
-    answers
-      0: R := {f({a})}, S := {f({a})} ∪ {f(U1)}, T := ∅, W := ∅, X := ∅, Y := U1
-      …   (111 more)
-    derivation
-J1    <span class="mech">⊢ - | R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
-      identify <span class="sup">f(Y) ~ f({a} ∪ W)</span>
-        equal:
-J2        <span class="mech">⊢ - | f(Y) = f({a} ∪ W); R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
-          decomp f(Y) = f({a} ∪ W)  <span class="mech">⟹  Y = {a} ∪ W</span>
-J3        <span class="mech">⊢ - | Y = {a} ∪ W; R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
-          elim <span class="sup">Y := {a} ∪ W</span>
-J4        <span class="mech">⊢ Y := {a} ∪ W | R ∪ {f({a} ∪ X)} ∪ {f({a} ∪ W)} = S ∪ T ∪ {f({a} ∪ W)} | -</span>
-          solve R ∪ {f({a} ∪ X)} ∪ {f({a} ∪ W)} = S ∪ T ∪ {f({a} ∪ W)}
-            <span class="mech">vars R S T | aliens f({a} ∪ X) f({a} ∪ W) | L (1,0,0) R (0,1,1) La (1,1) Ra (0,1)</span>
-            <span class="sup">compatible 0~1</span> | <span class="sup">P [(0,1,0) (0,0,1)] [(0,0,0)]</span> | <span class="sup">B [(1,1,0) (1,0,1)]</span>
-            <span class="mech">branch [(0,1,0) (0,0,0)]: R := Z1 ∪ Z2, S := Z1 ∪ {f({a} ∪ X)}, T := Z2</span>
-J5            <span class="mech">⊢ R := Z1 ∪ Z2, S := Z1 ∪ {f({a} ∪ X)}, T := Z2, Y := {a} ∪ W | - | -</span>
-              cover <span class="sup">answer 79 with U1 := X, U2 := Z2, U3 := W, U4 := Z1</span>
-            <span class="mech">branch [(0,0,1) (0,0,0)]: R := Z1 ∪ Z2, S := Z1, T := Z2 ∪ {f({a} ∪ X)}</span>
-J6            <span class="mech">⊢ R := Z1 ∪ Z2, S := Z1, T := Z2 ∪ {f({a} ∪ X)}, Y := {a} ∪ W | - | -</span>
-              cover <span class="sup">answer 95 with U1 := X, U2 := Z1, U3 := W, U4 := Z2</span>
-        distinct:
-J7        <span class="mech">⊢ - | R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W)</span>
-          identify <span class="sup">f({a} ∪ X) ~ f({a} ∪ W)</span>
-            equal:
-J8            <span class="mech">⊢ - | f({a} ∪ X) = f({a} ∪ W); R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W)</span>
-              decomp f({a} ∪ X) = f({a} ∪ W)  <span class="mech">⟹  {a} ∪ X = {a} ∪ W</span>
-J9            <span class="mech">⊢ - | {a} ∪ X = {a} ∪ W; R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W)</span>
-              solve {a} ∪ X = {a} ∪ W
-                <span class="mech">vars X W | aliens a | L (1,0) R (0,1) La (1) Ra (1)</span>
-                <span class="sup">compatible -</span> | <span class="sup">P [(0,0)]</span> | <span class="sup">B [(1,1)]</span>
-                <span class="mech">branch [(0,0)]: W := Z1, X := Z1</span>
-J10               <span class="mech">⊢ W := Z1, X := Z1 | R ∪ {f(Y)} ∪ {f({a} ∪ Z1)} = S ∪ T ∪ {f({a} ∪ Z1)} | f(Y) ≠ f({a} ∪ Z1)</span>
-                  solve R ∪ {f(Y)} ∪ {f({a} ∪ Z1)} = S ∪ T ∪ {f({a} ∪ Z1)}
-                    <span class="mech">vars R S T | aliens f(Y) f({a} ∪ Z1) | L (1,0,0) R (0,1,1) La (1,1) Ra (0,1)</span>
-                    <span class="sup">compatible -</span> | <span class="sup">P [(0,1,0) (0,0,1)] [(0,0,0)]</span> | <span class="sup">B [(1,1,0) (1,0,1)]</span>
-                    <span class="mech">branch [(0,1,0) (0,0,0)]: R := Z2 ∪ Z3, S := Z2 ∪ {f(Y)}, T := Z3</span>
-J11                   <span class="mech">⊢ R := Z2 ∪ Z3, S := Z2 ∪ {f(Y)}, T := Z3, W := Z1, X := Z1 | - | f(Y) ≠ f({a} ∪ Z1)</span>
-                      cover <span class="sup">answer 103 with U1 := Y, U2 := Z1, U3 := Z3, U4 := Z2</span>
-                    <span class="mech">branch [(0,0,1) (0,0,0)]: R := Z2 ∪ Z3, S := Z2, T := Z3 ∪ {f(Y)}</span>
-J12                   <span class="mech">⊢ R := Z2 ∪ Z3, S := Z2, T := Z3 ∪ {f(Y)}, W := Z1, X := Z1 | - | f(Y) ≠ f({a} ∪ Z1)</span>
-                      cover <span class="sup">answer 111 with U1 := Y, U2 := Z1, U3 := Z2, U4 := Z3</span>
-            distinct:
-J13           <span class="mech">⊢ - | R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)} | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
-              solve R ∪ {f({a} ∪ X)} ∪ {f(Y)} = S ∪ T ∪ {f({a} ∪ W)}
-                <span class="mech">vars R S T | aliens f({a} ∪ X) f(Y) f({a} ∪ W) | L (1,0,0) R (0,1,1) La (1,1,0) Ra (0,0,1)</span>
-                <span class="sup">compatible 0~1</span> | <span class="sup">P [(0,1,0) (0,0,1)] [(0,1,0) (0,0,1)] [(1,0,0)]</span> | <span class="sup">B [(1,1,0) (1,0,1)]</span>
-                <span class="mech">branch [(0,1,0) (0,1,0) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)} ∪ {f({a} ∪ X)}, T := Z2</span>
-J14               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)} ∪ {f({a} ∪ X)}, T := Z2 | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
-                  cover <span class="sup">answer 15 with U1 := Y, U2 := X, U3 := Z2, U4 := W, U5 := Z1</span>
-                <span class="mech">branch [(0,1,0) (0,0,1) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f({a} ∪ X)}, T := Z2 ∪ {f(Y)}</span>
-J15               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f({a} ∪ X)}, T := Z2 ∪ {f(Y)} | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
-                  cover <span class="sup">answer 31 with U1 := Y, U2 := X, U3 := W, U4 := Z1, U5 := Z2</span>
-                <span class="mech">branch [(0,0,1) (0,1,0) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)}, T := Z2 ∪ {f({a} ∪ X)}</span>
-J16               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1 ∪ {f(Y)}, T := Z2 ∪ {f({a} ∪ X)} | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
-                  cover <span class="sup">answer 47 with U1 := Y, U2 := X, U3 := W, U4 := Z1, U5 := Z2</span>
-                <span class="mech">branch [(0,0,1) (0,0,1) (1,0,0)]: R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1, T := Z2 ∪ {f(Y)} ∪ {f({a} ∪ X)}</span>
-J17               <span class="mech">⊢ R := Z1 ∪ Z2 ∪ {f({a} ∪ W)}, S := Z1, T := Z2 ∪ {f(Y)} ∪ {f({a} ∪ X)} | - | f(Y) ≠ f({a} ∪ W); f({a} ∪ X) ≠ f({a} ∪ W)</span>
-                  cover <span class="sup">answer 63 with U1 := Y, U2 := X, U3 := Z1, U4 := W, U5 := Z2</span></code></pre>
+<p>Vectors $0$ and $3$ are not used, so $Z_5 = Z_6 = \varnothing$. The selection is $\{0, 2, 3, 4, 6\}$, which leads to $s_3$, covered by $\sigma_1$ with $Z_1 = Z_2 = \varnothing$.</p>
+<p>A second solution takes a merging branch. Let $X = W = \{b\}$, $Y = \varnothing$, $R = T = \varnothing$ and $S = \{f(\varnothing)\}$. Then $A = C = f(\{a,b\})$ and $B = f(\varnothing)$. The element $f(\{a,b\})$ has count vector $(0,0,1,0,0,1)$, which is vector $8$, and $f(\varnothing)$ uses vector $1$. The selection $\{0, 1, 3, 8\}$ leads to $s_{11}$. There, the fruit $b$ has count vector $(1,1)$ in $(X, W)$, so $Z_{15} = \{b\}$, and $s_{13}$ is covered by $\sigma_6$.</p>
+</section>
+
+<section id="udf">
+<h2><span class="num">11</span>The certificate as text</h2>
+<p>Maude writes the derivation in a text format, the Unification Derivation Format (UDF). An instrumented Maude prints one event per inference step of its own ACU unification algorithm. A converter rebuilds Maude's search tree from these events and writes it as UDF steps, and Maude's matching finds, for each leaf, the answer that covers it and the witness. Neither Maude nor the converter is trusted.</p>
+<p>The certificate lists the problem, the answers, and one step per node. States are not written: the checker computes each premise state from its parent. Below is the certificate for this page's problem. The problem's variables are renamed to $X, \ldots, T$ for reading, the signature is shortened, and six of the eight answers are elided. <code>_+Baskets_</code> and <code>_+Fruits_</code> are the two unions, and <code>#1</code>, <code>#2</code>, … are an answer's binders.</p>
+<pre class="deriv"><code>(udf 1)
+(signature
+  (sort Basket) (sort Baskets) (sort Fruit) (sort Fruits)
+  (subsort Basket Baskets) (subsort Fruit Fruits)
+  (op a () Fruit) (op b () Fruit) (op f (Fruits) Basket)
+  (acu _+Baskets_ Baskets emptyBaskets) (acu _+Fruits_ Fruits emptyFruits)
+  (var X Fruits) (var Y Fruits) (var W Fruits) (var R Baskets) (var S Baskets) (var T Baskets))
+(problem (= (_+Baskets_ (f (_+Fruits_ a X)) (f Y) R) (_+Baskets_ (f (_+Fruits_ a W)) S T)))
+(answers
+  (unifier a0 (binders (#1 Fruits) (#2 Fruits) (#3 Fruits) (#4 Baskets) (#5 Baskets)) (bind X #1) (bind Y #2) (bind W #3)
+     (bind R (_+Baskets_ (f (_+Fruits_ a #3)) #4 #5)) (bind S (_+Baskets_ (f (_+Fruits_ a #1)) (f #2) #4)) (bind T #5))
+  ;; a1, a2, a3: like a0
+  (unifier a4 (binders (#1 Fruits) (#2 Fruits) (#3 Baskets) (#4 Baskets)) (bind X #1) (bind Y (_+Fruits_ a #2)) (bind W #2)
+     (bind R (_+Baskets_ #3 #4)) (bind S (_+Baskets_ (f (_+Fruits_ a #1)) #3)) (bind T #4))
+  ;; a5, a6, a7: like a4
+  )
+(step s0 acu-solve :op _+Baskets_ :eqs (0)
+   <span class="mech">:unknowns (S T (f (_+Fruits_ a W)) R (f Y) (f (_+Fruits_ a X)))
+   :bounds (inf inf 1 inf 1 1)
+   :rows ((-1 -1 -1 1 1 1))</span>
+   <span class="sup">:basis ((1 0 0 1 0 0) (1 0 0 0 1 0) (1 0 0 0 0 1) (0 1 0 1 0 0) (0 1 0 0 1 0)
+           (0 1 0 0 0 1) (0 0 1 1 0 0) (0 0 1 0 1 0) (0 0 1 0 0 1))
+   :selections ((sel (0 1 2 3 6) :fresh (Z1 Z2))   (sel (0 1 3 5 6) :fresh (Z3 Z4))
+                (sel (0 2 3 4 6) :fresh (Z5 Z6))   (sel (0 3 4 5 6) :fresh (Z7 Z8))
+                (sel (0 2 3 7) :fresh (Z9 Z10))    (sel (0 3 5 7) :fresh (Z11 Z12))
+                (sel (0 1 3 8) :fresh (Z13 Z14))   (sel (0 3 4 8) :fresh (Z16 Z17)))</span>
+   :premises (s1 s2 s3 s4 s5 s8 s11 s14))
+(step s1 cover <span class="sup">:answer a0 :witness ((#1 X) (#2 Y) (#3 W) (#4 Z1) (#5 Z2))</span> :premises ())
+(step s2 cover <span class="sup">:answer a2 :witness ((#1 X) (#2 Y) (#3 W) (#4 Z3) (#5 Z4))</span> :premises ())
+(step s3 cover <span class="sup">:answer a1 :witness ((#1 X) (#2 Y) (#3 W) (#4 Z5) (#5 Z6))</span> :premises ())
+(step s4 cover <span class="sup">:answer a3 :witness ((#1 X) (#2 Y) (#3 W) (#4 Z7) (#5 Z8))</span> :premises ())
+(step s5 decomp :eq 0 :premises (s6))
+(step s6 elim :eq 0 <span class="sup">:var Y</span> :premises (s7))
+(step s7 cover <span class="sup">:answer a4 :witness ((#1 X) (#2 W) (#3 Z9) (#4 Z10))</span> :premises ())
+(step s8 decomp :eq 0 :premises (s9))
+(step s9 elim :eq 0 <span class="sup">:var Y</span> :premises (s10))
+(step s10 cover <span class="sup">:answer a5 :witness ((#1 X) (#2 W) (#3 Z11) (#4 Z12))</span> :premises ())
+(step s11 decomp :eq 0 :premises (s12))
+(step s12 acu-solve :op _+Fruits_ :eqs (0)
+   <span class="mech">:unknowns (X W) :bounds (inf inf) :rows ((1 -1))</span>
+   <span class="sup">:basis ((1 1)) :selections ((sel (0) :fresh (Z15)))</span> :premises (s13))
+(step s13 cover <span class="sup">:answer a6 :witness ((#1 Y) (#2 Z15) (#3 Z13) (#4 Z14))</span> :premises ())
+(step s14 decomp :eq 0 :premises (s15))
+(step s15 acu-solve :op _+Fruits_ :eqs (0)
+   <span class="mech">:unknowns (X W) :bounds (inf inf) :rows ((1 -1))</span>
+   <span class="sup">:basis ((1 1)) :selections ((sel (0) :fresh (Z18)))</span> :premises (s16))
+(step s16 cover <span class="sup">:answer a7 :witness ((#1 Y) (#2 Z18) (#3 Z16) (#4 Z17))</span> :premises ())</code></pre>
+<p class="deriv-key"><span class="sup">Highlighted</span>: the information that takes search to find: the basis and the selections of each <span class="rn">ACU-Solve</span>, the variable each <span class="rn">Elim</span> binds, and the answer and witness of each <span class="rn">Cover</span>. <span class="mech">Dimmed</span>: data that follows from the state (unknowns, bounds, rows). In both cases the checker verifies the data rather than trusting it. In <code>:bounds</code>, <code>inf</code> marks a bag variable and <code>1</code> an alien. Steps refer to equations by position (<code>:eq 0</code>) and to answers by name (<code>a0</code> is $\sigma_0$).</p>
 </section>
 
 <section id="lean">
-<h2><span class="num">7</span>The same tree in Lean</h2>
-<p>The certificate is checked in Lean as <code>producer/tests/pipeline/t7_example.lean</code>. Each node is one step of the proof script:</p>
-<div class="tablewrap"><table>
-<thead><tr><th>Nodes</th><th>Lean step</th></tr></thead>
-<tbody>
-<tr><td class="j">J1, J7</td><td><code>refine identify a b ?_ ?_</code></td></tr>
-<tr><td class="j">J2, J8</td><td><code>refine decomp [new equations] (by acu_decomp …)</code>, proved by the constructor's injectivity</td></tr>
-<tr><td class="j">J3</td><td><code>refine elim f (by acu_elim …)</code></td></tr>
-<tr><td class="j">J4, J9, J10, J13</td><td><code>refine solve</code> with the multiset variables, the aliens, the coefficients and compatible pairs, the data $P$ and $\mathcal B$, and (S0)–(S3); then <code>acu_branches</code> opens one goal per choice</td></tr>
-<tr><td class="j">leaves</td><td><code>cover</code> with the answer and the witness</td></tr>
-</tbody></table></div>
-<p>Two kinds of bookkeeping step have no node in the tree: <code>checkpoint</code>, which restates each state in direct form, and <code>rename</code>, which names <span class="rn">Solve</span>'s fresh variables.</p>
+<h2><span class="num">12</span>Checking it in Lean</h2>
+<p>In Lean, $\mathsf{ACU}\ S$ is the type of finite multisets over $S$, with $+$, $\varnothing$ and singletons $\{x\}$. A problem is a function from a tuple of variable values to a pair of sides, and each unifier is a function from its binders to a tuple. The two claims of §1 are the propositions <code>complete</code> and <code>sound</code>:</p>
+<pre><code>def problem : Problem Baskets (Fruits × Fruits × Fruits × Baskets × Baskets × Baskets) :=
+  .bind fun (X, Y, W, R, S, T) =>
+    (R + {f ({a} + X)} + {f Y}, S + T + {f ({a} + W)})
+
+def answers : UnifierSet (Fruits × Fruits × Fruits × Baskets × Baskets × Baskets) :=
+  [ .bind fun ((X, Y, W, Z₁, Z₂) : Fruits × Fruits × Fruits × Baskets × Baskets) =>
+      (X, Y, W, {f ({a} + W)} + Z₁ + Z₂, {f ({a} + X)} + {f Y} + Z₁, Z₂),
+    …   -- σ1 … σ7, as in §5
+  ]
+
+theorem complete : Unification.complete problem answers := by certify_comp
+theorem sound    : Unification.sound problem answers    := by certify_sound</code></pre>
+<p>Both tactics work by <em>proof by reflection</em>. The rules of Part I are implemented once, in Lean itself, as a Boolean function <code>check</code> that takes a certificate and replays it. It computes every premise state, verifies every side condition, including the four checks of <span class="rn">ACU-Solve</span>, and returns <code>true</code> or <code>false</code>. A theorem proved once and for all says:</p>
+<div class="display">$$\texttt{check}\ c = \texttt{true} \;\Longrightarrow\; \texttt{complete}\ P\ \Sigma \qquad\text{for the problem } P \text{ and answers } \Sigma \text{ that } c \text{ describes.}$$</div>
+<p>Its proof is the argument of §3 and §4, made formal. To prove <code>complete</code> for this problem, <code>certify_comp</code> proceeds as follows.</p>
+<ol class="flow">
+  <li>It obtains the UDF text by running Maude and the converter.</li>
+  <li>It turns the goal into data. The problem and the answers become syntax trees that mirror the Lean terms node for node, so the correspondence between the two holds by definition.</li>
+  <li>It asks Lean's kernel to evaluate <code>check</code> on the certificate. If the result is <code>true</code>, the theorem above closes the goal.</li>
+</ol>
+<p><code>certify_sound</code> works the same way with a second function, which substitutes each answer into both sides and compares the normal forms; it needs no certificate.</p>
+<div class="note"><b>What is trusted</b><br>Lean's kernel, the definitions of <code>complete</code> and <code>sound</code>, and the statement of the problem and the answers. Maude, the converter and the certificate are not: a wrong basis, a missing selection or a bad witness makes <code>check</code> return <code>false</code>, and the tactic fails. The two theorems above depend only on Lean's standard axioms.</div>
 </section>
 
-<footer>Companion to the paper draft “Answer-Guided Certification of Complete Sets of ACU Unifiers”. The derivation is produced by the Maude producer and checked by Lean.</footer>
+<footer>The example is the Lean file <code>producer/tests/udf/WorkedExample.lean</code>. The derivation is produced by an instrumented Maude and checked by Lean.</footer>
 </main>
