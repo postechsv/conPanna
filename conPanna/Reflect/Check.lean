@@ -52,9 +52,6 @@ end
 
 abbrev Eqn := Term × Term
 
-def normEq (vs : List Nat) (σ : Nat → Option Term) (e : Eqn) : Eqn :=
-  (norm M vs (subst σ e.1), norm M vs (subst σ e.2))
-
 /-- One answer: the binder's shape and the images of the problem's variables. -/
 structure Ans where
   sh : Shp

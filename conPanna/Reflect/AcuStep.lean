@@ -1,6 +1,6 @@
 import conPanna.Reflect.Eval
 import conPanna.Reflect.MinimalBound
-import conPanna.Unification.Certification.AcuSolve
+import conPanna.Unification.Certification.Solve
 import Mathlib.Tactic.Ring
 
 /-!
@@ -29,9 +29,6 @@ def Adm (n : Nat) (v : Fin n → ℕ) : Prop :=
 
 /-- Basis element `k` as a function. -/
 def bf (n k : Nat) (j : Fin n) : ℕ := nthD (nthD sh.basis k []) j 0
-
-theorem nthD_eq {β} (l : List β) (n : Nat) (d : β) : nthD l n d = l.getD n d := by
-  simp [nthD, nth_eq_getElem?, List.getD_eq_getElem?_getD]
 
 theorem nthD_of_lt {β} {l : List β} {n : Nat} (d : β) (h : n < l.length) : nthD l n d = l[n] := by
   simp [nthD, nth_eq_getElem?, List.getElem?_eq_getElem h]
@@ -470,6 +467,29 @@ end Arguments
 end Row
 
 /-! ## Part B: the semantic step -/
+
+/-- A singleton written as a sum: each summand with a nonzero coefficient is empty or the
+singleton, and the coefficients of the nonempty summands add up to one. -/
+theorem singleton_eq_sum {El : Type*} [DecidableEq El] {k : ℕ} (e : El) (w : Fin k → ℕ)
+    (M : Fin k → Multiset El) (h : ({e} : Multiset El) = ∑ t, w t • M t) :
+    (∀ t, w t ≠ 0 → M t = 0 ∨ M t = {e}) ∧ ∑ t, (if M t ≠ 0 then w t else 0) = 1 := by
+  have hle : ∀ t, w t ≠ 0 → M t ≤ {e} := by
+    intro t ht
+    calc M t ≤ w t • M t := Multiset.le_iff_count.mpr fun x => by
+            rw [Multiset.count_nsmul]; exact Nat.le_mul_of_pos_left _ (Nat.pos_of_ne_zero ht)
+      _ ≤ ∑ t, w t • M t := Finset.single_le_sum (f := fun t => w t • M t)
+            (fun _ _ => zero_le _) (Finset.mem_univ t)
+      _ = {e} := h.symm
+  have h1 : ∀ t, w t ≠ 0 → M t = 0 ∨ M t = {e} := fun t ht => Multiset.le_singleton.mp (hle t ht)
+  refine ⟨h1, ?_⟩
+  have hc := congrArg Multiset.card h
+  rw [Multiset.card_singleton, Multiset.card_sum] at hc
+  rw [hc]
+  refine Finset.sum_congr rfl fun t _ => ?_
+  rw [Multiset.card_nsmul]
+  by_cases hw : w t = 0
+  · simp [hw]
+  · rcases h1 t hw with h0 | h0 <;> simp [h0]
 
 namespace Model
 
