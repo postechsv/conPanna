@@ -116,10 +116,6 @@ where
         if t.acus[f]!.2 == s then return ← tacu f [r]
     return r
 
-def intE (n : Int) : Expr :=
-  if n ≥ 0 then mkApp (mkConst ``Int.ofNat) (nat n.toNat)
-  else mkApp (mkConst ``Int.negSucc) (nat (n.natAbs - 1))
-
 def natList (xs : List Nat) : MetaM Expr := list (mkConst ``Nat) (xs.map nat)
 
 /-- Step ids in file order, and answer names. -/
@@ -173,24 +169,11 @@ def steps (t : Tbl) (udf : Udf) (ids ans : Array String) (vars : Std.HashMap Str
     | "acu-solve" =>
       let some (f, _) := t.acuName[(kw a ":op").get!.atom!]? | throwError "reflect: unknown ACU operator"
       let i := (kw a ":eqs").get!.items[0]!.nat!
-      -- in normal form, as the checker compares them with the state's summands (an alien
-      -- may hold ACU subterms, which the producer orders its own way)
-      let unk ← (kw a ":unknowns").get!.items.toList.mapM fun x => do
-        return mkAppN (mkConst ``Reflect.norm) #[t.model, sortsE, ← term none x]
-      let alien := (kw a ":bounds").get!.items.toList.map fun b =>
-        if b.atom! == "1" then mkConst ``Bool.true else mkConst ``Bool.false
-      let rows := (kw a ":rows").get!.items
-      unless rows.size == 1 do throwError "reflect: only single-row systems"
-      let row := rows[0]!.items.toList.map fun c => intE c.int!
-      let basis ← (kw a ":basis").get!.items.toList.mapM fun v => natList (v.items.toList.map (·.nat!))
-      let selTy ← mkAppM ``Prod #[← mkAppM ``List #[mkConst ``Nat], ← mkAppM ``List #[mkConst ``Nat]]
-      let sels ← (kw a ":selections").get!.items.toList.mapM fun sel => do
-        let S := (sel.items[1]!).items.toList.map (·.nat!)
-        let fresh ← ((kw sel.items ":fresh").get!.items.toList.mapM fun z => do return (← vidx z.atom!).1)
-        mkAppM ``Prod.mk #[← natList S, ← natList fresh]
-      return mkAppN (C `acu) #[nat f, nat i, ← list termTy unk, ← list (mkConst ``Bool) alien,
-        ← list (mkConst ``Int) row, ← list (← mkAppM ``List #[mkConst ``Nat]) basis,
-        ← list selTy sels, ← natList ps]
+      -- only the new variables of each selection; the checker computes the rest
+      let fresh ← (kw a ":selections").get!.items.toList.mapM fun sel => do
+        natList (← (kw sel.items ":fresh").get!.items.toList.mapM fun z => do return (← vidx z.atom!).1)
+      return mkAppN (C `acu) #[nat f, nat i, ← list (← mkAppM ``List #[mkConst ``Nat]) fresh,
+        ← natList ps]
     | r => throwError "reflect: rule {r} not supported"
 
 /-- The model of state type `root`: `root.reflect.model` if `#dump_model` defined it. -/

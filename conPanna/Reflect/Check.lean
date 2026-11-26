@@ -68,9 +68,9 @@ inductive Rule where
   | ground (i : Nat)
   /-- `E = []`: the answer `a`, with the binder's variables `w`. -/
   | cover (a : Nat) (w : List Term)
-  /-- ACU-solve equation `i` (one row) at operator `f`. -/
-  | acu (f i : Nat) (unk : List Term) (alien : List Bool) (row : List Int)
-      (basis : List (List Nat)) (sels : List (List Nat × List Nat)) (ps : List Nat)
+  /-- ACU-Solve on equation `i` at union `f`: the new variables of each selection, and the
+  step proving each premise, in the order of `Dio.selections`. -/
+  | acu (f i : Nat) (fresh : List (List Nat)) (ps : List Nat)
 
 /-- A claim about the problem `lhs = rhs` over the context `sh` (variables
 `0 … sh.size - 1`) and its answers: their completeness, or their soundness. -/
@@ -134,21 +134,75 @@ def natEqL : List Nat → List Nat → Bool
   | a :: as, b :: bs => a == b && natEqL as bs
   | _, _ => false
 
-def insN (n : Nat) : List Nat → List Nat
-  | [] => [n]
-  | m :: ms => if Nat.blt m n then m :: insN n ms else n :: m :: ms
+/-! ## Arithmetic: solutions, the basis, the selections -/
 
-def sortN : List Nat → List Nat
-  | [] => []
-  | n :: ns => insN n (sortN ns)
+/-- `Dio(s,t)` with its side conditions: the multiplicities of the arguments, which
+arguments are non-variable, and which pairs of them clash (different top constructors). -/
+structure Dio where
+  mults : List Int
+  nonVar : List Bool
+  clash : Nat → Nat → Bool
 
-def powerset : List Nat → List (List Nat)
-  | [] => [[]]
-  | k :: ks => let p := powerset ks; p.map (k :: ·) ++ p
+namespace Dio
 
-/-- The unit vector `e_j` (plus `e_k`) of length `m`. -/
-def unit2 (m j k : Nat) : List Nat :=
-  (List.range m).map fun i => (if i == j then 1 else 0) + (if i == k then 1 else 0)
+variable (sh : Dio)
+
+/-- The number of arguments. -/
+def size : Nat := sh.mults.length
+
+/-- `M`, the largest multiplicity. -/
+def maxMult : Nat := sh.mults.foldl (fun m a => max m a.natAbs) 0
+
+/-- All vectors of length `n` whose entries sum to at most `b`. -/
+def vectorsUpTo : (n b : Nat) → List (List Nat)
+  | 0, _ => [[]]
+  | n + 1, b => (List.range (b + 1)).flatMap fun x => (vectorsUpTo n (b - x)).map (x :: ·)
+
+/-- The positions of non-variable arguments where `v` is nonzero. -/
+def marked (v : List Nat) : List Nat :=
+  (List.range sh.size).filter fun j => nthD sh.nonVar j false && nthD v j 0 != 0
+
+/-- `v` is an admissible solution: it solves the equation, is at most 1 at non-variable
+arguments, and is never nonzero at two clashing ones. -/
+def admissible (v : List Nat) : Bool :=
+  dot sh.mults v == 0 &&
+  (sh.marked v).all (fun j => nthD v j 0 == 1) &&
+  (sh.marked v).all fun i => (sh.marked v).all fun j => !sh.clash i j
+
+/-- `Adm(s,t)`: the nonzero admissible solutions with entries summing to at most `2M`. -/
+def adm : List (List Nat) :=
+  (vectorsUpTo sh.size (2 * sh.maxMult)).filter fun v => v.any (· != 0) && sh.admissible v
+
+/-- The minimal elements of a list of vectors. -/
+def minimal (vs : List (List Nat)) : List (List Nat) :=
+  vs.filter fun v => !vs.any fun w => leV w v && w != v
+
+/-- The basis: the minimal elements of `Adm(s,t)`. -/
+def basis : List (List Nat) := minimal sh.adm
+
+/-- Choices among the candidates `cands` covering the positions `todo` exactly once, a
+candidate `k` covering the positions `marks k`. The first uncovered position is covered
+first; `fuel` bounds the number of choices. -/
+def covers (cands : List Nat) (marks : Nat → List Nat) :
+    (fuel : Nat) → (todo : List Nat) → List (List Nat)
+  | _, [] => [[]]
+  | 0, _ :: _ => []
+  | fuel + 1, p :: rest =>
+    (cands.filter fun k => (marks k).contains p && (marks k).all (p :: rest).contains).flatMap
+      fun k => (covers cands marks fuel ((p :: rest).filter (!(marks k).contains ·))).map (k :: ·)
+
+/-- The positions of non-variable arguments. -/
+def nonVarPositions : List Nat := (List.range sh.size).filter fun j => nthD sh.nonVar j false
+
+/-- The selections, as lists of indices into `basis`: every element marking no
+non-variable argument, plus each exact cover of the non-variable arguments. -/
+def selections : List (List Nat) :=
+  let marks (k : Nat) := sh.marked (nthD sh.basis k [])
+  let ks := List.range sh.basis.length
+  (covers (ks.filter fun k => !(marks k).isEmpty) marks sh.nonVarPositions.length
+    sh.nonVarPositions).map (ks.filter (fun k => (marks k).isEmpty) ++ ·)
+
+end Dio
 
 /-! ## ACU-solve -/
 
@@ -169,65 +223,6 @@ def alienFree (k : Nat) : Bool :=
 /-- The aliens of vector `k`. -/
 def aliensOf (k : Nat) : List Nat :=
   (List.range unk.length).filter fun j => isAlien alien j && entry basis k j != 0
-
-/-- Unknowns: bag variables of the bag sort, aliens of the element sort. -/
-def unknownsOk : Bool :=
-  unk.length == alien.length && row.length == unk.length &&
-  match M.acu? f with
-  | some A => (List.range unk.length).all fun j =>
-      if isAlien alien j then tsort M vs (nthD unk j (var 0)) == some A.elem
-      else match nthD unk j (var 0) with
-        | var x => vs[x]? == some A.bag
-        | _ => false
-  | none => false
-
-/-- 1. The row is the equation `l = r` read at its summands. -/
-def rowOk (l r : Term) : Bool :=
-  let L := summands f l
-  let R := summands f r
-  ((List.range unk.length).all fun j => memT (nthD unk j (var 0)) (L ++ R)) &&
-  ((L ++ R).all fun t =>
-    ((List.range unk.length).foldl
-      (fun acc j => if beq (nthD unk j (var 0)) t then acc + nthD row j 0 else acc) 0)
-      == (count t L : Int) - (count t R : Int))
-
-/-- 2. Basis vectors: nonzero solutions, at most one copy of each alien. -/
-def basisOk : Bool :=
-  basis.all fun v => v.length == unk.length && v.any (· != 0) && dot row v == 0 &&
-    (List.range unk.length).all fun j => !isAlien alien j || Nat.ble (nthD v j 0) 1
-
-/-- Two aliens clash: different top constructors. -/
-def clashes (j k : Nat) : Bool :=
-  isAlien alien j && isAlien alien k &&
-  match head? (nthD unk j (var 0)), head? (nthD unk k (var 0)) with
-  | some a, some b => a != b
-  | _, _ => false
-
-/-- 3. Completeness for one row with coefficients in {-1, 0, 1}: every minimal
-admissible vector is above a basis vector. -/
-def completeOk : Bool :=
-  let m := unk.length
-  let idx := List.range m
-  let above (v : List Nat) := basis.any fun b => leV b v
-  (idx.all fun j => nthD row j 0 == 0 || nthD row j 0 == 1 || nthD row j 0 == -1) &&
-  (idx.all fun j => nthD row j 0 != 0 || above (unit2 m j m)) &&
-  (idx.all fun j => idx.all fun k =>
-    !(nthD row j 0 == 1 && nthD row k 0 == -1) || clashes unk alien j k || above (unit2 m j k))
-
-/-- A selection: all alien-free vectors, and each alien exactly once. -/
-def legal (S : List Nat) : Bool :=
-  ((List.range basis.length).all fun k => !alienFree unk alien basis k || S.contains k) &&
-  (List.range unk.length).all fun j =>
-    !isAlien alien j || S.foldl (fun a k => a + entry basis k j) 0 == 1
-
-/-- 4. Every legal selection is listed. -/
-def selsOk (sels : List (List Nat × List Nat)) : Bool :=
-  let ks := List.range basis.length
-  let free := ks.filter (alienFree unk alien basis)
-  let al := ks.filter fun k => !alienFree unk alien basis k
-  (powerset al).all fun S =>
-    !legal unk alien basis (free ++ S) ||
-      sels.any fun (S', _) => natEqL (sortN (free ++ S)) (sortN S')
 
 /-- The representative of selected vector `k`: its fresh variable, or its first alien. -/
 def rep (S fresh : List Nat) (k : Nat) : Term :=
@@ -268,28 +263,71 @@ system change (and are normalized). -/
 def acuUpd (vs bv : List Nat) (θ : Nat → Option Term) (t : Term) : Term :=
   if bv.any (occursT · t) then norm M vs (subst θ t) else t
 
-/-- The premise states of an ACU step, when its side conditions hold. -/
-def acuPremises (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat) (unk : List Term)
-    (alien : List Bool) (row : List Int) (basis : List (List Nat))
-    (sels : List (List Nat × List Nat)) : Option (List (List Term × List Eqn)) :=
+/-! ## Terms: the arguments of an equation, and the premises -/
+
+/-- An argument of the equation and its multiplicity: positive on the left, negative on
+the right. -/
+structure Arg where
+  term : Term
+  mult : Int
+
+/-- The distinct terms of a list, in order of first occurrence. -/
+def distinctTerms (ts : List Term) : List Term :=
+  ts.foldl (fun acc t => if memT t acc then acc else acc ++ [t]) []
+
+/-- The arguments of `l ≟ r` after cancellation on both sides, left ones first: each
+distinct summand with its occurrences on the left minus those on the right, if nonzero.
+The terms of a state are in normal form, so this is syntactic. -/
+def arguments (f : Nat) (l r : Term) : List Arg :=
+  let L := summands f l
+  let R := summands f r
+  let net (t : Term) : Int := count t L - count t R
+  let ts := distinctTerms (L ++ R)
+  (ts.filter (net · > 0) ++ ts.filter (net · < 0)).map fun t => ⟨t, net t⟩
+
+/-- Two arguments clash if both are constructor terms with different top constructors. -/
+def clashT (t u : Term) : Bool :=
+  match head? t, head? u with
+  | some g, some h => g != h
+  | _, _ => false
+
+/-- `Dio(s,t)` for a list of arguments of the union `A`: an argument of the
+element sort is non-variable (the element of a singleton). -/
+def dioOf (vs : List Nat) (A : AcuOp M.T) (args : List Arg) : Dio :=
+  let unk := args.map (·.term)
+  { mults := args.map (·.mult)
+    nonVar := unk.map fun t => tsort M vs t == some A.elem
+    clash := fun i j => clashT (nthD unk i (var 0)) (nthD unk j (var 0)) }
+
+/-- ACU-Solve on equation `i` of the state, at the union `f`: the premise states, one per
+selection, in the order of `Dio.selections`. The certificate names the new variables of
+each selection (`fresh`). `none` if the equation does not have the form of the rule:
+both sides of the bag sort, and every argument a singleton's element or a bag variable. -/
+def acuSolve (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat)
+    (fresh : List (List Nat)) : Option (List (List Term × List Eqn)) :=
   match nth E i, M.acu? f with
   | some (l, r), some A =>
+    let args := arguments f l r
+    let unk := args.map (·.term)
+    let sh := dioOf M vs A args
+    let B := sh.basis
+    let sels := sh.selections
+    let isBagVar : Term → Bool
+      | var x => vs[x]? == some A.bag
+      | _ => false
+    let bagVars := (List.range unk.length).filterMap fun j =>
+      if nthD sh.nonVar j false then none else match nthD unk j (var 0) with
+        | var x => some x
+        | _ => none
     if tsort M vs l == some A.bag && tsort M vs r == some A.bag &&
-        unknownsOk M vs f unk alien row && rowOk f unk row l r && basisOk unk alien row basis &&
-        completeOk unk alien row basis && selsOk unk alien basis sels &&
-        (sels.all fun (S, fresh) =>
-          freshOk vs A.bag α E fresh &&
-          fresh.length == (S.filter (alienFree unk alien basis)).length &&
-          S.all (· < basis.length)) then
-      let bv := (List.range unk.length).filterMap fun j =>
-        if isAlien alien j then none else match nthD unk j (var 0) with
-          | var x => some x
-          | _ => none
-      some <| sels.map fun (S, fresh) =>
-        let θ := theta f unk alien basis S fresh
-        (α.map (acuUpd M vs bv θ),
-          pendingOf unk alien basis S fresh ++
-            (E.eraseIdx i).map fun e => (acuUpd M vs bv θ e.1, acuUpd M vs bv θ e.2))
+        (List.range unk.length).all (fun j => nthD sh.nonVar j false || isBagVar (nthD unk j (var 0))) &&
+        sels.length == fresh.length &&
+        (sels.zip fresh).all (fun (S, z) =>
+          z.length == (S.filter (alienFree unk sh.nonVar B)).length && freshOk vs A.bag α E z) then
+      some <| (sels.zip fresh).map fun (S, z) =>
+        let θ := theta f unk sh.nonVar B S z
+        let upd := acuUpd M vs bagVars θ
+        (α.map upd, pendingOf unk sh.nonVar B S z ++ (E.eraseIdx i).map fun e => (upd e.1, upd e.2))
     else none
   | _, _ => none
 
@@ -333,8 +371,8 @@ def run (c : Cert) : Nat → Nat → List Term → List Eqn → Bool
         ((List.range w.length).all fun j => tsort M c.sorts (nthD w j (var 0)) == nth A.sh.sorts j) &&
         (α.zip A.img).all fun (t, u) => beq t (norm M c.sorts (subst (nth w) u))
       | none => false
-    | some (.acu f i unk alien row basis sels ps) =>
-      match acuPremises M c.sorts α E f i unk alien row basis sels with
+    | some (.acu f i fresh ps) =>
+      match acuSolve M c.sorts α E f i fresh with
       | some states => states.length == ps.length &&
           (states.zip ps).all fun ((α', E'), p) => run c n p α' E'
       | none => false
@@ -351,5 +389,40 @@ def checkSound (c : Claim) : Bool :=
   varsBelow c.sh.size c.lhs && varsBelow c.sh.size c.rhs &&
   c.answers.all fun A => A.img.length == c.sh.size &&
     beq (norm M A.sh.sorts (subst (nth A.img) c.lhs)) (norm M A.sh.sorts (subst (nth A.img) c.rhs))
+
+/-! ## Tests against Maude's bases
+
+The same sets as Maude's (the root step of the worked example, and a repeated-argument run),
+listed in our order: the certificate's selections and premises follow this order. -/
+
+private def noClash : Nat → Nat → Bool := fun _ _ => false
+
+-- The root step of the worked example: X5 X6 ★ X4 ■ ▲, multiplicities -1 -1 -1 1 1 1.
+private def rootShape : Dio :=
+  ⟨[-1, -1, -1, 1, 1, 1], [false, false, true, false, true, true], noClash⟩
+
+/-- info: [[0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0], [0, 0, 1, 1, 0, 0], [0, 1, 0, 0, 0, 1],
+  [0, 1, 0, 0, 1, 0], [0, 1, 0, 1, 0, 0], [1, 0, 0, 0, 0, 1], [1, 0, 0, 0, 1, 0],
+  [1, 0, 0, 1, 0, 0]] -/
+#guard_msgs (whitespace := lax) in
+#eval rootShape.basis
+
+/-- info: 8 -/
+#guard_msgs in
+#eval rootShape.selections.length
+
+-- X X Y a b c ≟ b b b c Z: arguments b Z a X Y, multiplicities -2 -1 1 2 1; a and b clash.
+private def dupShape : Dio :=
+  ⟨[-2, -1, 1, 2, 1], [true, false, true, false, false],
+   fun i j => (i == 0 && j == 2) || (i == 2 && j == 0)⟩
+
+/-- info: [[0, 1, 0, 0, 1], [0, 1, 1, 0, 0], [0, 2, 0, 1, 0], [1, 0, 0, 0, 2], [1, 0, 0, 1, 0]] -/
+#guard_msgs (whitespace := lax) in
+#eval dupShape.basis
+
+-- Elements 0 and 2 involve variable arguments only; `b` is covered by 3 or 4, `a` by 1.
+/-- info: [[0, 2, 3, 1], [0, 2, 4, 1]] -/
+#guard_msgs in
+#eval dupShape.selections
 
 end Reflect

@@ -193,8 +193,8 @@ theorem run_sound (hM : M.Lawful) (c : Cert) (as : List (LAns M c.sh))
         simp only [Nat.zero_add] at this
         rw [this]; rfl), himg y hy] at e2
       exact Option.some.inj (Option.some.inj e2)
-  | acu f i unk alien row basis sels ps =>
-    cases hp : acuPremises M c.sorts α E f i unk alien row basis sels with
+  | acu f i fresh ps =>
+    cases hp : acuSolve M c.sorts α E f i fresh with
     | none => simp [hp] at h
     | some states =>
     simp only [hp, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h

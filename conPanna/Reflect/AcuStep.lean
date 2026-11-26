@@ -1,10 +1,11 @@
 import conPanna.Reflect.Eval
+import conPanna.Reflect.MinimalBound
 import conPanna.Unification.Certification.AcuSolve
 import Mathlib.Tactic.Ring
 
 /-!
-Soundness of the ACU step (documentation/reflection-design.md, §3), part A: arithmetic on
-the row and the basis. Vectors are functions `Fin N → ℕ` over the unknowns.
+Soundness of the ACU step, part A: the arithmetic of the computed basis and selections
+(`Dio` in `Check.lean`). Vectors are functions `Fin N → ℕ` over the arguments.
 -/
 
 namespace Reflect
@@ -13,19 +14,21 @@ open Term
 
 section Arith
 
-variable (unk : List Term) (alien : List Bool) (row : List Int) (basis : List (List Nat))
+variable (sh : Dio)
 
-/-- The row coefficient of unknown `j`. -/
-def rc (j : Nat) : Int := nthD row j 0
+/-- The multiplicity of argument `j`. -/
+def rc (j : Nat) : Int := nthD sh.mults j 0
 
-/-- The admissible count vectors: they solve the row, hold each alien at most once, and
-never two clashing aliens. -/
-def Adm (v : Fin unk.length → ℕ) : Prop :=
-  (∑ j : Fin unk.length, rc row j.1 * (v j : Int)) = 0 ∧ (∀ j : Fin unk.length, isAlien alien j = true → v j ≤ 1) ∧
-    ∀ j k : Fin unk.length, clashes unk alien j k = true → v j + v k ≤ 1
+/-- The admissible count vectors (`Adm(s,t)` without its bound): they solve the equation,
+hold a non-variable argument at most once, and never two clashing ones. -/
+def Adm (n : Nat) (v : Fin n → ℕ) : Prop :=
+  (∑ j : Fin n, rc sh j * (v j : Int)) = 0 ∧
+  (∀ j : Fin n, nthD sh.nonVar j false = true → v j ≤ 1) ∧
+  ∀ i j : Fin n, nthD sh.nonVar i false = true → nthD sh.nonVar j false = true →
+    sh.clash i j = true → v i = 0 ∨ v j = 0
 
-/-- Basis vector `k` as a function. -/
-def bf (k : Nat) (j : Fin unk.length) : ℕ := entry basis k j
+/-- Basis element `k` as a function. -/
+def bf (n k : Nat) (j : Fin n) : ℕ := nthD (nthD sh.basis k []) j 0
 
 theorem nthD_eq {β} (l : List β) (n : Nat) (d : β) : nthD l n d = l.getD n d := by
   simp [nthD, nth_eq_getElem?, List.getD_eq_getElem?_getD]
@@ -59,158 +62,317 @@ theorem leV_iff : ∀ (b v : List Nat), b.length = v.length →
         fun j hj => by simpa [nthD, nth] using h' (j + 1) (by omega)⟩
   | [], _ :: _, h | _ :: _, [], h => by simp at h
 
-theorem nthD_unit2 (m j k i : Nat) (hi : i < m) :
-    nthD (unit2 m j k) i 0 = (if i = j then 1 else 0) + (if i = k then 1 else 0) := by
-  simp [unit2, nthD_eq, List.getD_eq_getElem?_getD, hi]
+theorem mem_vectorsUpTo : ∀ (n b : Nat) (v : List Nat),
+    v ∈ Dio.vectorsUpTo n b ↔ v.length = n ∧ v.sum ≤ b
+  | 0, b, v => by cases v <;> simp [Dio.vectorsUpTo]
+  | n + 1, b, v => by
+    cases v with
+    | nil => simp [Dio.vectorsUpTo]
+    | cons x v =>
+      simp only [Dio.vectorsUpTo, List.mem_flatMap, List.mem_range, List.mem_map,
+        List.length_cons, List.sum_cons, Nat.add_right_cancel_iff]
+      constructor
+      · rintro ⟨y, hy, w, hw, h⟩
+        injection h with h1 h2
+        subst h1 h2
+        rw [mem_vectorsUpTo n (b - y) w] at hw
+        omega
+      · rintro ⟨hl, hs⟩
+        exact ⟨x, by omega, v, (mem_vectorsUpTo n (b - x) v).2 ⟨hl, by omega⟩, rfl⟩
 
 end Arith
 
-section Dom
+section Basis
 
-variable {unk : List Term} {alien : List Bool} {row : List Int} {basis : List (List Nat)}
+variable {sh : Dio}
 
-theorem basis_facts (hb : basisOk unk alien row basis = true) (hr : row.length = unk.length) :
-    ∀ k < basis.length, (nthD basis k []).length = unk.length ∧ (∃ j : Fin unk.length, bf unk basis k j ≠ 0) ∧
-      (∑ j : Fin unk.length, rc row j.1 * (bf unk basis k j : Int)) = 0 ∧
-      ∀ j : Fin unk.length, isAlien alien j = true → bf unk basis k j ≤ 1 := by
+theorem nthD_ofFn {n : Nat} (w : Fin n → ℕ) (j : Fin n) : nthD (List.ofFn w) j 0 = w j := by
+  rw [nthD_of_lt _ (by simp)]; simp
+
+/-- A basis element is a nonzero solution, at most 1 at non-variable arguments. -/
+theorem basis_facts {n : Nat} (hn : sh.size = n) : ∀ k < sh.basis.length,
+    (nthD sh.basis k []).length = n ∧ (∃ j, bf sh n k j ≠ 0) ∧
+      (∑ j : Fin n, rc sh j * (bf sh n k j : Int)) = 0 ∧
+      ∀ j : Fin n, nthD sh.nonVar j false = true → bf sh n k j ≤ 1 := by
+  subst hn
   intro k hk
-  simp only [basisOk, List.all_eq_true, Bool.and_eq_true, beq_iff_eq, List.any_eq_true,
-    bne_iff_ne, ne_eq, List.mem_range, Bool.or_eq_true, Bool.not_eq_true', Nat.ble_eq] at hb
-  have hbk : nthD basis k [] = basis[k] := nthD_of_lt _ hk
-  have hmem : nthD basis k [] ∈ basis := by rw [hbk]; exact List.getElem_mem hk
-  obtain ⟨⟨⟨hlen, x, hx, hx0⟩, hdot⟩, hal⟩ := hb _ hmem
+  have hz : nthD sh.basis k [] ∈ sh.adm := by
+    rw [nthD_of_lt _ hk]
+    exact (List.mem_filter.1 (List.getElem_mem hk)).1
+  simp only [Dio.adm, List.mem_filter, Bool.and_eq_true, List.any_eq_true, bne_iff_ne] at hz
+  obtain ⟨hvec, ⟨x, hx, hx0⟩, hadm⟩ := hz
+  obtain ⟨hlen, -⟩ := (mem_vectorsUpTo _ _ _).1 hvec
+  simp only [Dio.admissible, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hadm
+  obtain ⟨⟨hdot, hone⟩, -⟩ := hadm
   refine ⟨hlen, ?_, ?_, ?_⟩
   · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hx
-    refine ⟨⟨i, by omega⟩, ?_⟩
-    simp only [bf, entry, bvec]
-    rw [nthD_of_lt _ hi]
-    exact hx0
-  · rw [dot_eq_sum _ _ unk.length hr hlen] at hdot
-    simpa [rc, bf, entry, bvec] using hdot
+    exact ⟨⟨i, by omega⟩, by simpa [bf, nthD_of_lt _ hi] using hx0⟩
+  · rw [dot_eq_sum _ _ sh.size rfl hlen] at hdot
+    simpa [rc, bf] using hdot
   · intro j hj
-    rcases hal j j.2 with h | h
-    · simp [hj] at h
-    · simpa [bf, entry, bvec] using h
+    by_cases h0 : bf sh sh.size k j = 0
+    · omega
+    · have hm : (j : Nat) ∈ sh.marked (nthD sh.basis k []) := by
+        simp only [Dio.marked, List.mem_filter, List.mem_range, Bool.and_eq_true, bne_iff_ne]
+        exact ⟨j.2, hj, h0⟩
+      have := hone j hm
+      simp only [bf] at this ⊢; omega
 
-theorem adm_sub (hb : basisOk unk alien row basis = true) (hr : row.length = unk.length)
-    {k : Nat} (hk : k < basis.length) {v : Fin unk.length → ℕ} (hv : Adm unk alien row v)
-    (hle : bf unk basis k ≤ v) : Adm unk alien row (v - bf unk basis k) := by
-  obtain ⟨-, -, hdot, -⟩ := basis_facts hb hr k hk
+theorem adm_sub {n : Nat} (hn : sh.size = n) {k : Nat} (hk : k < sh.basis.length)
+    {v : Fin n → ℕ} (hv : Adm sh n v) (hle : bf sh n k ≤ v) : Adm sh n (v - bf sh n k) := by
+  obtain ⟨-, -, hdot, -⟩ := basis_facts hn k hk
   obtain ⟨h1, h2, h3⟩ := hv
-  refine ⟨?_, fun j hj => le_trans (Nat.sub_le _ _) (h2 j hj),
-    fun j j' hjj => le_trans (Nat.add_le_add (Nat.sub_le _ _) (Nat.sub_le _ _)) (h3 j j' hjj)⟩
-  simp only [Pi.sub_apply]
-  have : ∀ j : Fin unk.length, rc row j.1 * ((v j - bf unk basis k j : ℕ) : Int) =
-      rc row j.1 * (v j : Int) - rc row j.1 * (bf unk basis k j : Int) := fun j => by
-    rw [Nat.cast_sub (hle j), mul_sub]
-  rw [Finset.sum_congr rfl fun j _ => this j, Finset.sum_sub_distrib, h1, hdot, sub_zero]
+  refine ⟨?_, fun j hj => le_trans (Nat.sub_le _ _) (h2 j hj), fun i j hi hj hc => ?_⟩
+  · simp only [Pi.sub_apply]
+    have : ∀ j : Fin n, rc sh j * ((v j - bf sh n k j : ℕ) : Int) =
+        rc sh j * (v j : Int) - rc sh j * (bf sh n k j : Int) := fun j => by
+      rw [Nat.cast_sub (hle j), mul_sub]
+    rw [Finset.sum_congr rfl fun j _ => this j, Finset.sum_sub_distrib, h1, hdot, sub_zero]
+  · rcases h3 i j hi hj hc with h | h
+    · left; simp [h]
+    · right; simp [h]
 
-/-- The single-row argument: a nonzero admissible vector is above a basis vector. -/
-theorem dom (hb : basisOk unk alien row basis = true) (hc : completeOk unk alien row basis = true)
-    (hr : row.length = unk.length) :
-    ∀ v : Fin unk.length → ℕ, Adm unk alien row v → v ≠ 0 →
-      ∃ k : Fin basis.length, bf unk basis k ≤ v ∧ Adm unk alien row (v - bf unk basis k) := by
-  intro v hv hne
-  -- a basis vector below `e_j + e_k` (`k ≠ j`; `k = N` for `e_j` alone) is below `v`
-  have hbelow : ∀ (j : Fin unk.length) (k : Nat), k ≠ j.1 → 1 ≤ v j →
-      (∀ hk : k < unk.length, 1 ≤ v ⟨k, hk⟩) →
-      (∃ b ∈ basis, leV b (unit2 unk.length j k) = true) →
-      ∃ k' : Fin basis.length, bf unk basis k' ≤ v ∧ Adm unk alien row (v - bf unk basis k') := by
-    intro j k hkj hj hk ⟨b, hbm, hle⟩
-    obtain ⟨t, ht, rfl⟩ := List.getElem_of_mem hbm
-    obtain ⟨hlen, -, -, -⟩ := basis_facts hb hr t ht
-    have hbt : nthD basis t [] = basis[t] := nthD_of_lt _ ht
-    rw [hbt] at hlen
-    have hle' := (leV_iff _ _ (by simp [unit2, hlen])).1 hle
-    have hbv : bf unk basis t ≤ v := fun i => by
-      have := hle' i (by rw [hlen]; exact i.2)
-      rw [nthD_unit2 _ _ _ _ i.2] at this
-      simp only [bf, entry, bvec, hbt]
-      by_cases hij : i.1 = j.1
-      · have : i = j := Fin.ext hij
-        subst this
-        simp only [ite_true, show ¬ i.1 = k from fun h => hkj (h ▸ rfl), ite_false] at this
+/-- Below any `P`-vector lies a minimal one. -/
+theorem exists_minimal_below {n : Nat} (P : (Fin n → ℕ) → Prop) :
+    ∀ v, P v → ∃ w ≤ v, P w ∧ ∀ u ≤ w, P u → u = w := by
+  intro v
+  induction h : MinimalBound.total v using Nat.strong_induction_on generalizing v with
+  | _ t ih =>
+    intro hv
+    by_cases hmin : ∀ u ≤ v, P u → u = v
+    · exact ⟨v, le_rfl, hv, hmin⟩
+    · push_neg at hmin
+      obtain ⟨u, hu, hPu, hne⟩ := hmin
+      have hlt : MinimalBound.total u < t := by
+        rw [← h]
+        obtain ⟨j, hj⟩ : ∃ j, u j ≠ v j := Function.ne_iff.1 hne
+        exact Finset.sum_lt_sum (fun i _ => hu i) ⟨j, Finset.mem_univ _, lt_of_le_of_ne (hu j) hj⟩
+      obtain ⟨w, hw, hPw, hmw⟩ := ih _ hlt u rfl hPu
+      exact ⟨w, le_trans hw hu, hPw, hmw⟩
+
+theorem natAbs_le_maxMult (sh : Dio) (j : Fin sh.size) : (rc sh j).natAbs ≤ sh.maxMult := by
+  have key : ∀ (l : List Int) (m : Nat), m ≤ l.foldl (fun m a => max m a.natAbs) m ∧
+      ∀ a ∈ l, a.natAbs ≤ l.foldl (fun m a => max m a.natAbs) m := by
+    intro l
+    induction l with
+    | nil => intro m; simp
+    | cons a l ih =>
+      intro m
+      obtain ⟨h1, h2⟩ := ih (max m a.natAbs)
+      refine ⟨le_trans (le_max_left _ _) h1, fun b hb => ?_⟩
+      rcases List.mem_cons.1 hb with rfl | hb
+      · exact le_trans (le_max_right _ _) h1
+      · exact h2 b hb
+  have hj : nthD sh.mults j 0 ∈ sh.mults := by rw [nthD_of_lt _ j.2]; exact List.getElem_mem _
+  exact (key sh.mults 0).2 _ hj
+
+/-- **The basis is complete**: every nonzero admissible vector lies above a basis element.
+Below it lies a minimal nonzero solution, which is admissible, within the bound
+(`MinimalBound.total_le_of_minimal`), hence in `Adm(s,t)` and minimal there. -/
+theorem dom {n : Nat} (hn : sh.size = n) (hr : ∀ j : Fin n, rc sh j ≠ 0) :
+    ∀ v : Fin n → ℕ, Adm sh n v → v ≠ 0 → ∃ k : Fin sh.basis.length, bf sh n k ≤ v := by
+  subst hn
+  intro v hv hv0
+  let r : Fin sh.size → ℤ := fun j => rc sh j
+  let P : (Fin sh.size → ℕ) → Prop := fun u => u ≠ 0 ∧ MinimalBound.balance r u = 0
+  obtain ⟨w, hwv, ⟨hw0, hwbal⟩, hwmin⟩ := exists_minimal_below P v ⟨hv0, hv.1⟩
+  -- `w` is admissible, as it lies below `v`
+  have hwadm : Adm sh sh.size w := ⟨hwbal, fun j hj => le_trans (hwv j) (hv.2.1 j hj),
+    fun i j hi hj hc => by
+      rcases hv.2.2 i j hi hj hc with h | h
+      · left; have h1 : w i ≤ v i := hwv i; rw [h] at h1; exact Nat.le_zero.mp h1
+      · right; have h1 : w j ≤ v j := hwv j; rw [h] at h1; exact Nat.le_zero.mp h1⟩
+  -- `w` is within the bound
+  have hbound : MinimalBound.total w ≤ 2 * sh.maxMult := by
+    have := MinimalBound.total_le_of_minimal (r := r) hr hwbal hw0
+      (fun u hu hu0 hub => hwmin u hu ⟨hu0, hub⟩)
+    have hM : MinimalBound.maxCoeff r ≤ sh.maxMult :=
+      Finset.sup_le fun j _ => natAbs_le_maxMult sh j
+    omega
+  -- so `w`, as a list, is in `Adm(s,t)`
+  set l := List.ofFn w with hl
+  have hlen : l.length = sh.size := by simp [l]
+  have hdot : dot sh.mults l = 0 := by
+    rw [dot_eq_sum _ _ sh.size rfl hlen]
+    simpa [l, nthD_ofFn, rc] using hwbal
+  have hmarked : ∀ j ∈ sh.marked l, j < sh.size ∧ nthD sh.nonVar j false = true ∧
+      nthD l j 0 ≠ 0 := by
+    intro j hj
+    simpa [Dio.marked, List.mem_filter, List.mem_range] using hj
+  have hadm : sh.admissible l = true := by
+    simp only [Dio.admissible, Bool.and_eq_true, beq_iff_eq, List.all_eq_true, hdot,
+      Bool.not_eq_true', true_and]
+    refine ⟨fun j hj => ?_, fun i hi j hj => ?_⟩
+    · obtain ⟨hjN, hjv, hj0⟩ := hmarked j hj
+      have := hwadm.2.1 ⟨j, hjN⟩ hjv
+      rw [hl, nthD_ofFn w ⟨j, hjN⟩] at hj0 ⊢
+      omega
+    · obtain ⟨hiN, hiv, hi0⟩ := hmarked i hi
+      obtain ⟨hjN, hjv, hj0⟩ := hmarked j hj
+      cases hc : sh.clash i j
+      · rfl
+      · rw [hl, nthD_ofFn w ⟨i, hiN⟩] at hi0
+        rw [hl, nthD_ofFn w ⟨j, hjN⟩] at hj0
+        rcases hwadm.2.2 ⟨i, hiN⟩ ⟨j, hjN⟩ hiv hjv hc with h | h <;> contradiction
+  have hladm : l ∈ sh.adm := by
+    simp only [Dio.adm, List.mem_filter, Bool.and_eq_true, List.any_eq_true, bne_iff_ne]
+    refine ⟨(mem_vectorsUpTo _ _ _).2 ⟨hlen, ?_⟩, ?_, hadm⟩
+    · simpa [l, List.sum_ofFn, MinimalBound.total] using hbound
+    · obtain ⟨j, hj⟩ := Function.ne_iff.1 hw0
+      exact ⟨w j, by simp [l], hj⟩
+  -- and minimal there: a smaller element would be a smaller nonzero solution
+  have hlmin : l ∈ sh.basis := by
+    refine List.mem_filter.2 ⟨hladm, ?_⟩
+    simp only [Bool.not_eq_true', List.any_eq_false, Bool.and_eq_true, not_and, bne_iff_ne,
+      ne_eq, Decidable.not_not]
+    intro u hu hle
+    simp only [Dio.adm, List.mem_filter, Bool.and_eq_true, List.any_eq_true, bne_iff_ne] at hu
+    obtain ⟨hvec, ⟨x, hx, hx0⟩, hua⟩ := hu
+    obtain ⟨hulen, -⟩ := (mem_vectorsUpTo _ _ _).1 hvec
+    simp only [Dio.admissible, Bool.and_eq_true, beq_iff_eq] at hua
+    let u' : Fin sh.size → ℕ := fun j => nthD u j 0
+    have hu'le : u' ≤ w := fun j => by
+      have := (leV_iff u l (by rw [hulen, hlen])).1 hle j (by rw [hulen]; exact j.2)
+      simpa [u', l, nthD_ofFn] using this
+    have hu'0 : u' ≠ 0 := fun h => by
+      obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hx
+      have := congrFun h ⟨i, by omega⟩
+      simp [u', nthD_of_lt _ hi] at this
+      exact hx0 this
+    have hu'bal : MinimalBound.balance r u' = 0 := by
+      have := hua.1.1
+      rw [dot_eq_sum _ _ sh.size rfl hulen] at this
+      simpa [MinimalBound.balance, r, u', rc] using this
+    have heq := hwmin u' hu'le ⟨hu'0, hu'bal⟩
+    apply List.ext_getElem (by rw [hulen, hlen])
+    intro j h1 h2
+    have := congrFun heq ⟨j, by omega⟩
+    simpa [u', l, nthD_of_lt _ h1] using this
+  obtain ⟨k, hk, hkl⟩ := List.getElem_of_mem hlmin
+  refine ⟨⟨k, hk⟩, fun j => ?_⟩
+  have : bf sh sh.size k j = w j := by simp [bf, nthD_of_lt _ hk, hkl, l, nthD_ofFn]
+  rw [this]; exact hwv j
+
+/-! ### Selections: every exact cover is enumerated -/
+
+theorem covers_complete (cands : List Nat) (marks : Nat → List Nat) :
+    ∀ (fuel : Nat) (todo C : List Nat), todo.length ≤ fuel → C ⊆ cands → C.Nodup →
+      (∀ k ∈ C, marks k ≠ [] ∧ ∀ q ∈ marks k, q ∈ todo) →
+      (∀ p ∈ todo, C.countP (fun k => (marks k).contains p) = 1) →
+      ∃ L ∈ Dio.covers cands marks fuel todo, L.Perm C := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro todo C hlen _ _ hmk _
+    cases todo with
+    | cons => simp at hlen
+    | nil =>
+      cases C with
+      | nil => exact ⟨[], by simp [Dio.covers], .refl _⟩
+      | cons k _ =>
+        obtain ⟨hne, hsub⟩ := hmk k (by simp)
+        obtain ⟨q, hq⟩ := List.exists_mem_of_ne_nil _ hne
+        exact absurd (hsub q hq) (by simp)
+  | succ fuel ih =>
+    intro todo C hlen hC hnd hmk hcount
+    cases todo with
+    | nil =>
+      cases C with
+      | nil => exact ⟨[], by simp [Dio.covers], .refl _⟩
+      | cons k _ =>
+        obtain ⟨hne, hsub⟩ := hmk k (by simp)
+        obtain ⟨q, hq⟩ := List.exists_mem_of_ne_nil _ hne
+        exact absurd (hsub q hq) (by simp)
+    | cons p rest =>
+      -- the element `c` of `C` covering `p`
+      obtain ⟨c, hcC, hcp⟩ : ∃ c ∈ C, (marks c).contains p := by
+        have := hcount p (by simp)
+        by_contra h
+        push_neg at h
+        rw [List.countP_eq_zero.2 (by simpa using h)] at this
+        simp at this
+      have hperm : C.Perm (c :: C.erase c) := List.perm_cons_erase hcC
+      have hsplit : ∀ q, C.countP (fun k => (marks k).contains q) =
+          (if (marks c).contains q then 1 else 0) +
+            (C.erase c).countP (fun k => (marks k).contains q) :=
+        fun q => by rw [hperm.countP_eq, List.countP_cons]; split <;> simp_all <;> omega
+      -- no other element of `C` marks a position that `c` marks
+      have hdisj : ∀ k ∈ C.erase c, ∀ q ∈ marks k, ¬ (marks c).contains q := by
+        intro k hk q hq hcq
+        have h1 := hcount q ((hmk k (List.mem_of_mem_erase hk)).2 q hq)
+        have h2 : 0 < (C.erase c).countP (fun k => (marks k).contains q) :=
+          List.countP_pos_iff.2 ⟨k, hk, by simpa using hq⟩
+        rw [hsplit q, if_pos hcq] at h1
         omega
-      · by_cases hik : i.1 = k
-        · obtain ⟨i, hi⟩ := i
-          simp only at hik hij
-          subst hik
-          simp only [hij, ite_false, ite_true] at this
-          have := hk hi
-          dsimp only
-          omega
-        · simp only [hij, hik, ite_false] at this
-          omega
-    exact ⟨⟨t, ht⟩, hbv, adm_sub hb hr ht hv hbv⟩
-  obtain ⟨j, hj⟩ := Function.ne_iff.1 hne
-  simp only [Pi.zero_apply] at hj
-  simp only [completeOk, Bool.and_eq_true, List.all_eq_true, List.mem_range] at hc
-  obtain ⟨⟨hcoef, hzero⟩, hpair⟩ := hc
-  have hrc : ∀ i : Fin unk.length, rc row i = 0 ∨ rc row i = 1 ∨ rc row i = -1 := fun i => by
-    have h := hcoef i i.2
-    simp only [Bool.or_eq_true, beq_iff_eq] at h
-    rcases h with (h | h) | h <;> simp [rc, h]
-  obtain ⟨hsum, -, hcl⟩ := hv
-  -- a coefficient `c = ±1` with `v ≥ 1` has a partner of the other sign
-  have partner : ∀ c : Int, (c = 1 ∨ c = -1) → rc row j = c →
-      ∃ k : Fin unk.length, rc row k = -c ∧ 1 ≤ v k := by
-    intro c hc hjc
-    by_contra hno
-    push_neg at hno
-    have hnn : ∀ i ∈ Finset.univ, 0 ≤ c * (rc row i.1 * (v i : Int)) := by
-      intro i _
-      rcases hrc i with h | h | h <;> rcases hc with rfl | rfl
-      · simp [h]
-      · simp [h]
-      · simp [h]
-      · have := hno i (by simp [h]); simp [h, show v i = 0 by omega]
-      · have := hno i (by simp [h]); simp [h, show v i = 0 by omega]
-      · simp [h]
-    have hle := Finset.single_le_sum hnn (Finset.mem_univ j)
-    rw [← Finset.mul_sum, hsum, mul_zero, hjc] at hle
-    rcases hc with rfl | rfl <;> simp at hle <;> omega
-  have above (j' : Fin unk.length) (k : Nat) (h : (basis.any fun b => leV b (unit2 unk.length j' k)) = true) :
-      ∃ b ∈ basis, leV b (unit2 unk.length j' k) = true := List.any_eq_true.1 h
-  rcases hrc j with h0 | h1 | hm
-  · have h := hzero j j.2
-    simp only [Bool.or_eq_true, bne_iff_ne, ne_eq] at h
-    rcases h with h | h
-    · exact absurd (by simpa [rc] using h0) h
-    · exact hbelow j unk.length (by omega) (by omega) (fun hk => absurd hk (by omega)) (above _ _ h)
-  · obtain ⟨k, hk, hvk⟩ := partner 1 (Or.inl rfl) h1
-    have hcl' : clashes unk alien j k = false := by
-      cases h : clashes unk alien j k
-      · rfl
-      · have := hcl j k h; omega
-    have h := hpair j j.2 k k.2
-    rw [Bool.or_eq_true, Bool.or_eq_true] at h
-    rcases h with (h | h) | h
-    · simp only [Bool.not_eq_true', Bool.and_eq_false_iff, beq_eq_false_iff_ne, ne_eq] at h
-      simp only [rc] at h1 hk
-      rcases h with h | h
-      · exact absurd h1 h
-      · exact absurd hk h
-    · rw [hcl'] at h; exact absurd h (by simp)
-    · exact hbelow j k (fun h' => by have := Fin.ext h'; subst this; rw [hk] at h1; omega) (by omega)
-        (fun _ => hvk) (above _ _ h)
-  · obtain ⟨k, hk, hvk⟩ := partner (-1) (Or.inr rfl) hm
-    have hcl' : clashes unk alien k j = false := by
-      cases h : clashes unk alien k j
-      · rfl
-      · have := hcl k j h; omega
-    have h := hpair k k.2 j j.2
-    rw [Bool.or_eq_true, Bool.or_eq_true] at h
-    rcases h with (h | h) | h
-    · simp only [Bool.not_eq_true', Bool.and_eq_false_iff, beq_eq_false_iff_ne, ne_eq] at h
-      simp only [rc] at hm hk
-      rcases h with h | h
-      · exact absurd (by simpa using hk) h
-      · exact absurd hm h
-    · rw [hcl'] at h; exact absurd h (by simp)
-    · exact hbelow k j (fun h' => by have := Fin.ext h'; subst this; rw [hk] at hm; omega) hvk
-        (fun hk' => by rw [Fin.eta]; omega) (above _ _ h)
+      -- cover the remaining positions with the remaining elements
+      set todo' := (p :: rest).filter (!(marks c).contains ·)
+      obtain ⟨L', hL', hperm'⟩ := ih todo' (C.erase c)
+        (by
+          have : todo'.length ≤ rest.length := by
+            simp only [todo', List.filter_cons, hcp, Bool.not_true, Bool.false_eq_true, ite_false]
+            exact List.length_filter_le _ _
+          simp at hlen; omega)
+        (fun k hk => hC (List.mem_of_mem_erase hk))
+        (hnd.erase c)
+        (fun k hk => ⟨(hmk k (List.mem_of_mem_erase hk)).1, fun q hq =>
+          List.mem_filter.2 ⟨(hmk k (List.mem_of_mem_erase hk)).2 q hq,
+            by simpa using hdisj k hk q hq⟩⟩)
+        (fun q hq => by
+          obtain ⟨hq1, hq2⟩ := List.mem_filter.1 hq
+          have := hcount q hq1
+          rw [hsplit q, if_neg (by simpa using hq2)] at this
+          omega)
+      refine ⟨c :: L', ?_, (hperm'.cons c).trans hperm.symm⟩
+      simp only [Dio.covers, List.mem_flatMap, List.mem_filter, List.mem_map]
+      refine ⟨c, ⟨hC hcC, ?_⟩, L', hL', rfl⟩
+      simp only [Bool.and_eq_true, hcp, true_and, List.all_eq_true]
+      exact fun q hq => by simpa using (hmk c hcC).2 q hq
 
-end Dom
+theorem countP_eq_sum {β} (P : β → Bool) : ∀ l : List β,
+    l.countP P = (l.map fun x => if P x then 1 else 0).sum
+  | [] => rfl
+  | x :: l => by rw [List.countP_cons, countP_eq_sum P l]; simp [Nat.add_comm]
+
+/-- Basis element `k` marks the non-variable arguments where it is nonzero. -/
+theorem mem_marked {k j : Nat} :
+    j ∈ sh.marked (nthD sh.basis k []) ↔
+      j < sh.size ∧ nthD sh.nonVar j false = true ∧ nthD (nthD sh.basis k []) j 0 ≠ 0 := by
+  simp [Dio.marked]
+
+/-- **Every selection is enumerated**: the elements marking no non-variable argument, plus
+any choice `T` of the others in which each non-variable argument is marked exactly once. -/
+theorem selections_complete {T : List Nat} (hT : T.Nodup)
+    (hTk : ∀ k ∈ T, k < sh.basis.length ∧ sh.marked (nthD sh.basis k []) ≠ [])
+    (hcov : ∀ j < sh.size, nthD sh.nonVar j false = true →
+      (T.map fun k => nthD (nthD sh.basis k []) j 0).sum = 1) :
+    ∃ S ∈ sh.selections, S.Perm
+      ((List.range sh.basis.length).filter (fun k => (sh.marked (nthD sh.basis k [])).isEmpty)
+        ++ T) := by
+  set marks := fun k => sh.marked (nthD sh.basis k [])
+  obtain ⟨L, hL, hperm⟩ := covers_complete
+    ((List.range sh.basis.length).filter fun k => !(marks k).isEmpty) marks
+    sh.nonVarPositions.length sh.nonVarPositions T le_rfl
+    (fun k hk => List.mem_filter.2 ⟨List.mem_range.2 (hTk k hk).1,
+      by simpa [marks] using (hTk k hk).2⟩)
+    hT
+    (fun k hk => ⟨(hTk k hk).2, fun q hq => by
+      obtain ⟨hqN, hqv, -⟩ := mem_marked.1 hq
+      simp [Dio.nonVarPositions, hqN, hqv]⟩)
+    (fun p hp => by
+      simp only [Dio.nonVarPositions, List.mem_filter, List.mem_range] at hp
+      obtain ⟨hpN, hpv⟩ := hp
+      rw [← hcov p hpN hpv, countP_eq_sum]
+      congr 1
+      refine List.map_congr_left fun k hk => ?_
+      have h1 := (basis_facts rfl k (hTk k hk).1).2.2.2 ⟨p, hpN⟩ hpv
+      simp only [bf] at h1
+      by_cases h0 : nthD (nthD sh.basis k []) p 0 = 0
+      · simp [marks, Dio.marked, h0]
+      · have : nthD (nthD sh.basis k []) p 0 = 1 := by omega
+        simp [marks, Dio.marked, hpN, hpv, this])
+  exact ⟨_ ++ L, List.mem_map.2 ⟨L, hL, rfl⟩, hperm.append_left _⟩
+
+end Basis
 
 section Row
 
@@ -222,53 +384,31 @@ theorem count_eq (t : Term) : ∀ l : List Term, count t l = l.count t
     · subst h; simp; omega
     · simp [h, Ne.symm h]
 
-theorem foldl_ite_sum (N : Nat) (p : Nat → Prop) [DecidablePred p] (f : Nat → Int) (a : Int) :
-    (List.range N).foldl (fun acc j => if p j then acc + f j else acc) a =
-      a + ∑ j ∈ (Finset.range N).filter p, f j := by
-  induction N generalizing a with
-  | zero => simp
-  | succ N ih =>
-    rw [List.range_succ, List.foldl_append, ih, Finset.range_add_one, Finset.filter_insert]
-    simp only [List.foldl_cons, List.foldl_nil]
-    by_cases h : p N
-    · rw [if_pos h, if_pos h, Finset.sum_insert (by simp)]; ring
-    · rw [if_neg h, if_neg h]
-
-/-- The row read at the summands: `Σ_j r_j g(u_j) = Σ_{t ∈ L} g t − Σ_{t ∈ R} g t`. -/
+/-- The row read at the summands: `Σ_j r_j g(u_j) = Σ_{t ∈ L} g t − Σ_{t ∈ R} g t`, given that
+every unknown is a summand and the coefficients of each summand add up to its occurrences on
+the left minus those on the right. -/
 theorem row_identity {f : Nat} {unk : List Term} {row : List Int} {l r : Term}
-    (hro : rowOk f unk row l r = true) (g : Term → Int) :
-    ∑ j : Fin unk.length, rc row j * g (nthD unk j (var 0)) =
+    (hmem : ∀ j < unk.length, nthD unk j (var 0) ∈ summands f l ++ summands f r)
+    (hcnt : ∀ t ∈ summands f l ++ summands f r,
+      ∑ j ∈ Finset.univ.filter (fun j : Fin unk.length => nthD unk j (var 0) = t), nthD row j 0 =
+        ((summands f l).count t : Int) - ((summands f r).count t : Int))
+    (g : Term → Int) :
+    ∑ j : Fin unk.length, nthD row j 0 * g (nthD unk j (var 0)) =
       ((summands f l).map g).sum - ((summands f r).map g).sum := by
   set L := summands f l
   set R := summands f r
   set u : Fin unk.length → Term := fun j => nthD unk j (var 0)
-  simp only [rowOk, Bool.and_eq_true, List.all_eq_true, List.mem_range, beq_iff_eq] at hro
-  obtain ⟨hmem, hcnt⟩ := hro
   set D := (L ++ R).toFinset
   have hmaps : ∀ j ∈ (Finset.univ : Finset (Fin unk.length)), u j ∈ D := fun j _ => by
-    have := hmem j j.2
-    simp only [memT, List.any_eq_true, beq_iff] at this
-    obtain ⟨t, ht, he⟩ := this
-    simp only [D, List.mem_toFinset]; rw [show u j = t from he]; exact ht
-  -- group the unknowns by their term
-  have hcoef : ∀ t ∈ D, ∑ j ∈ Finset.univ.filter (fun j : Fin unk.length => u j = t), rc row j =
-      (L.count t : Int) - (R.count t : Int) := by
-    intro t ht
-    have h := hcnt t (by simpa [D] using ht)
-    rw [foldl_ite_sum unk.length (fun j => beq (nthD unk j (var 0)) t = true), zero_add,
-      count_eq, count_eq] at h
-    rw [← h]
-    rw [Finset.sum_filter, Finset.sum_filter, ← Fin.sum_univ_eq_sum_range
-      (fun j => if beq (nthD unk j (var 0)) t = true then nthD row j 0 else 0)]
-    simp only [beq_iff, rc, u]
-  calc ∑ j : Fin unk.length, rc row j * g (u j)
-      = ∑ t ∈ D, ∑ j ∈ Finset.univ.filter (fun j => u j = t), rc row j * g (u j) :=
+    simpa [D] using hmem j j.2
+  calc ∑ j : Fin unk.length, nthD row j 0 * g (u j)
+      = ∑ t ∈ D, ∑ j ∈ Finset.univ.filter (fun j => u j = t), nthD row j 0 * g (u j) :=
         (Finset.sum_fiberwise_of_maps_to hmaps _).symm
     _ = ∑ t ∈ D, ((L.count t : Int) - (R.count t : Int)) * g t := by
         refine Finset.sum_congr rfl fun t ht => ?_
-        rw [← hcoef t ht, Finset.sum_mul]
+        rw [← hcnt t (by simpa [D] using ht), Finset.sum_mul]
         refine Finset.sum_congr rfl fun j hj => ?_
-        rw [(Finset.mem_filter.1 hj).2]
+        simp only [u, (Finset.mem_filter.1 hj).2]
     _ = ∑ t ∈ D, (L.count t : Int) * g t - ∑ t ∈ D, (R.count t : Int) * g t := by
         rw [← Finset.sum_sub_distrib]; exact Finset.sum_congr rfl fun t _ => by ring
     _ = (L.map g).sum - (R.map g).sum := by
@@ -277,9 +417,140 @@ theorem row_identity {f : Nat} {unk : List Term} {row : List Int} {l r : Term}
           intro K hK
           rw [Finset.sum_list_map_count, ← Finset.sum_subset hK (fun t _ ht => by
             simp [List.count_eq_zero_of_not_mem (by simpa using ht)])]
-          exact Finset.sum_congr rfl fun t _ => by simp [nsmul_eq_mul]
+          exact Finset.sum_congr rfl fun t _ => by simp
         rw [key L (fun t ht => by simp only [D, List.mem_toFinset, List.mem_append] at ht ⊢; exact Or.inl ht),
           key R (fun t ht => by simp only [D, List.mem_toFinset, List.mem_append] at ht ⊢; exact Or.inr ht)]
+
+/-! ### The arguments of an equation -/
+
+theorem mem_distinctTerms (ts : List Term) :
+    (∀ t, t ∈ distinctTerms ts ↔ t ∈ ts) ∧ (distinctTerms ts).Nodup := by
+  have key : ∀ (ts acc : List Term), acc.Nodup →
+      (∀ t, t ∈ ts.foldl (fun acc t => if memT t acc then acc else acc ++ [t]) acc ↔
+        t ∈ acc ∨ t ∈ ts) ∧
+      (ts.foldl (fun acc t => if memT t acc then acc else acc ++ [t]) acc).Nodup := by
+    intro ts
+    induction ts with
+    | nil => intro acc h; simpa using h
+    | cons u ts ih =>
+      intro acc hacc
+      simp only [List.foldl_cons]
+      have hmemT : memT u acc = true ↔ u ∈ acc := by
+        simp only [memT, List.any_eq_true, beq_iff]
+        exact ⟨fun ⟨w, hw, h⟩ => h ▸ hw, fun h => ⟨u, h, rfl⟩⟩
+      split
+      · next h =>
+        obtain ⟨h1, h2⟩ := ih acc hacc
+        refine ⟨fun t => ?_, h2⟩
+        rw [h1 t]; simp only [List.mem_cons]
+        constructor
+        · rintro (h | h) <;> simp [h]
+        · rintro (h | rfl | h)
+          · exact Or.inl h
+          · exact Or.inl (hmemT.1 h)
+          · exact Or.inr h
+      · next h =>
+        have hnd : (acc ++ [u]).Nodup := by
+          rw [← List.concat_eq_append]; exact hacc.concat fun h' => h (hmemT.2 h')
+        obtain ⟨h1, h2⟩ := ih (acc ++ [u]) hnd
+        refine ⟨fun t => ?_, h2⟩
+        rw [h1 t]; simp only [List.mem_append, List.mem_cons]
+        tauto
+  obtain ⟨h1, h2⟩ := key ts [] List.nodup_nil
+  exact ⟨fun t => by simpa using h1 t, h2⟩
+
+section Arguments
+
+variable {f : Nat} {l r : Term}
+
+/-- The net count of a summand: occurrences on the left minus on the right. -/
+abbrev net (f : Nat) (l r : Term) (t : Term) : Int :=
+  ((summands f l).count t : Int) - ((summands f r).count t : Int)
+
+theorem arguments_eq :
+    arguments f l r = ((distinctTerms (summands f l ++ summands f r)).filter (net f l r · > 0) ++
+      (distinctTerms (summands f l ++ summands f r)).filter (net f l r · < 0)).map
+        fun t => ⟨t, net f l r t⟩ := by
+  simp only [arguments, count_eq, net]
+
+/-- The argument terms: distinct summands, exactly those that do not cancel. -/
+theorem argTerms_facts :
+    ((arguments f l r).map (·.term)).Nodup ∧
+    ∀ t, t ∈ (arguments f l r).map (·.term) ↔
+      t ∈ summands f l ++ summands f r ∧ net f l r t ≠ 0 := by
+  obtain ⟨hmem, hnd⟩ := mem_distinctTerms (summands f l ++ summands f r)
+  rw [arguments_eq, List.map_map]
+  simp only [Function.comp_def, List.map_id']
+  refine ⟨?_, fun t => ?_⟩
+  · refine List.nodup_append.2 ⟨hnd.filter _, hnd.filter _, ?_⟩
+    intro a ha b hb hab
+    subst hab
+    simp only [List.mem_filter, decide_eq_true_eq] at ha hb
+    omega
+  · simp only [List.mem_append, List.mem_filter, hmem, decide_eq_true_eq]
+    constructor
+    · rintro (⟨h, h'⟩ | ⟨h, h'⟩) <;> exact ⟨h, by omega⟩
+    · rintro ⟨h, h'⟩
+      rcases lt_or_gt_of_ne h' with h'' | h''
+      · exact Or.inr ⟨h, h''⟩
+      · exact Or.inl ⟨h, h''⟩
+
+theorem arg_mult {a : Arg} (ha : a ∈ arguments f l r) : a.mult = net f l r a.term ∧ a.mult ≠ 0 := by
+  rw [arguments_eq] at ha
+  simp only [List.mem_map, List.mem_append, List.mem_filter, decide_eq_true_eq] at ha
+  obtain ⟨t, ht, rfl⟩ := ha
+  exact ⟨rfl, by rcases ht with ⟨-, h⟩ | ⟨-, h⟩ <;> simp only <;> omega⟩
+
+/-- The two facts `row_identity` needs, for the arguments of `l ≟ r`. -/
+theorem arguments_row :
+    let unk := (arguments f l r).map (·.term)
+    let row := (arguments f l r).map (·.mult)
+    (∀ j < unk.length, nthD unk j (var 0) ∈ summands f l ++ summands f r) ∧
+    ∀ t ∈ summands f l ++ summands f r,
+      ∑ j ∈ Finset.univ.filter (fun j : Fin unk.length => nthD unk j (var 0) = t), nthD row j 0 =
+        ((summands f l).count t : Int) - ((summands f r).count t : Int) := by
+  intro unk row
+  obtain ⟨hnd, hiff⟩ := argTerms_facts (f := f) (l := l) (r := r)
+  have hu : ∀ j : Fin unk.length, nthD unk j (var 0) = ((arguments f l r)[j]'(by simpa [unk] using j.2)).term :=
+    fun j => by rw [nthD_of_lt _ j.2]; simp [unk]
+  have hr : ∀ j : Fin unk.length, nthD row j 0 = ((arguments f l r)[j]'(by simpa [unk] using j.2)).mult :=
+    fun j => by rw [nthD_of_lt _ (by simpa [row, unk] using j.2)]; simp [row]
+  refine ⟨fun j hj => ((hiff _).1 (by rw [nthD_of_lt _ hj]; exact List.getElem_mem hj)).1,
+    fun t ht => ?_⟩
+  rw [Finset.sum_filter]
+  -- the sum runs over the arguments; only the one with term `t`, if any, contributes
+  have hsum : ∑ j : Fin unk.length, (if nthD unk j (var 0) = t then nthD row j 0 else 0) =
+      ((arguments f l r).map fun a => if a.term = t then a.mult else 0).sum := by
+    have hlen : unk.length = (arguments f l r).length := by simp [unk]
+    rw [← List.sum_ofFn]
+    congr 1
+    apply List.ext_getElem (by simp [hlen])
+    intro j h1 h2
+    simp only [List.getElem_ofFn, List.getElem_map, hu, hr, Fin.getElem_fin]
+  rw [hsum]
+  by_cases htm : t ∈ unk
+  · obtain ⟨a, ha, rfl⟩ := List.mem_map.1 htm
+    have hargs : ((arguments f l r).map (·.term)).Nodup := hnd
+    have : ((arguments f l r).map fun b => if b.term = a.term then b.mult else 0).sum = a.mult := by
+      classical
+      have hinj : ∀ b ∈ (arguments f l r), b.term = a.term → b = a := fun b hb hba =>
+        (List.inj_on_of_nodup_map hargs) hb ha hba
+      rw [List.sum_toFinset _ (List.Nodup.of_map _ hargs) |>.symm]
+      rw [Finset.sum_eq_single a (fun b hb hba => by
+        rw [if_neg fun h => hba (hinj b (List.mem_toFinset.1 hb) h)])
+        (fun h => absurd (List.mem_toFinset.2 ha) h)]
+      simp
+    rw [this, (arg_mult ha).1]
+  · have : ((arguments f l r).map fun b => if b.term = t then b.mult else 0).sum = 0 :=
+      List.sum_eq_zero fun x hx => by
+        obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hx
+        rw [if_neg fun h => htm (List.mem_map.2 ⟨b, hb, h⟩)]
+    rw [this]
+    have := (hiff t).2
+    by_contra hne
+    exact htm (this ⟨ht, fun h => hne (by simp only [net] at h; omega)⟩)
+
+end Arguments
 
 end Row
 
@@ -362,26 +633,6 @@ theorem msum_flatMap {A : AcuOp M.T} {ρ : M.Valuation} (g : Nat → List Term) 
     simp
 
 end Model
-
-theorem mem_powerset : ∀ {T al : List Nat}, T.Sublist al → T ∈ powerset al
-  | _, [], h => by simp [List.sublist_nil.1 h, powerset]
-  | T, k :: al, h => by
-    simp only [powerset, List.mem_append, List.mem_map]
-    cases h with
-    | cons _ h => exact Or.inr (mem_powerset h)
-    | cons₂ _ h => exact Or.inl ⟨_, mem_powerset h, rfl⟩
-
-theorem perm_insN (n : Nat) : ∀ l, (insN n l).Perm (n :: l)
-  | [] => List.Perm.refl _
-  | m :: l => by
-    simp only [insN]
-    split
-    · exact ((perm_insN n l).cons m).trans (List.Perm.swap n m l)
-    · exact List.Perm.refl _
-
-theorem perm_sortN : ∀ l, (sortN l).Perm l
-  | [] => List.Perm.refl _
-  | n :: l => (perm_insN n _).trans ((perm_sortN l).cons n)
 
 theorem natEqL_iff : ∀ {a b : List Nat}, natEqL a b = true ↔ a = b
   | [], [] => by simp [natEqL]
