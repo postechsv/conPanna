@@ -423,132 +423,47 @@ theorem row_identity {f : Nat} {unk : List Term} {row : List Int} {l r : Term}
 
 /-! ### The arguments of an equation -/
 
-theorem mem_distinctTerms (ts : List Term) :
-    (∀ t, t ∈ distinctTerms ts ↔ t ∈ ts) ∧ (distinctTerms ts).Nodup := by
-  have key : ∀ (ts acc : List Term), acc.Nodup →
-      (∀ t, t ∈ ts.foldl (fun acc t => if memT t acc then acc else acc ++ [t]) acc ↔
-        t ∈ acc ∨ t ∈ ts) ∧
-      (ts.foldl (fun acc t => if memT t acc then acc else acc ++ [t]) acc).Nodup := by
-    intro ts
-    induction ts with
-    | nil => intro acc h; simpa using h
-    | cons u ts ih =>
-      intro acc hacc
-      simp only [List.foldl_cons]
-      have hmemT : memT u acc = true ↔ u ∈ acc := by
-        simp only [memT, List.any_eq_true, beq_iff]
-        exact ⟨fun ⟨w, hw, h⟩ => h ▸ hw, fun h => ⟨u, h, rfl⟩⟩
-      split
-      · next h =>
-        obtain ⟨h1, h2⟩ := ih acc hacc
-        refine ⟨fun t => ?_, h2⟩
-        rw [h1 t]; simp only [List.mem_cons]
-        constructor
-        · rintro (h | h) <;> simp [h]
-        · rintro (h | rfl | h)
-          · exact Or.inl h
-          · exact Or.inl (hmemT.1 h)
-          · exact Or.inr h
-      · next h =>
-        have hnd : (acc ++ [u]).Nodup := by
-          rw [← List.concat_eq_append]; exact hacc.concat fun h' => h (hmemT.2 h')
-        obtain ⟨h1, h2⟩ := ih (acc ++ [u]) hnd
-        refine ⟨fun t => ?_, h2⟩
-        rw [h1 t]; simp only [List.mem_append, List.mem_cons]
-        tauto
-  obtain ⟨h1, h2⟩ := key ts [] List.nodup_nil
-  exact ⟨fun t => by simpa using h1 t, h2⟩
+theorem memT_iff {t : Term} {l : List Term} : memT t l = true ↔ t ∈ l := by
+  simp only [memT, List.any_eq_true, beq_iff]
+  exact ⟨fun ⟨u, hu, h⟩ => h ▸ hu, fun h => ⟨t, h, rfl⟩⟩
 
 section Arguments
 
-variable {f : Nat} {l r : Term}
+variable {f : Nat} {l r : Term} {us : List Term} {ms : List Int}
 
-/-- The net count of a summand: occurrences on the left minus on the right. -/
-abbrev net (f : Nat) (l r : Term) (t : Term) : Int :=
-  ((summands f l).count t : Int) - ((summands f r).count t : Int)
+theorem net_eq (t : Term) :
+    net f l r t = ((summands f l).count t : Int) - ((summands f r).count t : Int) := by
+  simp only [net, count_eq]
 
-theorem arguments_eq :
-    arguments f l r = ((distinctTerms (summands f l ++ summands f r)).filter (net f l r · > 0) ++
-      (distinctTerms (summands f l ++ summands f r)).filter (net f l r · < 0)).map
-        fun t => ⟨t, net f l r t⟩ := by
-  simp only [arguments, count_eq, net]
-
-/-- The argument terms: distinct summands, exactly those that do not cancel. -/
-theorem argTerms_facts :
-    ((arguments f l r).map (·.term)).Nodup ∧
-    ∀ t, t ∈ (arguments f l r).map (·.term) ↔
-      t ∈ summands f l ++ summands f r ∧ net f l r t ≠ 0 := by
-  obtain ⟨hmem, hnd⟩ := mem_distinctTerms (summands f l ++ summands f r)
-  rw [arguments_eq, List.map_map]
-  simp only [Function.comp_def, List.map_id']
-  refine ⟨?_, fun t => ?_⟩
-  · refine List.nodup_append.2 ⟨hnd.filter _, hnd.filter _, ?_⟩
-    intro a ha b hb hab
-    subst hab
-    simp only [List.mem_filter, decide_eq_true_eq] at ha hb
-    omega
-  · simp only [List.mem_append, List.mem_filter, hmem, decide_eq_true_eq]
-    constructor
-    · rintro (⟨h, h'⟩ | ⟨h, h'⟩) <;> exact ⟨h, by omega⟩
-    · rintro ⟨h, h'⟩
-      rcases lt_or_gt_of_ne h' with h'' | h''
-      · exact Or.inr ⟨h, h''⟩
-      · exact Or.inl ⟨h, h''⟩
-
-theorem arg_mult {a : Arg} (ha : a ∈ arguments f l r) : a.mult = net f l r a.term ∧ a.mult ≠ 0 := by
-  rw [arguments_eq] at ha
-  simp only [List.mem_map, List.mem_append, List.mem_filter, decide_eq_true_eq] at ha
-  obtain ⟨t, ht, rfl⟩ := ha
-  exact ⟨rfl, by rcases ht with ⟨-, h⟩ | ⟨-, h⟩ <;> simp only <;> omega⟩
-
-/-- The two facts `row_identity` needs, for the arguments of `l ≟ r`. -/
-theorem arguments_row :
-    let unk := (arguments f l r).map (·.term)
-    let row := (arguments f l r).map (·.mult)
-    (∀ j < unk.length, nthD unk j (var 0) ∈ summands f l ++ summands f r) ∧
-    ∀ t ∈ summands f l ++ summands f r,
-      ∑ j ∈ Finset.univ.filter (fun j : Fin unk.length => nthD unk j (var 0) = t), nthD row j 0 =
-        ((summands f l).count t : Int) - ((summands f r).count t : Int) := by
-  intro unk row
-  obtain ⟨hnd, hiff⟩ := argTerms_facts (f := f) (l := l) (r := r)
-  have hu : ∀ j : Fin unk.length, nthD unk j (var 0) = ((arguments f l r)[j]'(by simpa [unk] using j.2)).term :=
-    fun j => by rw [nthD_of_lt _ j.2]; simp [unk]
-  have hr : ∀ j : Fin unk.length, nthD row j 0 = ((arguments f l r)[j]'(by simpa [unk] using j.2)).mult :=
-    fun j => by rw [nthD_of_lt _ (by simpa [row, unk] using j.2)]; simp [row]
-  refine ⟨fun j hj => ((hiff _).1 (by rw [nthD_of_lt _ hj]; exact List.getElem_mem hj)).1,
-    fun t ht => ?_⟩
-  rw [Finset.sum_filter]
-  -- the sum runs over the arguments; only the one with term `t`, if any, contributes
-  have hsum : ∑ j : Fin unk.length, (if nthD unk j (var 0) = t then nthD row j 0 else 0) =
-      ((arguments f l r).map fun a => if a.term = t then a.mult else 0).sum := by
-    have hlen : unk.length = (arguments f l r).length := by simp [unk]
-    rw [← List.sum_ofFn]
+theorem weight_eq_sum (t : Term) : ∀ (us : List Term) (ms : List Int), us.length = ms.length →
+    weight t us ms = ∑ j : Fin us.length, if nthD us j (var 0) = t then nthD ms j 0 else 0
+  | [], [], _ => by simp [weight]
+  | u :: us, m :: ms, h => by
+    simp only [weight]
+    rw [weight_eq_sum t us ms (by simpa using h), List.length_cons, Fin.sum_univ_succ]
     congr 1
-    apply List.ext_getElem (by simp [hlen])
-    intro j h1 h2
-    simp only [List.getElem_ofFn, List.getElem_map, hu, hr, Fin.getElem_fin]
-  rw [hsum]
-  by_cases htm : t ∈ unk
-  · obtain ⟨a, ha, rfl⟩ := List.mem_map.1 htm
-    have hargs : ((arguments f l r).map (·.term)).Nodup := hnd
-    have : ((arguments f l r).map fun b => if b.term = a.term then b.mult else 0).sum = a.mult := by
-      classical
-      have hinj : ∀ b ∈ (arguments f l r), b.term = a.term → b = a := fun b hb hba =>
-        (List.inj_on_of_nodup_map hargs) hb ha hba
-      rw [List.sum_toFinset _ (List.Nodup.of_map _ hargs) |>.symm]
-      rw [Finset.sum_eq_single a (fun b hb hba => by
-        rw [if_neg fun h => hba (hinj b (List.mem_toFinset.1 hb) h)])
-        (fun h => absurd (List.mem_toFinset.2 ha) h)]
-      simp
-    rw [this, (arg_mult ha).1]
-  · have : ((arguments f l r).map fun b => if b.term = t then b.mult else 0).sum = 0 :=
-      List.sum_eq_zero fun x hx => by
-        obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hx
-        rw [if_neg fun h => htm (List.mem_map.2 ⟨b, hb, h⟩)]
-    rw [this]
-    have := (hiff t).2
-    by_contra hne
-    exact htm (this ⟨ht, fun h => hne (by simp only [net] at h; omega)⟩)
+    · by_cases hu : u = t
+      · subst hu; simp [nthD, nth, (beq_iff (a := u) (b := u)).2 rfl]
+      · have hb : beq t u = false := Bool.eq_false_iff.2 fun hb => hu (beq_iff.1 hb).symm
+        simp [nthD, nth, hu, hb]
+  | [], _ :: _, h | _ :: _, [], h => by simp at h
+
+/-- A correct listing gives what `row_identity` needs: each argument is a summand, with a
+nonzero multiplicity, and the multiplicities of each summand add up to its net count. -/
+theorem arguments_row (h : argumentsOk f l r us ms = true) :
+    us.length = ms.length ∧
+    (∀ j < us.length, nthD us j (var 0) ∈ summands f l ++ summands f r) ∧
+    (∀ j < us.length, nthD ms j 0 ≠ 0) ∧
+    ∀ t ∈ summands f l ++ summands f r,
+      ∑ j ∈ Finset.univ.filter (fun j : Fin us.length => nthD us j (var 0) = t), nthD ms j 0 =
+        ((summands f l).count t : Int) - ((summands f r).count t : Int) := by
+  simp only [argumentsOk, Bool.and_eq_true, beq_iff_eq, List.all_eq_true, bne_iff_ne, ne_eq,
+    memT_iff] at h
+  obtain ⟨⟨⟨hlen, hne⟩, hmem⟩, hw⟩ := h
+  refine ⟨hlen, fun j hj => ?_, fun j hj => ?_, fun t ht => ?_⟩
+  · rw [nthD_of_lt _ hj]; exact hmem _ (List.getElem_mem hj)
+  · rw [nthD_of_lt _ (hlen ▸ hj)]; exact hne _ (List.getElem_mem _)
+  · rw [Finset.sum_filter, ← weight_eq_sum t us ms hlen, hw t ht, net_eq]
 
 end Arguments
 

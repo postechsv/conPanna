@@ -116,6 +116,10 @@ where
         if t.acus[f]!.2 == s then return ← tacu f [r]
     return r
 
+def intE (n : Int) : Expr :=
+  if n ≥ 0 then mkApp (mkConst ``Int.ofNat) (nat n.toNat)
+  else mkApp (mkConst ``Int.negSucc) (nat (n.natAbs - 1))
+
 def natList (xs : List Nat) : MetaM Expr := list (mkConst ``Nat) (xs.map nat)
 
 /-- Step ids in file order, and answer names. -/
@@ -169,11 +173,44 @@ def steps (t : Tbl) (udf : Udf) (ids ans : Array String) (vars : Std.HashMap Str
     | "acu-solve" =>
       let some (f, _) := t.acuName[(kw a ":op").get!.atom!]? | throwError "reflect: unknown ACU operator"
       let i := (kw a ":eqs").get!.items[0]!.nat!
-      -- only the new variables of each selection; the checker computes the rest
-      let fresh ← (kw a ":selections").get!.items.toList.mapM fun sel => do
-        natList (← (kw sel.items ":fresh").get!.items.toList.mapM fun z => do return (← vidx z.atom!).1)
-      return mkAppN (C `acu) #[nat f, nat i, ← list (← mkAppM ``List #[mkConst ``Nat]) fresh,
-        ← natList ps]
+      -- the arguments, in normal form as the checker compares them with the state's
+      -- summands (an alien may hold ACU subterms, which the producer orders its own way)
+      let args := (kw a ":unknowns").get!.items.toList
+      let unk ← args.mapM fun x => do
+        return mkAppN (mkConst ``Reflect.norm) #[t.model, sortsE, ← term none x]
+      -- the multiplicities (checked by the checker) and, from them, the checker's order of
+      -- the selections: a hint only, as the checker computes the selections itself
+      let rows := (kw a ":rows").get!.items
+      unless rows.size == 1 do throwError "reflect: only single-row systems"
+      let heads := args.map fun x => match udf.sig.term x with
+        | .app op _ => some op
+        | .var _ => none
+      let sh : Dio :=
+        { mults := rows[0]!.items.toList.map (·.int!)
+          nonVar := (kw a ":bounds").get!.items.toList.map (·.atom! == "1")
+          clash := fun i j => match heads[i]?.join, heads[j]?.join with
+            | some g, some h => g != h
+            | _, _ => false }
+      let basis := (kw a ":basis").get!.items.toList.map fun v => v.items.toList.map (·.nat!)
+      let ours (k : Nat) : Option Nat := sh.basis.idxOf? basis[k]!
+      -- each producer selection: its elements as the checker's (in the producer's order,
+      -- which fixes the order of the pending equations), its new variables, its premise
+      let given ← ((kw a ":selections").get!.items.toList.zip ps).mapM fun (sel, p) => do
+        let S := (sel.items[1]!).items.toList.map (·.nat!)
+        let some S' := S.mapM ours | throwError "reflect: a basis element is not minimal admissible"
+        let zs ← (kw sel.items ":fresh").get!.items.toList.mapM fun z => do return (← vidx z.atom!).1
+        return (S', zs, p)
+      let selTy ← mkAppM ``Prod #[← mkAppM ``List #[mkConst ``Nat], ← mkAppM ``List #[mkConst ``Nat]]
+      let mut sels : Array Expr := #[]
+      let mut prem : Array Nat := #[]
+      for C in sh.selections do
+        let some (S', zs, p) := given.find? fun (S', _, _) => S'.length == C.length && S'.all C.contains
+          | throwError "reflect: no premise for selection {C}"
+        sels := sels.push (← mkAppM ``Prod.mk #[← natList S', ← natList zs])
+        prem := prem.push p
+      return mkAppN (C `acu) #[nat f, nat i, ← list termTy unk,
+        ← list (mkConst ``Int) (sh.mults.map intE), ← list selTy sels.toList,
+        ← natList prem.toList]
     | r => throwError "reflect: rule {r} not supported"
 
 /-- The model of state type `root`: `root.reflect.model` if `#dump_model` defined it. -/

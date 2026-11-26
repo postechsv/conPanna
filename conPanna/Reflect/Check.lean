@@ -68,9 +68,11 @@ inductive Rule where
   | ground (i : Nat)
   /-- `E = []`: the answer `a`, with the binder's variables `w`. -/
   | cover (a : Nat) (w : List Term)
-  /-- ACU-Solve on equation `i` at union `f`: the new variables of each selection, and the
-  step proving each premise, in the order of `Dio.selections`. -/
-  | acu (f i : Nat) (fresh : List (List Nat)) (ps : List Nat)
+  /-- ACU-Solve on equation `i` at union `f`: the arguments and their multiplicities; per
+  selection, in the order of `Dio.selections`, its elements in the certificate's order and
+  its new variables; and the step proving each premise. -/
+  | acu (f i : Nat) (unk : List Term) (mults : List Int) (sels : List (List Nat × List Nat))
+      (ps : List Nat)
 
 /-- A claim about the problem `lhs = rhs` over the context `sh` (variables
 `0 … sh.size - 1`) and its answers: their completeness, or their soundness. -/
@@ -265,25 +267,22 @@ def acuUpd (vs bv : List Nat) (θ : Nat → Option Term) (t : Term) : Term :=
 
 /-! ## Terms: the arguments of an equation, and the premises -/
 
-/-- An argument of the equation and its multiplicity: positive on the left, negative on
-the right. -/
-structure Arg where
-  term : Term
-  mult : Int
+/-- The net count of a summand of `l ≟ r`: occurrences on the left minus on the right. -/
+def net (f : Nat) (l r t : Term) : Int := count t (summands f l) - count t (summands f r)
 
-/-- The distinct terms of a list, in order of first occurrence. -/
-def distinctTerms (ts : List Term) : List Term :=
-  ts.foldl (fun acc t => if memT t acc then acc else acc ++ [t]) []
+/-- The multiplicity listed for `t`: the sum of the multiplicities `ms` at its positions in
+`us`. -/
+def weight (t : Term) : List Term → List Int → Int
+  | u :: us, m :: ms => (if beq t u then m else 0) + weight t us ms
+  | _, _ => 0
 
-/-- The arguments of `l ≟ r` after cancellation on both sides, left ones first: each
-distinct summand with its occurrences on the left minus those on the right, if nonzero.
-The terms of a state are in normal form, so this is syntactic. -/
-def arguments (f : Nat) (l r : Term) : List Arg :=
-  let L := summands f l
-  let R := summands f r
-  let net (t : Term) : Int := count t L - count t R
-  let ts := distinctTerms (L ++ R)
-  (ts.filter (net · > 0) ++ ts.filter (net · < 0)).map fun t => ⟨t, net t⟩
+/-- `us`, with multiplicities `ms`, lists the arguments of `l ≟ r`: summands with nonzero
+multiplicities, those of each summand adding up to its net count. A summand may be listed
+more than once, e.g. on both sides (cancellation is not required). -/
+def argumentsOk (f : Nat) (l r : Term) (us : List Term) (ms : List Int) : Bool :=
+  us.length == ms.length && ms.all (· != 0) &&
+    us.all (memT · (summands f l ++ summands f r)) &&
+    (summands f l ++ summands f r).all fun t => weight t us ms == net f l r t
 
 /-- Two arguments clash if both are constructor terms with different top constructors. -/
 def clashT (t u : Term) : Bool :=
@@ -291,27 +290,25 @@ def clashT (t u : Term) : Bool :=
   | some g, some h => g != h
   | _, _ => false
 
-/-- `Dio(s,t)` for a list of arguments of the union `A`: an argument of the
+/-- `Dio(s,t)` for the arguments `us` of the union `A`, with multiplicities `ms`: an argument of the
 element sort is non-variable (the element of a singleton). -/
-def dioOf (vs : List Nat) (A : AcuOp M.T) (args : List Arg) : Dio :=
-  let unk := args.map (·.term)
-  { mults := args.map (·.mult)
-    nonVar := unk.map fun t => tsort M vs t == some A.elem
-    clash := fun i j => clashT (nthD unk i (var 0)) (nthD unk j (var 0)) }
+def dioOf (vs : List Nat) (A : AcuOp M.T) (us : List Term) (ms : List Int) : Dio :=
+  { mults := ms
+    nonVar := us.map fun t => tsort M vs t == some A.elem
+    clash := fun i j => clashT (nthD us i (var 0)) (nthD us j (var 0)) }
 
 /-- ACU-Solve on equation `i` of the state, at the union `f`: the premise states, one per
-selection, in the order of `Dio.selections`. The certificate names the new variables of
-each selection (`fresh`). `none` if the equation does not have the form of the rule:
-both sides of the bag sort, and every argument a singleton's element or a bag variable. -/
-def acuSolve (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat)
-    (fresh : List (List Nat)) : Option (List (List Term × List Eqn)) :=
+selection, in the order of `Dio.selections`. The certificate lists the arguments (`unk`)
+with their multiplicities (`mults`), which fixes their order, and each selection (`sels`):
+its elements in its own order (a permutation of the computed one; the order of the pending
+equations follows it), and its new variables. `none` if the listing is wrong, or the equation does not have the form of the rule: both
+sides of the bag sort, and every argument a singleton's element or a bag variable. -/
+def acuSolve (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat) (unk : List Term)
+    (mults : List Int) (sels : List (List Nat × List Nat)) : Option (List (List Term × List Eqn)) :=
   match nth E i, M.acu? f with
   | some (l, r), some A =>
-    let args := arguments f l r
-    let unk := args.map (·.term)
-    let sh := dioOf M vs A args
+    let sh := dioOf M vs A unk mults
     let B := sh.basis
-    let sels := sh.selections
     let isBagVar : Term → Bool
       | var x => vs[x]? == some A.bag
       | _ => false
@@ -319,12 +316,12 @@ def acuSolve (vs : List Nat) (α : List Term) (E : List Eqn) (f i : Nat)
       if nthD sh.nonVar j false then none else match nthD unk j (var 0) with
         | var x => some x
         | _ => none
-    if tsort M vs l == some A.bag && tsort M vs r == some A.bag &&
+    if argumentsOk f l r unk mults && tsort M vs l == some A.bag && tsort M vs r == some A.bag &&
         (List.range unk.length).all (fun j => nthD sh.nonVar j false || isBagVar (nthD unk j (var 0))) &&
-        sels.length == fresh.length &&
-        (sels.zip fresh).all (fun (S, z) =>
+        sh.selections.length == sels.length &&
+        (sh.selections.zip sels).all (fun (C, S, z) => S.isPerm C &&
           z.length == (S.filter (alienFree unk sh.nonVar B)).length && freshOk vs A.bag α E z) then
-      some <| (sels.zip fresh).map fun (S, z) =>
+      some <| sels.map fun (S, z) =>
         let θ := theta f unk sh.nonVar B S z
         let upd := acuUpd M vs bagVars θ
         (α.map upd, pendingOf unk sh.nonVar B S z ++ (E.eraseIdx i).map fun e => (upd e.1, upd e.2))
@@ -371,8 +368,8 @@ def run (c : Cert) : Nat → Nat → List Term → List Eqn → Bool
         ((List.range w.length).all fun j => tsort M c.sorts (nthD w j (var 0)) == nth A.sh.sorts j) &&
         (α.zip A.img).all fun (t, u) => beq t (norm M c.sorts (subst (nth w) u))
       | none => false
-    | some (.acu f i fresh ps) =>
-      match acuSolve M c.sorts α E f i fresh with
+    | some (.acu f i unk mults sels ps) =>
+      match acuSolve M c.sorts α E f i unk mults sels with
       | some states => states.length == ps.length &&
           (states.zip ps).all fun ((α', E'), p) => run c n p α' E'
       | none => false
