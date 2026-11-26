@@ -26,3 +26,6 @@ maude/install-sh
 maude/missing
 maude/ylwrap
 maude/**/Makefile.in
+
+# Logs of scripts/ runs
+scripts/logs/
