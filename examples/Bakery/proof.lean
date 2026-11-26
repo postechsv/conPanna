@@ -1,5 +1,5 @@
 import examples.Bakery.rule
-import conPanna.Unification.Certification.Multiset
+import conPanna.BaseTheory.Multiset
 import conPanna.Narrowing.Narrowing
 import conPanna.Unification.Tactics.maudeUnify
 import conPanna.Later

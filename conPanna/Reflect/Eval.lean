@@ -1,5 +1,9 @@
 import conPanna.Reflect.Check
-import conPanna.Unification.Certification.Solve
+import conPanna.BaseTheory.Multiset
+import Mathlib.Algebra.BigOperators.Group.Finset.Basic
+import Mathlib.Algebra.Order.BigOperators.Group.Finset
+import Mathlib.Algebra.BigOperators.Fin
+import Mathlib.Algebra.Ring.Basic
 
 /-!
 Facts about evaluation (documentation/reflection-design.md, §1): Boolean equality of terms,

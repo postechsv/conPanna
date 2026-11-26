@@ -1,6 +1,6 @@
 import examples.Bakery.ctor
 import conPanna.core
-import conPanna.Unification.Certification.Multiset
+import conPanna.BaseTheory.Multiset
 
 /-!
 Bakery, N processes: the rules, one package of type `System`. Each rule acts on one

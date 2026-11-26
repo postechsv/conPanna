@@ -7,7 +7,7 @@ conclusion reaches one of the premises, through a valuation that agrees on the s
 
 namespace Reflect
 
-open Term Unification.Certification
+open Term
 
 namespace Model
 

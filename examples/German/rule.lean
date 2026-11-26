@@ -1,6 +1,6 @@
 import examples.German.ctor
 import conPanna.core
-import conPanna.Unification.Certification.Multiset
+import conPanna.BaseTheory.Multiset
 
 /-!
 German's protocol: the rules, one package of type `System`.

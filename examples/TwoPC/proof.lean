@@ -1,6 +1,6 @@
 import examples.TwoPC.rule
 import conPanna.conPanna
-import conPanna.Unification.Certification.Multiset
+import conPanna.BaseTheory.Multiset
 
 /-!
 # Two-phase commit: the invariant and its top-level proof

@@ -1,6 +1,6 @@
 import examples.German.rule
 import conPanna.conPanna
-import conPanna.Unification.Certification.Multiset
+import conPanna.BaseTheory.Multiset
 
 /-!
 # German's cache-coherence protocol: the invariant and its top-level proofs

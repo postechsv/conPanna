@@ -1,6 +1,6 @@
 import conPanna.Reflect.Eval
 import conPanna.Reflect.MinimalBound
-import conPanna.Unification.Certification.Solve
+import conPanna.BaseTheory.Multiset
 import Mathlib.Tactic.Ring
 
 /-!
@@ -467,6 +467,61 @@ end Arguments
 end Row
 
 /-! ## Part B: the semantic step -/
+
+/-- The count vector of one element across the bag variables. -/
+def counts {El : Type*} [DecidableEq El] {n : ℕ} (x : Fin n → Multiset El) (e : El) : Fin n → ℕ := fun i => (x i).count e
+
+/-- Every multiset solution of a homogeneous system is a combination of basis
+vectors with fresh multiset coefficients, if every nonzero solution dominates a
+nonzero basis vector and stays a solution after subtracting it. -/
+theorem decompose {El : Type*} [DecidableEq El] {n k : ℕ} (H : (Fin n → ℕ) → Prop) (B : Fin k → Fin n → ℕ)
+    (nonzero : ∀ j, B j ≠ 0)
+    (dom : ∀ v, H v → v ≠ 0 → ∃ j, B j ≤ v ∧ H (v - B j))
+    (x : Fin n → Multiset El) (hx : ∀ e, H (counts x e)) :
+    ∃ U : Fin k → Multiset El, ∀ i, x i = ∑ j, B j i • U j := by
+  induction h : ∑ i, Multiset.card (x i) using Nat.strong_induction_on generalizing x with
+  | _ N ih =>
+  by_cases hz : ∀ i, x i = 0
+  · exact ⟨0, fun i => by simp [hz i]⟩
+  push_neg at hz
+  obtain ⟨i₀, hi₀⟩ := hz
+  obtain ⟨e, he⟩ := Multiset.exists_mem_of_ne_zero hi₀
+  have hv : counts x e ≠ 0 := fun h0 => by
+    have := congrFun h0 i₀
+    simp only [counts, Pi.zero_apply, Multiset.count_eq_zero] at this
+    exact this he
+  obtain ⟨j, hle, hH⟩ := dom _ (hx e) hv
+  let x' : Fin n → Multiset El := fun i => x i - Multiset.replicate (B j i) e
+  have hrep : ∀ i, Multiset.replicate (B j i) e ≤ x i :=
+    fun i => Multiset.le_count_iff_replicate_le.mp (hle i)
+  have hx' : ∀ e', H (counts x' e') := by
+    intro e'
+    by_cases he' : e' = e
+    · subst he'
+      convert hH using 1
+      funext i
+      simp [counts, x', Multiset.count_sub]
+    · convert hx e' using 1
+      funext i
+      simp [counts, x', Multiset.count_sub, Multiset.count_replicate, Ne.symm he']
+  have hlt : ∑ i, Multiset.card (x' i) < N := by
+    rw [← h]
+    obtain ⟨i₁, hi₁⟩ := Function.ne_iff.mp (nonzero j)
+    apply Finset.sum_lt_sum
+    · intro i _
+      simp [x', Multiset.card_sub (hrep i)]
+    · refine ⟨i₁, Finset.mem_univ _, ?_⟩
+      have hc := Multiset.card_le_card (hrep i₁)
+      simp only [Multiset.card_replicate] at hc
+      simp only [x', Multiset.card_sub (hrep i₁), Multiset.card_replicate]
+      simp only [Pi.zero_apply] at hi₁
+      omega
+  obtain ⟨U', hU'⟩ := ih _ hlt x' hx' rfl
+  refine ⟨fun j' => U' j' + if j' = j then {e} else 0, fun i => ?_⟩
+  simp only [nsmul_add, Finset.sum_add_distrib, smul_ite, nsmul_zero, Finset.sum_ite_eq',
+    Finset.mem_univ, if_true, ← hU' i, Multiset.nsmul_singleton, x']
+  exact (tsub_add_cancel_of_le (hrep i)).symm
+
 
 /-- A singleton written as a sum: each summand with a nonzero coefficient is empty or the
 singleton, and the coefficients of the nonempty summands add up to one. -/

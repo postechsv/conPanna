@@ -3,8 +3,8 @@ import Mathlib.Data.Multiset.UnionInter
 
 /-!
 The bridge `ACU E ≅ Multiset E` and the structural bag facts proved through it.
-Certification works on element counts; this file is where ACU values meet
-Mathlib's multisets. Here `+` on `ACU E` corresponds to `+` on `Multiset E`
+Certification and the examples' proofs work on element counts; this file is where ACU
+values meet Mathlib's multisets. Here `+` on `ACU E` corresponds to `+` on `Multiset E`
 (counts add); Mathlib's `∪` (maximum of counts) plays no role.
 -/
 
@@ -46,7 +46,7 @@ theorem eq_iff {X Y : ACU E} : X = Y ↔ X.toMultiset = Y.toMultiset :=
   toMultiset_injective.eq_iff.symm
 
 /-! ## Structural bag facts
-These are the special cases of SOLVE used by the current examples.
+Facts about sums of bags used by the examples' proofs.
 -/
 
 theorem plus_eq_unit {X Y : ACU E} : X + Y = ∅ ↔ X = ∅ ∧ Y = ∅ := by
