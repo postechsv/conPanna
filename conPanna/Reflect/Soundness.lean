@@ -10,6 +10,13 @@ namespace Reflect
 
 open Term Unification
 
+/-- **Soundness.** If the checker accepts the claim, every unifier is a solution.
+Hypotheses:
+* `M.Lawful`: the model behaves like the constructors (`Reflect/Core.lean`, `Model.Lawful`).
+* `checkSound M c = true`: the checker, run by the kernel (`Reflect/Check.lean`,
+  `checkSound`).
+* `Bridge`: the data claim evaluates to the Lean goal (`Reflect/Bridge.lean`, `Bridge`).
+The claim `sound` is defined in `Unification/Unification.lean`. -/
 theorem sound_of_check (M : Model) (hM : M.Lawful) (c : Claim) (hc : checkSound M c = true)
     (b : Bridge M c) : sound b.problem b.unifiers := by
   intro σ hσ γ hcov

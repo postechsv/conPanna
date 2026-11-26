@@ -207,6 +207,12 @@ theorem run_sound (hM : M.Lawful) (c : Cert) (as : List (LAns M c.sh))
 
 end Model
 
+/-- **Completeness.** If the checker accepts the certificate, the unifiers are complete.
+Hypotheses:
+* `M.Lawful`: the model behaves like the constructors (`Reflect/Core.lean`, `Model.Lawful`).
+* `check M c = true`: the checker, run by the kernel (`Reflect/Check.lean`, `check`).
+* `Bridge`: the data claim evaluates to the Lean goal (`Reflect/Bridge.lean`, `Bridge`).
+The claim `complete` is defined in `Unification/Unification.lean`. -/
 theorem complete_of_check (M : Model) (hM : M.Lawful) (c : Cert) (hc : check M c = true)
     (b : Bridge M c.toClaim) : complete b.problem b.unifiers := by
   intro γ hγ
