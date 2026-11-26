@@ -134,18 +134,24 @@ no solutions or is covered by an answer.
   `check M c` when it checks the proof (`closeByKernel` wraps the proof in an auxiliary
   lemma that the kernel alone checks).
 
-**FSCD.** Maude's certificate (UDF):
+**FSCD.** The certificate (UDF) as `certify_comp` receives it. Maude's trace gives the
+`acu-solve` step and two leaves; `producer/tools/udf.py` adds the answers and turns each
+leaf into a `cover` step, with the witness: the answer's new variables `#1, #2` instantiated
+by the leaf's variables.
 
 ```
 (problem (= (__ a b c X1 X1 X2) (__ b b b c X3)))
+(answers
+  (unifier a0 (binders (#1 Bag) (#2 Bag)) (bind X1 (__ b #1)) (bind X2 #2) (bind X3 (__ a #1 #1 #2)))
+  (unifier a1 (binders (#1 Bag) (#2 Bag)) (bind X1 #1) (bind X2 (__ b b #2)) (bind X3 (__ a #1 #1 #2))))
 (step s0 acu-solve :op __ :eqs (0)
    :unknowns (b X3 a X1 X2)
    :bounds (1 inf 1 inf inf)
    :rows ((-2 -1 1 2 1))
    :basis ((1 0 0 1 0) (1 0 0 0 2) (0 1 1 0 0) (0 2 0 1 0) (0 1 0 0 1))
    :selections ((sel (0 2 3 4) :fresh (Z1 Z2)) (sel (1 2 3 4) :fresh (Z3 Z4))) :premises (s1 s2))
-(step s1 leaf :premises ())
-(step s2 leaf :premises ())
+(step s1 cover :answer a0 :witness ((#1 Z1) (#2 Z2)) :premises ())
+(step s2 cover :answer a1 :witness ((#1 Z3) (#2 Z4)) :premises ())
 ```
 
 The resulting `c`. `X, Y, Z` are `var 0, 1, 2`, and Maude's `Z1…Z4` are `var 3…6`:
@@ -179,9 +185,9 @@ Three things to note:
 - The checker computes its own basis and selections. Its first selection matches Maude's
   second one, so the tactic lists that one first, with Maude's new variables `Z3, Z4`, and
   points it to premise step 2.
-- Maude's `leaf` steps become `cover` steps. `producer/tools/udf.py` finds the answer that
-  covers each leaf and its witness, given the goal's answers (with an empty answer list it
-  reports "no answer covers (step s1 leaf)").
+- The cover witnesses: `:witness ((#1 Z1) (#2 Z2))` becomes `cover 0 [var 3, var 4]`. The
+  checker substitutes them into answer 0 and compares the result with the branch's state.
+  Here the witness is just a renaming of variables.
 - In Lean the multiplicities are written `Int.negSucc 1` (that is −2), `Int.ofNat 2`, and
   so on.
 
