@@ -3,7 +3,22 @@ import conPanna.Reflect.Core
 /-!
 The checker of UDF certificates over data terms (documentation/reflection-design.md).
 `check M c` computes the states of the derivation itself and checks each step's side
-conditions; `Reflect/Sound.lean` proves `check M c = true → complete P U`.
+conditions; `complete_of_check` (`Reflect/Completeness.lean`) proves
+`check M c = true → complete P U`.
+
+The certification rules, in this file:
+
+| What | Where |
+|---|---|
+| The rules as certificate data (`delete`, `decomp`, `elim`, `clash`, `ground`, `cover`, `acu`) | `inductive Rule` |
+| What each rule checks and which premise states it produces | `run`, one case per rule |
+| ACU-Solve's premises (argument check, basis, selections, new states) | `acuSolve` |
+| ACU-Solve's arithmetic: `Dio(s,t)`, its basis (min Adm) and selections | `Dio`, `Dio.basis`, `Dio.selections` |
+| The whole derivation, from the problem's initial state | `check` |
+
+Each rule is a case of `run`: it reads the current state (the substitution so far `α` and
+the pending equations `E`), checks the rule's side condition, and continues with the
+premise state. The paper-style inference rules are in the techrep.
 -/
 
 namespace Reflect
