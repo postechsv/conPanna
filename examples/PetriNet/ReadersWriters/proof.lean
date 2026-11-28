@@ -1,4 +1,4 @@
-import examples.ReadersWriters.rule
+import examples.PetriNet.ReadersWriters.rule
 import conPanna.BaseTheory.Multiset
 import conPanna.Narrowing.Narrowing
 import conPanna.Unification.Tactics.maudeUnify
@@ -14,29 +14,29 @@ reachable marking is one of four shapes, the other processes idle.
 
 namespace ReadersWriters
 
-open Expresso Unification Narrowing Subsumption Place
+open Expresso Unification Narrowing Subsumption PetriNet Place
 
 /-- Every process in `M` is idle (and `M` holds no token). -/
-def allIdle (M : Marking) : Prop := ∀ p ∈ M.toMultiset, p = .idle
+def allIdle (M : Marking Place) : Prop := ∀ p ∈ M.toMultiset, p = .idle
 
 /-- `tok ⊗ tok ⊗ I`: nobody reads or writes. -/
-def freeP : Patch Conf := .bind fun (I : Marking) => ⟨⟨{tok} + {tok} + I⟩, allIdle I⟩
+def freeP : Patch (Marking Place) := .bind fun (I : Marking Place) => ⟨{tok} + {tok} + I, allIdle I⟩
 
 /-- `reading ⊗ tok ⊗ I`: one reader. -/
-def oneReaderP : Patch Conf := .bind fun (I : Marking) => ⟨⟨{reading} + {tok} + I⟩, allIdle I⟩
+def oneReaderP : Patch (Marking Place) := .bind fun (I : Marking Place) => ⟨{reading} + {tok} + I, allIdle I⟩
 
 /-- `reading ⊗ reading ⊗ I`: two readers. -/
-def twoReadersP : Patch Conf := .bind fun (I : Marking) =>
-  ⟨⟨{reading} + {reading} + I⟩, allIdle I⟩
+def twoReadersP : Patch (Marking Place) := .bind fun (I : Marking Place) =>
+  ⟨{reading} + {reading} + I, allIdle I⟩
 
 /-- `writing ⊗ I`: one writer. -/
-def writerP : Patch Conf := .bind fun (I : Marking) => ⟨⟨{writing} + I⟩, allIdle I⟩
+def writerP : Patch (Marking Place) := .bind fun (I : Marking Place) => ⟨{writing} + I, allIdle I⟩
 
-def invP : Pattern Conf := [freeP, oneReaderP, twoReadersP, writerP]
+def invP : Pattern (Marking Place) := [freeP, oneReaderP, twoReadersP, writerP]
 
 /-! ## Domain lemmas -/
 
-theorem allIdle_plus (X Y : Marking) : allIdle (X + Y) ↔ allIdle X ∧ allIdle Y := by
+theorem allIdle_plus (X Y : Marking Place) : allIdle (X + Y) ↔ allIdle X ∧ allIdle Y := by
   simp [allIdle, or_imp, forall_and]
 
 theorem allIdle_unit : allIdle ∅ := by simp [allIdle]

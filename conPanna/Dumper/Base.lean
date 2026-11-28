@@ -87,14 +87,23 @@ partial def sortOf (t : Expr) : M String := do
     if !(← get).sorts.any (·.name == s) then
       modify fun st => { st with todo := st.todo.push c }
     add s (.ind c) t
-  | some (.defnInfo info) =>
-    unless t.isConst do throwError "dump: unsupported type {t}"
-    let v := info.value
+  | some (.defnInfo _) =>
+    -- an abbreviation, possibly applied to types (`Bag Color`, with
+    -- `abbrev Bag (E : Type) := ACU E`)
+    let some v ← unfoldDefinition? t | throwError "dump: unsupported type {t}"
+    let v := v.headBeta
     if v.getAppFn.isConstOf ``ACU && v.getAppNumArgs == 1 then
       let e ← sortOf v.appArg!
       if (← get).sorts.any fun s => s.name == e && s.kind matches .acu _ then
         throwError "dump: {c} is a bag of bags; wrap the inner bag in a constructor"
-      add (← sortName c) (.acu e) t
+      -- one sort per element sort, whichever abbreviation names it first
+      if let some s := (← get).sorts.find? fun s => match s.kind with
+          | .acu e' => e' == e
+          | _ => false then
+        return s.name
+      -- named after the abbreviation and its arguments: `Bag Color` is `BagColor`
+      let args ← t.getAppArgs.toList.mapM sortOf
+      add (String.join ((← sortName c) :: args)) (.acu e) t
     else
       sortOf v
   | _ => throwError "dump: unsupported type {t}"
