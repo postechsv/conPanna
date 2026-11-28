@@ -7,7 +7,7 @@ What conPanna proves, what a reviewer has to read to believe it, and what can be
 | Example | Theorem (file) | Axioms |
 |---|---|---|
 | Bakery | `Bakery.bakery_mutex`, `Bakery.bakery_abort_mutex` (`examples/Bakery/main.lean`) | `propext`, `Classical.choice`, `Quot.sound` |
-| Two-phase commit | `TwoPC.twoPC_agreement` (`examples/TwoPC/main.lean`) | `propext`, `Classical.choice`, `Quot.sound` |
+| Readers-writers (Petri net) | `ReadersWriters.net_safe` (`examples/ReadersWriters/main.lean`) | `propext`, `Classical.choice`, `Quot.sound` |
 | German | `German.german_coherent_linked` (`examples/German/main.lean`) | in progress |
 
 Each says: every step from an initial state reaches a state satisfying the safety

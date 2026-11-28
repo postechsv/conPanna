@@ -105,7 +105,7 @@ def main():
     out = run.stdout
     if "Warning" in run.stderr + out:
         raise SystemExit("match.py: Maude warnings:\n" + run.stderr + out)
-    results = re.findall(r"result (?:SList|Substitution): (.*?)(?=\n={5,}|\nBye|\Z)", out, re.S)
+    results = re.findall(r"result (?:SList|Substitution|Assignment): (.*?)(?=\n={5,}|\nBye|\Z)", out, re.S)
     if len(results) != len(req["problems"]):
         raise SystemExit("match.py: unexpected Maude output:\n" + out)
     json.dump({"matches": [parse(r) for r in results]}, sys.stdout)

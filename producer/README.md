@@ -30,5 +30,5 @@ python3 producer/tools/test_udf.py          # 259 problems
 lake env lean producer/tests/udf/T4.lean    # one certificate through Lean
 ```
 
-The examples (`examples/Bakery`, `examples/TwoPC`) run the whole pipeline: narrowing in
+The examples (`examples/Bakery`, `examples/ReadersWriters`) run the whole pipeline: narrowing in
 `proof.lean`, certification in `cert.lean`, the linked theorems in `main.lean`.

@@ -12,7 +12,7 @@ The problem is a strong bias either way (e.g. 1% or 99% theorem proving).
 | Example | Automated (narrowing, routing, simp) | Theorem proving | Balance |
 |---|---|---|---|
 | OTR agreement (deprecated) | rule enumeration only | almost everything (counting lemmas) | ~99% theorem proving: too biased |
-| 2PC | 82 → 32 cases, routing, 30/32 conditions by simp | 2 short cases, plus the invariant design | heavily automated: close to "too easy" |
+| Readers-writers (Petri net) | 6 cases, each routed in one line | the four marking shapes of the invariant | heavily automated: small, but its ACU steps have multiplicity 2 |
 | Bakery (+abort) | case generation and routing | most condition proofs (~100 lines) | leans manual, but small |
 | German (draft) | 102 cases generated and certified; 96/102 routed; 46 conditions by simp | ~50 conditions with real per-cache reasoning (sharer-set equivalence, invalidation facts), 6 substitutions, initial states, disjointness | about half and half |
 
@@ -27,7 +27,7 @@ Caveats:
   Measure the final balance on the finished proof.
 - Report it per example in the paper: cases generated and discharged automatically versus
   lines of hand-written proof. That makes "neither 1% nor 99%" a checkable claim, and
-  shows why 2PC (mostly automatic) and German (balanced) complement each other.
+  shows why readers-writers (mostly automatic) and German (balanced) complement each other.
 
 ## What the ACU infrastructure saves
 
@@ -36,7 +36,7 @@ The "automated" column hides most of the ACU work. Without it, the user would wr
 | Where ACU shows up | With conPanna | Without it |
 |---|---|---|
 | Equality modulo ACU | `ACU` is a quotient type: `=` is equality modulo associativity, commutativity and unit; rewriting and congruence work as usual | bags as lists or terms with a separate `≈`: setoid rewriting, `.trans`/`.symm`/congruence lemmas for every constructor holding a bag (`Conf`, `Dir`, `Item`, ...) |
-| Case analysis per rule | narrowing enumerates the ACU unifiers (82 in 2PC, 102 post patches in German); certificates prove none is missing | by hand: where can the rule's object sit in the bag, which distinguished object does it alias, plus a proof that the split is exhaustive |
+| Case analysis per rule | narrowing enumerates the ACU unifiers (102 post patches in German); certificates prove none is missing | by hand: where can the rule's object sit in the bag, which distinguished object does it alias, plus a proof that the split is exhaustive |
 | Routing a post into the invariant | `maude_match` finds the substitution; the state equation is closed by AC normalization | per patch: the substitution, and the permuted sums proved equal with explicit `add_comm`/`add_assoc` chains, inside nested objects |
 | Sets inside objects (`shr = {I} + SH`, receiver sets) | the same machinery, a second ACU sort | the same manual work again, per sort |
 
@@ -52,7 +52,7 @@ comparison is against a baseline without it, where the hand-written part is far 
 build a plain-Lean baseline for one example to put numbers on it.
 
 Plan for the paper: Bakery (+abort) as the running example; German as the scalability
-case study, once finished; 2PC as a paragraph, or the fallback if German is not finished.
+case study, once finished; readers-writers as a short Petri-net example with repeated tokens.
 
 # TODOs
 

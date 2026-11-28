@@ -17,10 +17,21 @@ namespace MaudeAdapter
 
 open Lean Meta Unification
 
+/-- A rule's or patch's variable type, `(Rule.bind (A := A) f).Vars` or `r.Vars` for a
+named rule `r`, read as `A`: the binder's type as the user wrote it. Other types unchanged. -/
+def binderType (T : Expr) : MetaM Expr := do
+  if T.isAppOfArity ``Expresso.Rule.Vars 2 || T.isAppOfArity ``Expresso.Patch.Vars 2 then
+    let r ← whnf T.appArg!
+    if r.isAppOfArity ``Expresso.Rule.bind 3 || r.isAppOfArity ``Expresso.Patch.bind 3 then
+      return r.getAppArgs[1]!
+  return T
+
 variable (st : Dumper.State)
 
-/-- The sort of a Lean type, up to reducible unfolding (`inferType` may unfold `abbrev`s). -/
+/-- The sort of a Lean type, up to reducible unfolding (`inferType` may unfold `abbrev`s, or
+give a single rule variable's type as `r.Vars`). -/
 def sortOfType (t : Expr) : MetaM String := do
+  let t ← binderType t
   for s in st.sorts do
     if ← withReducible (isDefEq s.type t) then return s.name
   (Dumper.sortOf t).run' st
@@ -144,7 +155,8 @@ partial def shapeOf (T : Expr) : MetaM Shape := do
   let T' ← whnf T
   if T'.isAppOfArity ``Prod 2 then
     return .pair (← shapeOf T'.appFn!.appArg!) (← shapeOf T'.appArg!)
-  return .leaf T
+  -- a single variable: keep the binder's type as written (`whnf` unfolds abbreviations)
+  return .leaf (← binderType T)
 
 def Shape.leaves : Shape → List Expr
   | .leaf t => [t]

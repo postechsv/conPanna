@@ -13,7 +13,7 @@ Prototype framework and tactics for constrained-pattern unification and narrowin
   `conPanna/conPanna.lean` imports all of it.
 - `producer/` is the Maude side: it computes unifiers and derives certificates that
   Lean checks (see `producer/README.md`).
-- `examples/` holds `Bakery/`, `TwoPC/` and `German/`, each split into the constructor
+- `examples/` holds `Bakery/`, `German/` and `ReadersWriters/`, each split into the constructor
   model (`ctor.lean`), the rules (`rule.lean`), the top-down proof with deferred
   obligations (`proof.lean`), the obligations (`cert.lean`), and the linked theorems
   (`main.lean`).
